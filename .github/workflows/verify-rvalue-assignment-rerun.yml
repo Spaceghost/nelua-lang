@@ -33,6 +33,7 @@ jobs:
           end = workflow.index('\n      - name: Report result', start)
           lines = workflow[start:end].splitlines()
           script = '\n'.join(line[10:] if line.startswith('          ') else line for line in lines) + '\n'
+          script = script.replace('set -uo pipefail\n', 'set -uxo pipefail\n', 1)
 
           old = '''git add -- lualib/nelua/analyzer.lua spec/analyzer_spec.lua spec/cgenerator_spec.lua
           test -z "$(git status --short | grep -vE '^(M |A ) (lualib/nelua/analyzer.lua|spec/analyzer_spec.lua|spec/cgenerator_spec.lua)$' || true)" || exit 1
@@ -52,7 +53,7 @@ jobs:
           PY
           bash -n /tmp/audit.sh
 
-      - name: Run the unchanged semantic audit
+      - name: Run the unchanged semantic audit with command tracing
         id: run
         continue-on-error: true
         shell: bash
@@ -66,10 +67,10 @@ jobs:
           OUTCOME: ${{ steps.run.outcome }}
         run: |
           {
-            echo "General rvalue assignment audit, explicit gate: **$OUTCOME**"
+            echo "General rvalue assignment audit, traced gate: **$OUTCOME**"
             echo
             echo '```text'
-            tail -n 220 /tmp/audit.log 2>/dev/null || true
+            tail -n 500 /tmp/audit.log 2>/dev/null || true
             echo '```'
           } > /tmp/result.md
           gh pr comment 11 --repo "$GITHUB_REPOSITORY" --body-file /tmp/result.md
