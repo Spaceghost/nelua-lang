@@ -15,6 +15,33 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@master
+      - name: Return captured runner output
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path('spec/tools/expect.lua')
+          text = path.read_text()
+          old = """  else
+    expect.equal('', serr)
+  end
+end
+
+--[[
+"""
+          new = """  else
+    expect.equal('', serr)
+  end
+  return sout, serr
+end
+
+--[[
+"""
+          if text.count(old) != 1:
+              raise SystemExit('expected one expect.run return anchor')
+          path.write_text(text.replace(old, new, 1))
+          PY
       - name: Build and test
         id: test
         continue-on-error: true
