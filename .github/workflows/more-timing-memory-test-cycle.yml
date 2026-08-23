@@ -15,43 +15,43 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@master
-      - name: Return captured runner output
+
+      - name: Build
+        run: make
+
+      - name: Verify the regression test fails without the implementation
         shell: bash
         run: |
+          set -euo pipefail
           python - <<'PY'
           from pathlib import Path
 
-          path = Path('spec/tools/expect.lua')
+          path = Path('lualib/nelua/runner.lua')
           text = path.read_text()
-          old = """  else
-    expect.equal('', serr)
-  end
-end
-
---[[
+          block = """    if config.more_timing then
+      console.debugf('memory       %.1f KiB', collectgarbage('count'))
+    end
 """
-          new = """  else
-    expect.equal('', serr)
-  end
-  return sout, serr
-end
-
---[[
-"""
-          if text.count(old) != 1:
-              raise SystemExit('expected one expect.run return anchor')
-          path.write_text(text.replace(old, new, 1))
+          if text.count(block) != 1:
+              raise SystemExit('expected one more-timing memory block')
+          path.write_text(text.replace(block, '', 1))
           PY
-      - name: Build and test
+
+          if make test > red.log 2>&1; then
+            echo 'expected the regression test to fail' >&2
+            exit 1
+          fi
+          grep -F 'more timing reports positive memory in KiB' red.log
+          git checkout -- lualib/nelua/runner.lua
+
+      - name: Verify the complete test suite
         id: test
         continue-on-error: true
         shell: bash
         run: |
           set -o pipefail
-          {
-            make
-            make test
-          } 2>&1 | tee test.log
+          make test 2>&1 | tee test.log
+
       - name: Report
         if: always()
         shell: bash
@@ -60,7 +60,7 @@ end
           OUTCOME: ${{ steps.test.outcome }}
         run: |
           {
-            echo "Test-cycle result: **$OUTCOME**"
+            echo "Red-green result: **$OUTCOME**"
             echo
             echo '```text'
             tail -n 120 test.log
