@@ -1,0 +1,64 @@
+name: audit index assignment semantics
+
+on:
+  push:
+    branches:
+      - verify/index-assignment-audit
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    env:
+      CC: gcc
+      CFLAGS: -Wextra -Werror -Wno-implicit-fallthrough
+    steps:
+      - uses: actions/checkout@master
+
+      - name: Build
+        run: make CC=gcc
+
+      - name: Run full test suite
+        run: make test CC=gcc
+
+      - name: Audit assignment semantics
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          expect_index_assignment_error() {
+            local name=$1
+            local source=$2
+            local file="$RUNNER_TEMP/$name.nelua"
+            local log="$RUNNER_TEMP/$name.log"
+            printf '%s\n' "$source" > "$file"
+            set +e
+            ./nelua "$file" > "$log" 2>&1
+            local status=$?
+            set -e
+            cat "$log"
+            if [ "$status" -eq 0 ]; then
+              echo "$name unexpectedly compiled"
+              exit 1
+            fi
+            grep -F 'cannot assign to rvalue returned by `__index`, use `__atindex` for writable indexing' "$log"
+          }
+
+          expect_success() {
+            local name=$1
+            local source=$2
+            local file="$RUNNER_TEMP/$name.nelua"
+            printf '%s\n' "$source" > "$file"
+            ./nelua "$file"
+          }
+
+          expect_index_assignment_error direct '__SOURCE__'
+          expect_index_assignment_error multiple '__MULTIPLE__'
+          expect_index_assignment_error pointer_direct '__POINTER_DIRECT__'
+          expect_index_assignment_error nested_record_value '__NESTED_RECORD_VALUE__'
+
+          expect_success read_index '__READ_INDEX__'
+          expect_success writable_atindex '__WRITABLE_ATINDEX__'
+          expect_success writable_pointer_result '__WRITABLE_POINTER_RESULT__'
