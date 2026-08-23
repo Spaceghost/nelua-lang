@@ -6,7 +6,16 @@ local fs = require 'nelua.utils.fs'
 local configer = require 'nelua.configer'
 local version = require 'nelua.version'
 local ccompiler = require 'nelua.ccompiler'
-local config = configer.get()
+local executor = require 'nelua.utils.executor'
+local platform = require 'nelua.utils.platform'
+
+local nelua = platform.is_windows and 'nelua.bat' or './nelua'
+
+local function run_nelua(args)
+  local output, err = executor.evalex(nelua, args)
+  assert(output, err)
+  return output:gsub('\r\n', '\n')
+end
 
 describe("runner", function()
   local ccinfo = ccompiler.get_cc_info()
@@ -44,13 +53,18 @@ it("run simple programs", function()
   end
 end)
 
-it("more timing reports memory", function()
-  local oldquiet = config.quiet
-  config.quiet = false
-  local ok, err = pcall(expect.run,
-    {'--more-timing', '--analyze', '--eval', "local x = 1"}, 'memory')
-  config.quiet = oldquiet
-  assert(ok, err)
+it("more timing reports positive memory in KiB", function()
+  local output = run_nelua(
+    {'--no-color', '--more-timing', '--analyze', '--eval', "local x = 1"})
+  local memory = output:match('memory%s+(%d+%.%d) KiB\n')
+  assert(memory, output)
+  assert(tonumber(memory) > 0, output)
+end)
+
+it("timing without more timing omits memory", function()
+  local output = run_nelua(
+    {'--no-color', '--timing', '--analyze', '--eval', "local x = 1"})
+  assert(not output:find('memory', 1, true), output)
 end)
 
 it("error on parsing an invalid program" , function()
