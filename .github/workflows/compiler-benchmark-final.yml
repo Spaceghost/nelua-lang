@@ -1,0 +1,10 @@
+name: Compiler benchmark final verification
+
+on:
+  workflow_dispatch:
+
+jobs:
+  placeholder:
+    runs-on: ubuntu-latest
+    steps:
+      - run: true
