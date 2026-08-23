@@ -88,3 +88,5 @@ jobs:
             'https://api.github.com/repos/${{ github.repository }}/git/refs/heads/verify%2Findex-assignment-nested-status'
 
           test "$state" = success
+
+# Trigger after opening the temporary verification PR.
