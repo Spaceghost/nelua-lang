@@ -1761,6 +1761,7 @@ local function visitor_FieldIndex(context, node)
   context:traverse_node(objnode)
   local objattr = objnode.attr
   local objtype = objattr.type
+  local objispointer = objtype and objtype.is_pointer
   local attr = node.attr
   local ret
   if objtype then
@@ -1778,7 +1779,8 @@ local function visitor_FieldIndex(context, node)
       node.done = ret or true
     end
   end
-  if objattr.lvalue or (objtype and objtype.is_pointer) then
+  if objattr.lvalue or objispointer or
+     (objtype and (objtype.is_table or objtype.is_any)) then
     attr.lvalue = true
   end
   if objattr.const then
@@ -1838,6 +1840,7 @@ function visitors.KeyIndex(context, node)
   if node.checked then return end
   local objattr = objnode.attr
   local objtype = objattr.type
+  local objispointer = objtype and objtype.is_pointer
   if objtype then
     objtype = objtype:implicit_deref_type()
     if objtype.is_array then
@@ -1850,7 +1853,8 @@ function visitors.KeyIndex(context, node)
       node:raisef("cannot index variable of type '%s'", objtype.name)
     end
   end
-  if objattr.lvalue or (objtype and objtype.is_pointer) then
+  if objattr.lvalue or objispointer or
+     (objtype and (objtype.is_table or objtype.is_any)) then
     attr.lvalue = true
   end
   if objattr.const then
@@ -2438,6 +2442,9 @@ function visitors.Assign(context, node)
     local symbol = context:traverse_node(varnode)
     local vartype = varnode.attr.type
     local varattr = varnode.attr
+    if vartype and not varattr.lvalue then
+      varnode:raisef("cannot assign to rvalue of type '%s'", vartype)
+    end
     if varattr:is_readonly() and not varattr:is_forward_declare_type() then
       varnode:raisef("cannot assign a constant variable")
     end
