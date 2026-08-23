@@ -1,10 +1,258 @@
 name: Index assignment test cycle
 
 on:
-  workflow_dispatch:
+  push:
+    branches:
+      - test/index-assignment-rvalue-tests
+
+permissions:
+  contents: write
+  issues: write
+  pull-requests: write
 
 jobs:
-  placeholder:
+  test:
     runs-on: ubuntu-latest
     steps:
-      - run: true
+      - uses: actions/checkout@master
+
+      - name: Add dispatch regression tests
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path('spec/analyzer_spec.lua')
+          text = path.read_text()
+          anchor = '''end)
+
+it("dependent functions resolution", function()
+'''
+          tests = '''end)
+
+it("index assignment metamethod dispatch", function()
+  expect.analyze_ast([[
+    local R = @record{x: integer}
+    function R:__index(i: integer): boolean return false end
+    function R:__atindex(i: integer): *integer return &self.x end
+    local r: R
+    local x: boolean = r[0]
+    r[0] = 1
+  ]])
+  expect.analyze_ast([[
+    local Cell = @record{x: integer}
+    local R = @record{cell: Cell}
+    function R:__index(i: integer): Cell return self.cell end
+    function R:__atindex(i: integer): *Cell return &self.cell end
+    local r: R
+    local x: integer = r[0].x
+    r[0].x = 1
+  ]])
+  expect.analyze_ast([[
+    local Inner = @record{}
+    function Inner:__index(i: integer): integer return 0 end
+    local Outer = @record{x: integer}
+    function Outer:__atindex(i: integer): *integer return &self.x end
+    local inner: Inner
+    local outer: Outer
+    outer[inner[0]] = 1
+  ]])
+end)
+
+it("dependent functions resolution", function()
+'''
+          if text.count(anchor) != 1:
+              raise SystemExit('expected one analyzer test insertion anchor')
+          path.write_text(text.replace(anchor, tests, 1))
+          PY
+
+      - name: Verify the new test fails before the fix
+        shell: bash
+        run: |
+          set -euo pipefail
+          if make test > red.log 2>&1; then
+            echo 'expected index assignment dispatch test to fail' >&2
+            exit 1
+          fi
+          grep -F 'index assignment metamethod dispatch' red.log
+
+      - name: Implement read and write dispatch
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import re
+
+          path = Path('lualib/nelua/analyzer.lua')
+          text = path.read_text()
+
+          field_pattern = re.compile(
+              r'local function visitor_FieldIndex\(context, node\)\n.*?\nend\n\nvisitors\.DotIndex',
+              re.S)
+          field_replacement = '''local function visitor_FieldIndex(context, node, writemode)
+  local name, objnode = node[1], node[2]
+  context:traverse_node(objnode, writemode and 'object')
+  local objattr = objnode.attr
+  local objtype = objattr.type
+  local attr = node.attr
+  local ret
+  if objtype then
+    objtype = objtype:implicit_deref_type()
+    if objtype.is_composite then
+      ret = visitor_Composite_FieldIndex(context, node, objtype, name)
+    elseif objtype.is_type then
+      ret = visitor_Type_FieldIndex(context, node, objattr.value, name)
+    elseif objtype.is_table or objtype.is_any then
+      attr.type = primtypes.any
+    else
+      node:raisef("cannot index field '%s' on type '%s'", name, objtype.name)
+    end
+    if objnode.done then
+      node.done = ret or true
+    end
+  end
+  if objattr.lvalue or (objtype and objtype.is_pointer) then
+    attr.lvalue = true
+  end
+  if objattr.const then
+    attr.const = true
+  end
+  return ret
+end
+
+visitors.DotIndex'''
+          text, count = field_pattern.subn(field_replacement, text, count=1)
+          if count != 1:
+              raise SystemExit('expected one field index visitor')
+
+          meta_pattern = re.compile(
+              r'local function visitor_Type_MetaKeyIndex\(context, node, objtype, objnode, indexnode\)\n.*?\nend\n\nfunction visitors\.KeyIndex',
+              re.S)
+          meta_replacement = '''local function visitor_Type_MetaKeyIndex(
+    context, node, objtype, objnode, indexnode, writemode)
+  local newnode
+  local metafields = objtype.metafields
+  if writemode and metafields.__atindex then
+    newnode = aster.UnaryOp{'deref', aster.CallMethod{'__atindex', {indexnode}, objnode}}
+  elseif metafields.__index then
+    newnode = aster.CallMethod{'__index', {indexnode}, objnode}
+    context:transform_and_traverse_node(node, newnode)
+    local rettype = node.attr.type
+    if writemode and
+       (writemode == 'target' or not (rettype and rettype.is_pointer)) then
+      node:raisef("cannot assign to rvalue returned by `__index`, use `__atindex` for writable indexing")
+    end
+    return
+  elseif metafields.__atindex then
+    newnode = aster.UnaryOp{'deref', aster.CallMethod{'__atindex', {indexnode}, objnode}}
+  else
+    node:raisef("cannot index record of type '%s': no `__index` or `__atindex` metamethod found", objtype)
+  end
+  context:transform_and_traverse_node(node, newnode)
+end
+
+function visitors.KeyIndex'''
+          text, count = meta_pattern.subn(meta_replacement, text, count=1)
+          if count != 1:
+              raise SystemExit('expected one meta key index visitor')
+
+          key_pattern = re.compile(
+              r'function visitors\.KeyIndex\(context, node\)\n.*?\nend\n\nfunction visitors\.Block',
+              re.S)
+          key_replacement = '''function visitors.KeyIndex(context, node, writemode)
+  local indexnode, objnode = node[1], node[2]
+  context:traverse_node(indexnode)
+  context:traverse_node(objnode, writemode and 'object')
+  local attr = node.attr
+  if attr.type then
+    if indexnode.done and objnode.done then node.done = true end
+    return
+  end
+  if node.checked then return end
+  local objattr = objnode.attr
+  local objtype = objattr.type
+  if objtype then
+    objtype = objtype:implicit_deref_type()
+    if objtype.is_array then
+      visitor_Array_KeyIndex(context, node, objtype, objnode, indexnode)
+    elseif objtype.metafields then
+      visitor_Type_MetaKeyIndex(context, node, objtype, objnode, indexnode, writemode)
+    elseif objtype.is_table or objtype.is_any then
+      attr.type = primtypes.any
+    else
+      node:raisef("cannot index variable of type '%s'", objtype.name)
+    end
+  end
+  if objattr.lvalue or (objtype and objtype.is_pointer) then
+    attr.lvalue = true
+  end
+  if objattr.const then
+    attr.const = true
+  end
+  if attr.type then
+    node.checked = true
+    if indexnode.done and objnode.done then
+      node.done = true
+    end
+  end
+end
+
+function visitors.Block'''
+          text, count = key_pattern.subn(key_replacement, text, count=1)
+          if count != 1:
+              raise SystemExit('expected one key index visitor')
+
+          old_assign = '''    local symbol = context:traverse_node(varnode)
+    local vartype = varnode.attr.type
+    local varattr = varnode.attr
+    if varattr.readonlyindex then
+      varnode:raisef("cannot assign to rvalue returned by `__index`, use `__atindex` for writable indexing")
+    end
+'''
+          new_assign = '''    local symbol = context:traverse_node(varnode, 'target')
+    local vartype = varnode.attr.type
+    local varattr = varnode.attr
+'''
+          if text.count(old_assign) != 1:
+              raise SystemExit('expected one assignment traversal block')
+          text = text.replace(old_assign, new_assign, 1)
+
+          if 'readonlyindex' in text:
+              raise SystemExit('readonlyindex marker still present')
+          path.write_text(text)
+          PY
+
+      - name: Verify the complete test suite
+        id: test
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -o pipefail
+          make test 2>&1 | tee green.log
+
+      - name: Commit the verified test and implementation
+        if: steps.test.outcome == 'success'
+        shell: bash
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -- lualib/nelua/analyzer.lua spec/analyzer_spec.lua
+          git commit -m 'test: refine index assignment dispatch [skip ci]'
+          git push
+
+      - name: Report
+        if: always()
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          OUTCOME: ${{ steps.test.outcome }}
+        run: |
+          {
+            echo "Red-green result: **$OUTCOME**"
+            echo
+            echo '```text'
+            tail -n 100 green.log 2>/dev/null || true
+            echo '```'
+          } > result.md
+          gh pr comment 9 --repo "$GITHUB_REPOSITORY" --body-file result.md
+          test "$OUTCOME" = success
