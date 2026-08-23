@@ -37,6 +37,16 @@ local function capture_print(callback)
   return table.concat(lines, '\n')
 end
 
+local function count_plain(text, substring)
+  local count, start = 0, 1
+  while true do
+    local pos = text:find(substring, start, true)
+    if not pos then return count end
+    count = count + 1
+    start = pos + #substring
+  end
+end
+
 describe("compiler benchmark", function()
 
 it("parse compiler timing output", function()
@@ -120,6 +130,7 @@ end)
 it("measure a real compiler input and clean generated files", function()
   with_temp_source('local x: integer = 1\n', function(input)
     local outprefix = temp_path()
+    assert(fs.writefile(outprefix, 'sentinel'))
     local timings = compilerbench.measure_input(input, outprefix)
     for _,phase in ipairs({'startup', 'parse', 'preprocess', 'analyze', 'generate', 'total'}) do
       assert(type(timings[phase]) == 'number', "missing timing phase '"..phase.."'")
@@ -132,6 +143,8 @@ end)
 it("clean generated files after a compiler error", function()
   with_temp_source('local =\n', function(input)
     local outprefix = temp_path()
+    assert(fs.writefile(outprefix, 'sentinel'))
+    assert(fs.writefile(outprefix..'.c', 'sentinel'))
     local ok = pcall(compilerbench.measure_input, input, outprefix)
     assert(not ok, 'invalid source unexpectedly compiled')
     assert(not fs.isfile(outprefix), 'temporary output file was not removed')
@@ -139,16 +152,16 @@ it("clean generated files after a compiler error", function()
   end)
 end)
 
-it("report phases for multiple real inputs", function()
+it("report every phase for multiple real inputs", function()
   with_temp_source('local x: integer = 1\n', function(first)
     with_temp_source('local y: integer = 2\n', function(second)
       local output = capture_print(function()
         expect.equal(0, compilerbench.main({first, second}, 1))
       end)
-      expect.contains(first, output)
-      expect.contains(second, output)
+      expect.equal(6, count_plain(output, first))
+      expect.equal(6, count_plain(output, second))
       for _,phase in ipairs({'startup', 'parse', 'preprocess', 'analyze', 'generate', 'total'}) do
-        expect.contains(phase, output)
+        expect.equal(2, count_plain(output, phase))
       end
     end)
   end)
