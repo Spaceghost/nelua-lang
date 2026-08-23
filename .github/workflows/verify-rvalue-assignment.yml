@@ -185,7 +185,6 @@ jobs:
 
           cat > /tmp/red.lua <<'LUA'
           local expect = require 'spec.tools.expect'
-          local except = require 'nelua.utils.except'
 
           local cases = {
             {'issue 205', [[
@@ -214,11 +213,12 @@ jobs:
           }
 
           for _, case in ipairs(cases) do
-            local ok, err = except.try(function()
+            local ok, err = pcall(function()
               expect.analyze_error(case[2], 'cannot assign to rvalue')
             end)
             assert(not ok, case[1] .. ' unexpectedly passed before the implementation')
-            assert(err:get_message():find('type analysis should fail', 1, true), err:get_message())
+            local errmsg = tostring(err)
+            assert(errmsg:find('type analysis should fail', 1, true), errmsg)
             print('red:', case[1])
           end
           LUA
