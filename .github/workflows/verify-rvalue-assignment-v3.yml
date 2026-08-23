@@ -1,0 +1,75 @@
+name: verify rvalue assignment semantics v3
+
+on:
+  push:
+    branches:
+      - verify/rvalue-assignment-general
+
+permissions:
+  contents: write
+  issues: write
+  pull-requests: write
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    env:
+      CC: gcc
+      CFLAGS: -Wextra -Werror -Wno-implicit-fallthrough
+    steps:
+      - uses: actions/checkout@master
+        with:
+          fetch-depth: 0
+
+      - name: Execute corrected audit
+        id: audit
+        continue-on-error: true
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path('.github/workflows/verify-rvalue-assignment.yml')
+          lines = path.read_text().splitlines()
+          name_index = next(i for i, line in enumerate(lines)
+                            if 'Run red-green audit and publish clean candidate' in line)
+          run_index = next(i for i in range(name_index, len(lines))
+                           if lines[i] == '        run: |')
+          block = []
+          for line in lines[run_index + 1:]:
+              if line.startswith('      - name:'):
+                  break
+              block.append(line[10:] if line.startswith('          ') else line)
+          script = '\n'.join(block) + '\n'
+          old = '          ./nelua-lua /tmp/red.lua || exit 1\n'
+          new = '''          set +e
+                    ./nelua-lua /tmp/red.lua > /tmp/red.log 2>&1
+                    red_status=$?
+                    set -e
+                    cat /tmp/red.log
+                    test "$red_status" -ne 0 || exit 1
+                    grep -F "type analysis should fail" /tmp/red.log || exit 1
+          '''
+          if script.count(old) != 1:
+              raise SystemExit(f'expected one red invocation, found {script.count(old)}')
+          script = script.replace(old, new, 1)
+          Path('/tmp/audit-v3.sh').write_text(script)
+          PY
+          bash /tmp/audit-v3.sh > >(tee /tmp/audit-v3.log) 2>&1
+
+      - name: Report result
+        if: always()
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          OUTCOME: ${{ steps.audit.outcome }}
+        run: |
+          {
+            echo "General rvalue assignment audit v3: **$OUTCOME**"
+            echo
+            echo '```text'
+            tail -n 220 /tmp/audit-v3.log 2>/dev/null || true
+            echo '```'
+          } > /tmp/result-v3.md
+          gh pr comment 11 --repo "$GITHUB_REPOSITORY" --body-file /tmp/result-v3.md
+          test "$OUTCOME" = success
