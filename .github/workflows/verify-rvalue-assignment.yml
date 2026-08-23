@@ -7,6 +7,8 @@ on:
 
 permissions:
   contents: write
+  issues: write
+  pull-requests: write
 
 jobs:
   audit:
@@ -19,20 +21,19 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Prepare clean candidate from master
+      - name: Run red-green audit and publish clean candidate
+        id: audit
+        continue-on-error: true
         shell: bash
         run: |
-          set -euo pipefail
+          set -uo pipefail
+          exec > >(tee /tmp/audit.log) 2>&1
+
           git config user.name "Spaceghost"
           git config user.email "251370+Spaceghost@users.noreply.github.com"
           git fetch origin master
           git switch --detach origin/master
-          echo "BASE_SHA=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
 
-      - name: Add regression tests first
-        shell: bash
-        run: |
-          set -euo pipefail
           cat > /tmp/patch_tests.py <<'PY'
           from pathlib import Path
 
@@ -71,6 +72,7 @@ jobs:
             expect.analyze_ast([[
               local function get(): table return {} end
               get().x = 1
+              get()[1] = 2
             ]], nil, 'lua')
           end)
 
@@ -114,6 +116,14 @@ jobs:
               local r: R
               r[0] = nilptr
             ]], "cannot assign to rvalue")
+            expect.analyze_error([[
+              local Cell = @record{x: integer}
+              local View = @record{cell: *Cell}
+              local R = @record{cell: Cell}
+              function R:__index(x: integer): View return View{cell=&self.cell} end
+              local r: R
+              r[0].cell = &r.cell
+            ]], "cannot assign to rvalue")
             expect.analyze_ast([[
               local Cell = @record{x: integer}
               local R = @record{cell: Cell}
@@ -121,6 +131,12 @@ jobs:
               local r: R
               r[0].x = 1
             ]])
+            expect.analyze_ast([[
+              local R = @record{}
+              function R:__index(x: integer): table return {} end
+              local r: R
+              r[0].x = 1
+            ]], nil, 'lua')
           '''
           replace_once(analyzer_spec, metamethod_anchor, metamethod_tests)
 
@@ -152,40 +168,108 @@ jobs:
               local s: S
               s[0].cell.x = 4
               assert(s.cell.x == 4)
+
+              local T = @record{x: integer}
+              function T:__atindex(i: integer): *integer return &self.x end
+              local function make_t(): T return T{} end
+              make_t()[0] = 5
             ]])
 
           '''
           replace_once(cgenerator_spec, codegen_marker, codegen_tests + codegen_marker)
           PY
-          python /tmp/patch_tests.py
-          git diff --check
+          python /tmp/patch_tests.py || exit 1
+          git diff --check || exit 1
 
-      - name: Prove regression is red on master
-        shell: bash
-        run: |
-          set -euo pipefail
-          make CC=gcc
+          make CC=gcc || exit 1
+
           cat > /tmp/red.lua <<'LUA'
           local expect = require 'spec.tools.expect'
-          expect.analyze_error([[
-            local R = @record{}
-            function R:__index(x: integer): integer return 0 end
-            local r: R
-            r[0] = 1
-          ]], "cannot assign to rvalue")
-          LUA
-          set +e
-          ./nelua-lua /tmp/red.lua > /tmp/red.log 2>&1
-          status=$?
-          set -e
-          cat /tmp/red.log
-          test "$status" -ne 0
-          grep -F "type analysis should fail" /tmp/red.log
+          local except = require 'nelua.utils.except'
 
-      - name: Implement general lvalue validation
-        shell: bash
-        run: |
-          set -euo pipefail
+          local cases = {
+            {'issue 205', [[
+              local R = @record{}
+              function R:__index(x: integer): integer return 0 end
+              local r: R
+              r[0] = 1
+            ]]},
+            {'returned record', [[
+              local R = @record{x: integer}
+              local function get(): R return R{} end
+              get().x = 1
+            ]]},
+            {'returned array', [[
+              local A = @[1]integer
+              local function get(): A return A{} end
+              get()[0] = 1
+            ]]},
+            {'nested index value', [[
+              local Cell = @record{x: integer}
+              local R = @record{}
+              function R:__index(i: integer): Cell return Cell{} end
+              local r: R
+              r[0].x = 1
+            ]]},
+          }
+
+          for _, case in ipairs(cases) do
+            local ok, err = except.try(function()
+              expect.analyze_error(case[2], 'cannot assign to rvalue')
+            end)
+            assert(not ok, case[1] .. ' unexpectedly passed before the implementation')
+            assert(err:get_message():find('type analysis should fail', 1, true), err:get_message())
+            print('red:', case[1])
+          end
+          LUA
+          ./nelua-lua /tmp/red.lua || exit 1
+
+          cat > /tmp/positive.lua <<'LUA'
+          local expect = require 'spec.tools.expect'
+
+          expect.analyze_ast([[
+            local R = @record{x: integer}
+            local r: R
+            local function get(p: *R): *R return p end
+            get(&r).x = 1
+          ]])
+
+          expect.analyze_ast([[
+            local A = @[1]integer
+            local a: A
+            local function get(p: *A): *A return p end
+            get(&a)[0] = 1
+          ]])
+
+          expect.analyze_ast([[
+            local function get(): table return {} end
+            get().x = 1
+            get()[1] = 2
+          ]], nil, 'lua')
+
+          expect.run_c([[
+            local Cell = @record{x: integer}
+            local R = @record{cell: Cell}
+            function R:__index(i: integer): *Cell return &self.cell end
+            local r: R
+            r[0].x = 1
+            assert(r.cell.x == 1)
+
+            local View = @record{cell: *Cell}
+            local S = @record{cell: Cell}
+            function S:__index(i: integer): View return View{cell=&self.cell} end
+            local s: S
+            s[0].cell.x = 2
+            assert(s.cell.x == 2)
+
+            local T = @record{x: integer}
+            function T:__atindex(i: integer): *integer return &self.x end
+            local function make_t(): T return T{} end
+            make_t()[0] = 3
+          ]])
+          LUA
+          ./nelua-lua /tmp/positive.lua || exit 1
+
           cat > /tmp/patch_impl.py <<'PY'
           from pathlib import Path
 
@@ -250,28 +334,30 @@ jobs:
 
           path.write_text(text)
           PY
-          python /tmp/patch_impl.py
-          git diff --check
+          python /tmp/patch_impl.py || exit 1
+          git diff --check || exit 1
 
-      - name: Prove green and audit semantic boundaries
-        shell: bash
-        run: |
-          set -euo pipefail
-          ./nelua-lua /tmp/red.lua
-          cat > /tmp/audit.lua <<'LUA'
+          cat > /tmp/green.lua <<'LUA'
           local expect = require 'spec.tools.expect'
+
+          expect.analyze_error([[
+            local R = @record{}
+            function R:__index(x: integer): integer return 0 end
+            local r: R
+            r[0] = 1
+          ]], 'cannot assign to rvalue')
 
           expect.analyze_error([[
             local R = @record{x: integer}
             local function get(): R return R{} end
             get().x = 1
-          ]], "cannot assign to rvalue")
+          ]], 'cannot assign to rvalue')
 
           expect.analyze_error([[
             local A = @[1]integer
             local function get(): A return A{} end
             get()[0] = 1
-          ]], "cannot assign to rvalue")
+          ]], 'cannot assign to rvalue')
 
           expect.analyze_error([[
             local Cell = @record{x: integer}
@@ -279,37 +365,34 @@ jobs:
             function R:__index(i: integer): Cell return Cell{} end
             local r: R
             r[0].x = 1
-          ]], "cannot assign to rvalue")
-
-          expect.analyze_ast([[
-            local R = @record{x: integer}
-            local r: R
-            local function get(p: *R): *R return p end
-            get(&r).x = 1
-          ]])
-
-          expect.analyze_ast([[
-            local A = @[1]integer
-            local a: A
-            local function get(p: *A): *A return p end
-            get(&a)[0] = 1
-          ]])
-
-          expect.analyze_ast([[
-            local function get(): table return {} end
-            get().x = 1
-          ]], nil, 'lua')
+          ]], 'cannot assign to rvalue')
           LUA
-          ./nelua-lua /tmp/audit.lua
-          make test CC=gcc
-          make compile-examples CC=gcc
-          git diff --check
+          ./nelua-lua /tmp/green.lua || exit 1
+          ./nelua-lua /tmp/positive.lua || exit 1
 
-      - name: Publish one clean commit
-        shell: bash
-        run: |
-          set -euo pipefail
+          make test CC=gcc || exit 1
+          make compile-examples CC=gcc || exit 1
+          git diff --check || exit 1
+
+          test "$(grep -R -l readonlyindex lualib spec || true)" = "" || exit 1
           git add -- lualib/nelua/analyzer.lua spec/analyzer_spec.lua spec/cgenerator_spec.lua
-          test -z "$(git status --short | grep -vE '^(M |A ) (lualib/nelua/analyzer.lua|spec/analyzer_spec.lua|spec/cgenerator_spec.lua)$' || true)"
-          git commit -m "Reject assignment to rvalues"
-          git push origin HEAD:refs/heads/fix/index-assignment-rvalue --force
+          test -z "$(git status --short | grep -vE '^(M |A ) (lualib/nelua/analyzer.lua|spec/analyzer_spec.lua|spec/cgenerator_spec.lua)$' || true)" || exit 1
+          git commit -m "Reject assignment to rvalues" || exit 1
+          git push origin HEAD:refs/heads/fix/index-assignment-rvalue --force || exit 1
+
+      - name: Report result
+        if: always()
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          OUTCOME: ${{ steps.audit.outcome }}
+        run: |
+          {
+            echo "General rvalue assignment audit: **$OUTCOME**"
+            echo
+            echo '```text'
+            tail -n 180 /tmp/audit.log 2>/dev/null || true
+            echo '```'
+          } > /tmp/result.md
+          gh pr comment 11 --repo "$GITHUB_REPOSITORY" --body-file /tmp/result.md
+          test "$OUTCOME" = success
