@@ -21,6 +21,12 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Install example dependencies
+        shell: bash
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libsdl2-dev
+
       - name: Extract the audited script with an observable publish gate
         shell: bash
         run: |
