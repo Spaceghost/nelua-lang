@@ -1,0 +1,276 @@
+name: verify rvalue assignment semantics v2
+
+on:
+  push:
+    branches:
+      - verify/rvalue-assignment-general
+
+permissions:
+  contents: write
+  issues: write
+  pull-requests: write
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    env:
+      CFLAGS: -Wextra -Werror -Wno-implicit-fallthrough
+    steps:
+      - uses: actions/checkout@master
+        with:
+          fetch-depth: 0
+
+      - name: Red-green audit and clean publish
+        id: audit
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -uo pipefail
+          exec > >(tee /tmp/audit-v2.log) 2>&1
+
+          git config user.name "Spaceghost"
+          git config user.email "251370+Spaceghost@users.noreply.github.com"
+          git fetch origin master
+          git switch --detach origin/master
+
+          cat > /tmp/tests.patch <<'PATCH'
+          diff --git a/spec/analyzer_spec.lua b/spec/analyzer_spec.lua
+          index 62bab3f..0000000 100644
+          --- a/spec/analyzer_spec.lua
+          +++ b/spec/analyzer_spec.lua
+          @@ -120,6 +120,39 @@ it("const variable" , function()
+             ]], "cannot assign a constant variable")
+           end)
+          
+          +it("assignment targets", function()
+          +  expect.analyze_error([[
+          +    local R = @record{x: integer}
+          +    local function get(): R return R{} end
+          +    get().x = 1
+          +  ]], "cannot assign to rvalue")
+          +  expect.analyze_error([[
+          +    local A = @[1]integer
+          +    local function get(): A return A{} end
+          +    get()[0] = 1
+          +  ]], "cannot assign to rvalue")
+          +  expect.analyze_ast([[
+          +    local R = @record{x: integer}
+          +    local r: R
+          +    local function get(p: *R): *R return p end
+          +    get(&r).x = 1
+          +  ]])
+          +  expect.analyze_ast([[
+          +    local A = @[1]integer
+          +    local a: A
+          +    local function get(p: *A): *A return p end
+          +    get(&a)[0] = 1
+          +  ]])
+          +  expect.analyze_ast([[
+          +    local function get(): table return {} end
+          +    get().x = 1
+          +    get()[1] = 2
+          +  ]], nil, 'lua')
+          +end)
+          +
+           it("auto type" , function()
+             expect.ast_type_equals("local a: auto = 1", "local a: integer = 1")
+             expect.ast_type_equals("local a: auto <comptime> = 1", "local a: integer <comptime> = 1")
+          @@ -1306,6 +1339,57 @@ it("records metamethods", function()
+             r[0] = x
+             local len = #r
+           ]])
+          +  expect.analyze_error([[
+          +    local R = @record{}
+          +    function R:__index(x: integer): integer return 0 end
+          +    local r: R
+          +    r[0] = 1
+          +  ]], "cannot assign to rvalue")
+          +  expect.analyze_error([[
+          +    local Cell = @record{x: integer}
+          +    local R = @record{}
+          +    function R:__index(x: integer): Cell return Cell{} end
+          +    local r: R
+          +    r[0].x = 1
+          +  ]], "cannot assign to rvalue")
+          +  expect.analyze_error([[
+          +    local Cell = @record{items: [1]integer}
+          +    local R = @record{}
+          +    function R:__index(x: integer): Cell return Cell{} end
+          +    local r: R
+          +    r[0].items[0] = 1
+          +  ]], "cannot assign to rvalue")
+          +  expect.analyze_error([[
+          +    local Cell = @record{x: integer}
+          +    local R = @record{cell: Cell}
+          +    function R:__index(x: integer): *Cell return &self.cell end
+          +    local r: R
+          +    r[0] = nilptr
+          +  ]], "cannot assign to rvalue")
+          +  expect.analyze_error([[
+          +    local Cell = @record{x: integer}
+          +    local View = @record{cell: *Cell}
+          +    local R = @record{cell: Cell}
+          +    function R:__index(x: integer): View return View{cell=&self.cell} end
+          +    local r: R
+          +    r[0].cell = &r.cell
+          +  ]], "cannot assign to rvalue")
+          +  expect.analyze_ast([[
+          +    local Cell = @record{x: integer}
+          +    local R = @record{cell: Cell}
+          +    function R:__index(x: integer): *Cell return &self.cell end
+          +    local r: R
+          +    r[0].x = 1
+          +  ]])
+          +  expect.analyze_ast([[
+          +    local R = @record{}
+          +    function R:__index(x: integer): table return {} end
+          +    local r: R
+          +    r[0].x = 1
+          +  ]], nil, 'lua')
+             expect.analyze_error([[
+               local R = @record{}
+               global R.__call: integer = 1
+          diff --git a/spec/cgenerator_spec.lua b/spec/cgenerator_spec.lua
+          index 762eba9..0000000 100644
+          --- a/spec/cgenerator_spec.lua
+          +++ b/spec/cgenerator_spec.lua
+          @@ -2557,6 +2557,35 @@ it("record metametods", function()
+               assert(0 ~= a)
+             ]])
+          
+          +  expect.run_c([[
+          +    local Cell = @record{x: integer}
+          +    local R = @record{cell: Cell}
+          +    function R:__index(i: integer): *Cell return &self.cell end
+          +    local r: R
+          +    r[0].x = 1
+          +    assert(r.cell.x == 1)
+          +
+          +    local function get_cell(p: *Cell): *Cell return p end
+          +    get_cell(&r.cell).x = 2
+          +    assert(r.cell.x == 2)
+          +
+          +    local A = @[1]integer
+          +    local a: A
+          +    local function get_array(p: *A): *A return p end
+          +    get_array(&a)[0] = 3
+          +    assert(a[0] == 3)
+          +
+          +    local View = @record{cell: *Cell}
+          +    local S = @record{cell: Cell}
+          +    function S:__index(i: integer): View return View{cell=&self.cell} end
+          +    local s: S
+          +    s[0].cell.x = 4
+          +    assert(s.cell.x == 4)
+          +
+          +    local T = @record{x: integer}
+          +    function T:__atindex(i: integer): *integer return &self.x end
+          +    local function make_t(): T return T{} end
+          +    make_t()[0] = 5
+          +  ]])
+          +
+             expect.run_c([[
+               local Foo = @record{value: number}
+               function Foo:__call(a: number, b: number): number return a + b + self.value end
+          PATCH
+
+          git apply --check /tmp/tests.patch || exit 1
+          git apply /tmp/tests.patch || exit 1
+          git diff --check || exit 1
+
+          make CC=gcc || exit 1
+          set +e
+          make test CC=gcc > /tmp/red.log 2>&1
+          red_status=$?
+          set -e
+          cat /tmp/red.log
+          test "$red_status" -ne 0 || exit 1
+          grep -F 'assignment targets' /tmp/red.log || exit 1
+          grep -F 'cannot assign to rvalue' /tmp/red.log || exit 1
+
+          cat > /tmp/impl.patch <<'PATCH'
+          diff --git a/lualib/nelua/analyzer.lua b/lualib/nelua/analyzer.lua
+          index f6951ca..0000000 100644
+          --- a/lualib/nelua/analyzer.lua
+          +++ b/lualib/nelua/analyzer.lua
+          @@ -1761,6 +1761,7 @@ local function visitor_FieldIndex(context, node)
+             context:traverse_node(objnode)
+             local objattr = objnode.attr
+             local objtype = objattr.type
+          +  local objispointer = objtype and objtype.is_pointer
+             local attr = node.attr
+             local ret
+             if objtype then
+          @@ -1779,7 +1780,8 @@ local function visitor_FieldIndex(context, node)
+                 node.done = ret or true
+               end
+             end
+          -  if objattr.lvalue or (objtype and objtype.is_pointer) then
+          +  if objattr.lvalue or objispointer or
+          +     (objtype and (objtype.is_table or objtype.is_any)) then
+               attr.lvalue = true
+             end
+             if objattr.const then
+          @@ -1838,6 +1840,7 @@ function visitors.KeyIndex(context, node)
+             if node.checked then return end
+             local objattr = objnode.attr
+             local objtype = objattr.type
+          +  local objispointer = objtype and objtype.is_pointer
+             if objtype then
+               objtype = objtype:implicit_deref_type()
+               if objtype.is_array then
+          @@ -1851,7 +1854,8 @@ function visitors.KeyIndex(context, node)
+                 node:raisef("cannot index variable of type '%s'", objtype.name)
+               end
+             end
+          -  if objattr.lvalue or (objtype and objtype.is_pointer) then
+          +  if objattr.lvalue or objispointer or
+          +     (objtype and (objtype.is_table or objtype.is_any)) then
+               attr.lvalue = true
+             end
+             if objattr.const then
+          @@ -2438,6 +2442,9 @@ function visitors.Assign(context, node)
+               local symbol = context:traverse_node(varnode)
+               local vartype = varnode.attr.type
+               local varattr = varnode.attr
+          +    if vartype and not varattr.lvalue then
+          +      varnode:raisef("cannot assign to rvalue of type '%s'", vartype)
+          +    end
+               if varattr:is_readonly() and not varattr:is_forward_declare_type() then
+                 varnode:raisef("cannot assign a constant variable")
+               end
+          PATCH
+
+          git apply --check /tmp/impl.patch || exit 1
+          git apply /tmp/impl.patch || exit 1
+          git diff --check || exit 1
+
+          make test CC=gcc || exit 1
+          make compile-examples CC=gcc || exit 1
+          make clean-nelualua || exit 1
+          make CC=clang || exit 1
+          make test CC=clang || exit 1
+          git diff --check || exit 1
+          test "$(grep -R -l readonlyindex lualib spec || true)" = "" || exit 1
+
+          git add -- lualib/nelua/analyzer.lua spec/analyzer_spec.lua spec/cgenerator_spec.lua
+          test -z "$(git status --short | grep -vE '^(M |A ) (lualib/nelua/analyzer.lua|spec/analyzer_spec.lua|spec/cgenerator_spec.lua)$' || true)" || exit 1
+          git commit -m "Reject assignment to rvalues" || exit 1
+          git push origin HEAD:refs/heads/fix/index-assignment-rvalue --force || exit 1
+
+      - name: Report result
+        if: always()
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          OUTCOME: ${{ steps.audit.outcome }}
+        run: |
+          {
+            echo "General rvalue assignment audit v2: **$OUTCOME**"
+            echo
+            echo '```text'
+            tail -n 200 /tmp/audit-v2.log 2>/dev/null || true
+            echo '```'
+          } > /tmp/result-v2.md
+          gh pr comment 11 --repo "$GITHUB_REPOSITORY" --body-file /tmp/result-v2.md
+          test "$OUTCOME" = success
