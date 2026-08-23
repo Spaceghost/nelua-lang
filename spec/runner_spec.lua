@@ -6,6 +6,7 @@ local fs = require 'nelua.utils.fs'
 local configer = require 'nelua.configer'
 local version = require 'nelua.version'
 local ccompiler = require 'nelua.ccompiler'
+local config = configer.get()
 
 describe("runner", function()
   local ccinfo = ccompiler.get_cc_info()
@@ -41,6 +42,15 @@ it("run simple programs", function()
   if ccinfo.is_gcc and not ccinfo.is_clang and ccinfo.is_linux then
     expect.run({'--eval', "## cflags '-w -g' linklib 'm' ldflags '-s'"})
   end
+end)
+
+it("more timing reports memory", function()
+  local oldquiet = config.quiet
+  config.quiet = false
+  local ok, err = pcall(expect.run,
+    {'--more-timing', '--analyze', '--eval', "local x = 1"}, 'memory')
+  config.quiet = oldquiet
+  assert(ok, err)
 end)
 
 it("error on parsing an invalid program" , function()

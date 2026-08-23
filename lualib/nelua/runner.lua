@@ -264,6 +264,9 @@ function runner.run(args, redirect)
     if config.timing then -- show total timing statistics
       console.debug2f('total time   %.1f ms', globaltimer:elapsedrestart())
     end
+    if config.more_timing then
+      console.debugf('memory       %.1f KiB', collectgarbage('count'))
+    end
     tracker.report() -- show tracker statistics in case of any
   end, function(e) -- got a compile error
     local msg = e:get_message()
