@@ -2565,6 +2565,37 @@ it("record metametods", function()
   ]])
 
   expect.run_c([[
+    local Cell = @record{x: integer}
+    local R = @record{cell: Cell}
+    function R:__index(i: integer): *Cell return &self.cell end
+    local r: R
+    r[0].x = 1
+    assert(r.cell.x == 1)
+
+    local function get_cell(p: *Cell): *Cell return p end
+    get_cell(&r.cell).x = 2
+    assert(r.cell.x == 2)
+
+    local A = @[1]integer
+    local a: A
+    local function get_array(p: *A): *A return p end
+    get_array(&a)[0] = 3
+    assert(a[0] == 3)
+
+    local View = @record{cell: *Cell}
+    local S = @record{cell: Cell}
+    function S:__index(i: integer): View return View{cell=&self.cell} end
+    local s: S
+    s[0].cell.x = 4
+    assert(s.cell.x == 4)
+
+    local T = @record{x: integer}
+    function T:__atindex(i: integer): *integer return &self.x end
+    local function make_t(): T return T{} end
+    make_t()[0] = 5
+  ]])
+
+  expect.run_c([[
     local Foo = @record{value: number}
     function Foo:__call(a: number, b: number): number return a + b + self.value end
     local foo: Foo = {1}
