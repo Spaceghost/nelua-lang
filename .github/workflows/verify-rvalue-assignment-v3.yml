@@ -26,7 +26,10 @@ jobs:
         continue-on-error: true
         shell: bash
         run: |
-          python - <<'PY'
+          set -o pipefail
+          (
+            set -euo pipefail
+            python - <<'PY'
           from pathlib import Path
 
           path = Path('.github/workflows/verify-rvalue-assignment.yml')
@@ -41,21 +44,19 @@ jobs:
                   break
               block.append(line[10:] if line.startswith('          ') else line)
           script = '\n'.join(block) + '\n'
-          old = '          ./nelua-lua /tmp/red.lua || exit 1\n'
-          new = '''          set +e
-                    ./nelua-lua /tmp/red.lua > /tmp/red.log 2>&1
-                    red_status=$?
-                    set -e
-                    cat /tmp/red.log
-                    test "$red_status" -ne 0 || exit 1
-                    grep -F "type analysis should fail" /tmp/red.log || exit 1
-          '''
+          old = './nelua-lua /tmp/red.lua || exit 1'
+          new = '''./nelua-lua /tmp/red.lua > /tmp/red.log 2>&1
+          red_status=$?
+          cat /tmp/red.log
+          test "$red_status" -ne 0 || exit 1
+          grep -F "type analysis should fail" /tmp/red.log || exit 1'''
           if script.count(old) != 1:
               raise SystemExit(f'expected one red invocation, found {script.count(old)}')
           script = script.replace(old, new, 1)
           Path('/tmp/audit-v3.sh').write_text(script)
           PY
-          bash /tmp/audit-v3.sh > >(tee /tmp/audit-v3.log) 2>&1
+            bash /tmp/audit-v3.sh
+          ) 2>&1 | tee /tmp/audit-v3.log
 
       - name: Report result
         if: always()
