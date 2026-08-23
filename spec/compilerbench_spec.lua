@@ -3,6 +3,39 @@ local describe, it = lester.describe, lester.it
 
 local expect = lester.expect
 local compilerbench = require 'spec.tools.compilerbench'
+local fs = require 'nelua.utils.fs'
+
+local function temp_path(suffix)
+  local path = fs.tmpname()
+  fs.deletefile(path)
+  return path..(suffix or '')
+end
+
+local function with_temp_source(code, callback)
+  local path = temp_path('.nelua')
+  assert(fs.writefile(path, code))
+  local ok, err = xpcall(function()
+    callback(path)
+  end, debug.traceback)
+  fs.deletefile(path)
+  assert(ok, err)
+end
+
+local function capture_print(callback)
+  local lines = {}
+  local oldprint = _G.print
+  _G.print = function(...)
+    local values = {}
+    for i=1,select('#', ...) do
+      values[i] = tostring(select(i, ...))
+    end
+    lines[#lines+1] = table.concat(values, '\t')
+  end
+  local ok, err = xpcall(callback, debug.traceback)
+  _G.print = oldprint
+  assert(ok, err)
+  return table.concat(lines, '\n')
+end
 
 describe("compiler benchmark", function()
 
@@ -67,6 +100,58 @@ it("reject incomplete timing samples", function()
     return {startup = 1}
   end)
   assert(not ok and tostring(err):find("missing timing phase 'parse'", 1, true), err)
+end)
+
+it("default to the upstream compiler workload", function()
+  local inputs = compilerbench.resolve_inputs({})
+  expect.equal(1, #inputs)
+  expect.equal('tests/all_test.nelua', inputs[1])
+end)
+
+it("preserve explicit benchmark inputs", function()
+  local args = {'first.nelua', 'second.nelua'}
+  local inputs = compilerbench.resolve_inputs(args)
+  assert(inputs ~= args)
+  expect.equal(2, #inputs)
+  expect.equal('first.nelua', inputs[1])
+  expect.equal('second.nelua', inputs[2])
+end)
+
+it("measure a real compiler input and clean generated files", function()
+  with_temp_source('local x: integer = 1\n', function(input)
+    local outprefix = temp_path()
+    local timings = compilerbench.measure_input(input, outprefix)
+    for _,phase in ipairs({'startup', 'parse', 'preprocess', 'analyze', 'generate', 'total'}) do
+      assert(type(timings[phase]) == 'number', "missing timing phase '"..phase.."'")
+    end
+    assert(not fs.isfile(outprefix), 'temporary output file was not removed')
+    assert(not fs.isfile(outprefix..'.c'), 'temporary C file was not removed')
+  end)
+end)
+
+it("clean generated files after a compiler error", function()
+  with_temp_source('local =\n', function(input)
+    local outprefix = temp_path()
+    local ok = pcall(compilerbench.measure_input, input, outprefix)
+    assert(not ok, 'invalid source unexpectedly compiled')
+    assert(not fs.isfile(outprefix), 'temporary output file was not removed')
+    assert(not fs.isfile(outprefix..'.c'), 'temporary C file was not removed')
+  end)
+end)
+
+it("report phases for multiple real inputs", function()
+  with_temp_source('local x: integer = 1\n', function(first)
+    with_temp_source('local y: integer = 2\n', function(second)
+      local output = capture_print(function()
+        expect.equal(0, compilerbench.main({first, second}, 1))
+      end)
+      expect.contains(first, output)
+      expect.contains(second, output)
+      for _,phase in ipairs({'startup', 'parse', 'preprocess', 'analyze', 'generate', 'total'}) do
+        expect.contains(phase, output)
+      end
+    end)
+  end)
 end)
 
 end)
