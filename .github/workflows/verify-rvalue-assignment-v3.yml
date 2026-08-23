@@ -44,15 +44,25 @@ jobs:
                   break
               block.append(line[10:] if line.startswith('          ') else line)
           script = '\n'.join(block) + '\n'
-          old = './nelua-lua /tmp/red.lua || exit 1'
-          new = '''./nelua-lua /tmp/red.lua > /tmp/red.log 2>&1
+
+          red_old = './nelua-lua /tmp/red.lua || exit 1'
+          red_new = '''./nelua-lua /tmp/red.lua > /tmp/red.log 2>&1
           red_status=$?
           cat /tmp/red.log
           test "$red_status" -ne 0 || exit 1
           grep -F "type analysis should fail" /tmp/red.log || exit 1'''
-          if script.count(old) != 1:
-              raise SystemExit(f'expected one red invocation, found {script.count(old)}')
-          script = script.replace(old, new, 1)
+          if script.count(red_old) != 1:
+              raise SystemExit(f'expected one red invocation, found {script.count(red_old)}')
+          script = script.replace(red_old, red_new, 1)
+
+          examples_old = 'make compile-examples CC=gcc || exit 1'
+          examples_new = '''make clean-nelualua || exit 1
+          make CC=clang || exit 1
+          make test CC=clang || exit 1'''
+          if script.count(examples_old) != 1:
+              raise SystemExit(f'expected one examples invocation, found {script.count(examples_old)}')
+          script = script.replace(examples_old, examples_new, 1)
+
           Path('/tmp/audit-v3.sh').write_text(script)
           PY
             bash /tmp/audit-v3.sh
