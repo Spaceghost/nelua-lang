@@ -1314,6 +1314,12 @@ it("records metamethods", function()
   ]], "expected meta field '__call' to be a procedure")
   expect.analyze_error([[
     local R = @record{}
+    function R:__index(x: integer): integer return 0 end
+    local r: R
+    r[0] = 1
+  ]], "cannot assign through `__index` metamethod, use `__atindex` instead")
+  expect.analyze_error([[
+    local R = @record{}
     function R:__atindex(x: integer): integer return 0 end
     local r: R
     r[0] = 1

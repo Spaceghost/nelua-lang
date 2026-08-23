@@ -1824,6 +1824,9 @@ local function visitor_Type_MetaKeyIndex(context, node, objtype, objnode, indexn
     node:raisef("cannot index record of type '%s': no `__index` or `__atindex` metamethod found", objtype)
   end
   context:transform_and_traverse_node(node, newnode)
+  if metafields.__index then
+    node.attr.readonlyindex = true
+  end
 end
 
 function visitors.KeyIndex(context, node)
@@ -2438,6 +2441,9 @@ function visitors.Assign(context, node)
     local symbol = context:traverse_node(varnode)
     local vartype = varnode.attr.type
     local varattr = varnode.attr
+    if varattr.readonlyindex then
+      varnode:raisef("cannot assign through `__index` metamethod, use `__atindex` instead")
+    end
     if varattr:is_readonly() and not varattr:is_forward_declare_type() then
       varnode:raisef("cannot assign a constant variable")
     end
