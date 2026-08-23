@@ -1,22 +1,32 @@
-name: audit index assignment semantics
+name: verify complete index assignment fix
 
 on:
   push:
     branches:
       - verify/index-assignment-audit
 
+concurrency:
+  group: verify-index-assignment-audit
+  cancel-in-progress: true
+
 permissions:
-  contents: read
+  contents: write
   statuses: write
 
+env:
+  UPSTREAM_SHA: a58450563e2d2ec49bff499865c8b5cfdf6ff81a
+  FINAL_BRANCH: fix/index-assignment-rvalue
+
 jobs:
-  audit:
+  tdd:
     runs-on: ubuntu-latest
     env:
       CC: gcc
       CFLAGS: -Wextra -Werror -Wno-implicit-fallthrough
     steps:
       - uses: actions/checkout@master
+        with:
+          fetch-depth: 0
 
       - name: Publish pending status
         shell: bash
@@ -29,8 +39,8 @@ jobs:
           import sys
           print(json.dumps({
               'state': 'pending',
-              'description': 'auditing index assignment semantics',
-              'context': 'verification/index-assignment-audit',
+              'description': 'verifying complete index assignment fix',
+              'context': 'verification/index-assignment-complete',
               'target_url': sys.argv[1],
           }))
           PY
@@ -43,13 +53,55 @@ jobs:
             "https://api.github.com/repos/${{ github.repository }}/statuses/${{ github.sha }}" \
             -d "$payload"
 
-      - name: Build
+      - name: Add failing regressions
+        run: python .github/complete-index-assignment.py test
+
+      - name: Build Nelua
         run: make CC=gcc
 
-      - name: Run full test suite
+      - name: Verify regressions fail before fix
+        shell: bash
+        run: |
+          set +e
+          make test CC=gcc > "$RUNNER_TEMP/tdd-red.log" 2>&1
+          status=$?
+          set -e
+          cat "$RUNNER_TEMP/tdd-red.log"
+          if [ "$status" -eq 0 ]; then
+            echo 'nested __index assignment regressions unexpectedly passed before the fix'
+            exit 1
+          fi
+          grep -F 'records metamethods' "$RUNNER_TEMP/tdd-red.log"
+          grep -F "type analysis should fail with error 'cannot assign to rvalue'" "$RUNNER_TEMP/tdd-red.log"
+
+      - name: Verify original nested failure reaches C before fix
+        shell: bash
+        run: |
+          cat > "$RUNNER_TEMP/nested-before.nelua" <<'NELUA'
+          local Cell = @record{x: integer}
+          local R = @record{}
+          function R:__index(i: integer): Cell return Cell{} end
+          local r: R
+          r[0].x = 1
+          NELUA
+          set +e
+          ./nelua "$RUNNER_TEMP/nested-before.nelua" > "$RUNNER_TEMP/nested-before.log" 2>&1
+          status=$?
+          set -e
+          cat "$RUNNER_TEMP/nested-before.log"
+          if [ "$status" -eq 0 ]; then
+            echo 'nested __index assignment unexpectedly compiled before the fix'
+            exit 1
+          fi
+          grep -F 'lvalue required as left operand of assignment' "$RUNNER_TEMP/nested-before.log"
+
+      - name: Implement marker propagation
+        run: python .github/complete-index-assignment.py fix
+
+      - name: Verify full suite passes after fix
         run: make test CC=gcc
 
-      - name: Audit assignment semantics
+      - name: Verify assignment semantics
         shell: bash
         run: |
           set -euo pipefail
@@ -72,9 +124,7 @@ jobs:
 
           cat > "$RUNNER_TEMP/direct.nelua" <<'NELUA'
           local Farce = @record{}
-          function Farce:__index(x: auto)
-            return 0
-          end
+          function Farce:__index(x: auto) return 0 end
           local bleb: Farce
           print(bleb["snert"])
           bleb["snert"] = 32
@@ -90,42 +140,51 @@ jobs:
           NELUA
           expect_index_assignment_error multiple
 
-          cat > "$RUNNER_TEMP/pointer_direct.nelua" <<'NELUA'
+          cat > "$RUNNER_TEMP/pointer-direct.nelua" <<'NELUA'
           local R = @record{x: integer}
           function R:__index(i: integer): *integer return &self.x end
           local r: R
           local p: *integer
           r[0] = p
           NELUA
-          expect_index_assignment_error pointer_direct
+          expect_index_assignment_error pointer-direct
 
-          cat > "$RUNNER_TEMP/nested_record_value.nelua" <<'NELUA'
+          cat > "$RUNNER_TEMP/nested-record-value.nelua" <<'NELUA'
           local Cell = @record{x: integer}
           local R = @record{}
           function R:__index(i: integer): Cell return Cell{} end
           local r: R
           r[0].x = 1
           NELUA
-          expect_index_assignment_error nested_record_value
+          expect_index_assignment_error nested-record-value
 
-          cat > "$RUNNER_TEMP/read_index.nelua" <<'NELUA'
+          cat > "$RUNNER_TEMP/nested-array-value.nelua" <<'NELUA'
+          local Cell = @record{items: [1]integer}
+          local R = @record{}
+          function R:__index(i: integer): Cell return Cell{} end
+          local r: R
+          r[0].items[0] = 1
+          NELUA
+          expect_index_assignment_error nested-array-value
+
+          cat > "$RUNNER_TEMP/read-index.nelua" <<'NELUA'
           local R = @record{x: integer}
           function R:__index(i: integer): integer return self.x + i end
           local r = R{x=4}
           assert(r[3] == 7)
           NELUA
-          ./nelua "$RUNNER_TEMP/read_index.nelua"
+          ./nelua "$RUNNER_TEMP/read-index.nelua"
 
-          cat > "$RUNNER_TEMP/writable_atindex.nelua" <<'NELUA'
+          cat > "$RUNNER_TEMP/writable-atindex.nelua" <<'NELUA'
           local R = @record{x: integer}
           function R:__atindex(i: auto): *integer return &self.x end
           local r: R
           r["key"] = 32
           assert(r["key"] == 32)
           NELUA
-          ./nelua "$RUNNER_TEMP/writable_atindex.nelua"
+          ./nelua "$RUNNER_TEMP/writable-atindex.nelua"
 
-          cat > "$RUNNER_TEMP/writable_pointer_result.nelua" <<'NELUA'
+          cat > "$RUNNER_TEMP/writable-pointer-result.nelua" <<'NELUA'
           local Cell = @record{x: integer}
           local R = @record{cell: Cell}
           function R:__index(i: integer): *Cell return &self.cell end
@@ -133,31 +192,212 @@ jobs:
           r[0].x = 9
           assert(r.cell.x == 9)
           NELUA
-          ./nelua "$RUNNER_TEMP/writable_pointer_result.nelua"
+          ./nelua "$RUNNER_TEMP/writable-pointer-result.nelua"
 
-      - name: Publish result status
-        if: always()
+      - name: Check final patch shape
+        shell: bash
+        run: |
+          git diff --check
+          mapfile -t changed < <(git status --short | sed 's/^...//' | sort)
+          expected=(lualib/nelua/analyzer.lua spec/analyzer_spec.lua)
+          test "${changed[*]}" = "${expected[*]}"
+
+  verify:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: linux-gcc
+            os: ubuntu-latest
+            kind: test
+            cc: gcc
+            cflags: -Wextra -Werror -Wno-implicit-fallthrough
+          - label: linux-clang
+            os: ubuntu-latest
+            kind: test
+            cc: clang
+            cflags: -Wextra -Werror -Wno-implicit-fallthrough
+          - label: macos-clang
+            os: macos-latest
+            kind: test
+            cc: clang
+            cflags: -Wextra -Werror -Wno-implicit-fallthrough
+          - label: windows-gcc
+            os: windows-2025
+            kind: test
+            cc: gcc
+            cflags: -Wextra -Werror -Wno-implicit-fallthrough
+          - label: windows-clang
+            os: windows-2025
+            kind: test
+            cc: clang
+            cflags: -Wextra -Werror -Wno-implicit-fallthrough
+          - label: linux-32bits
+            os: ubuntu-latest
+            kind: test32
+            cc: gcc
+            cflags: -m32
+          - label: coverage
+            os: ubuntu-latest
+            kind: coverage
+            cc: gcc
+          - label: luacheck
+            os: ubuntu-latest
+            kind: check
+            cc: gcc
+          - label: sanitizers
+            os: ubuntu-latest
+            kind: sanitize
+            cc: gcc
+            cflags: -fsanitize=address -fsanitize=undefined
+    name: ${{ matrix.label }}
+    runs-on: ${{ matrix.os }}
+    env:
+      CC: ${{ matrix.cc }}
+      CFLAGS: ${{ matrix.cflags }}
+    steps:
+      - uses: actions/checkout@master
+
+      - name: Apply complete patch
+        run: python .github/complete-index-assignment.py all
+
+      - name: Check patch shape
+        shell: bash
+        run: |
+          git diff --check
+          test "$(git status --short | sed 's/^...//' | sort | tr '\n' ' ')" = 'lualib/nelua/analyzer.lua spec/analyzer_spec.lua '
+
+      - name: Show C compiler information
+        if: matrix.kind == 'test'
+        run: ${{ matrix.cc }} -v
+      - name: Compile
+        if: matrix.kind == 'test'
+        run: make CC=${{ matrix.cc }}
+      - name: Test
+        if: matrix.kind == 'test'
+        run: make test CC=${{ matrix.cc }}
+      - name: Install Unix
+        if: matrix.kind == 'test' && matrix.os != 'windows-2025'
+        run: sudo make install
+      - name: Install Windows
+        if: matrix.kind == 'test' && matrix.os == 'windows-2025'
+        run: make install
+      - name: Run hello world example
+        if: matrix.kind == 'test' && matrix.os != 'windows-2025'
+        run: nelua --verbose examples/helloworld.nelua
+
+      - name: Install 32-bit dependencies
+        if: matrix.kind == 'test32'
+        run: sudo apt-get update && sudo apt-get install -y gcc-multilib
+      - name: Compile 32-bit
+        if: matrix.kind == 'test32'
+        run: make
+      - name: Test 32-bit
+        if: matrix.kind == 'test32'
+        run: make test
+
+      - uses: leafo/gh-actions-lua@v11
+        if: matrix.kind == 'coverage' || matrix.kind == 'check'
+      - uses: leafo/gh-actions-luarocks@v5
+        if: matrix.kind == 'coverage' || matrix.kind == 'check'
+      - name: Install luacov
+        if: matrix.kind == 'coverage'
+        run: luarocks install cluacov
+      - name: Coverage
+        if: matrix.kind == 'coverage'
+        run: |
+          echo 'return {}' > .neluacfg.lua
+          make coverage-test
+      - name: Install luacheck
+        if: matrix.kind == 'check'
+        run: luarocks install luacheck
+      - name: Check
+        if: matrix.kind == 'check'
+        run: luacheck .
+
+      - name: Compile sanitizer build
+        if: matrix.kind == 'sanitize'
+        run: make
+      - name: Test sanitizer build
+        if: matrix.kind == 'sanitize'
+        run: make test
+
+  report:
+    if: always()
+    needs: [tdd, verify]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@master
+        with:
+          ref: verify/index-assignment-audit
+          fetch-depth: 0
+
+      - name: Publish verified final commit
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
-          JOB_STATUS: ${{ job.status }}
+          TDD_RESULT: ${{ needs.tdd.result }}
+          VERIFY_RESULT: ${{ needs.verify.result }}
         run: |
+          set -euo pipefail
           target_url='${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}'
-          if [ "$JOB_STATUS" = success ]; then
-            state=success
-            description='index assignment audit passed'
-          else
-            state=failure
-            description="index assignment audit $JOB_STATUS"
-          fi
-          payload=$(python - "$state" "$description" "$target_url" <<'PY'
+          if [ "$TDD_RESULT" != success ] || [ "$VERIFY_RESULT" != success ]; then
+            description="CI failed: tdd=$TDD_RESULT verify=$VERIFY_RESULT"
+            payload=$(python - "$description" "$target_url" <<'PY'
           import json
           import sys
           print(json.dumps({
-              'state': sys.argv[1],
-              'description': sys.argv[2],
-              'context': 'verification/index-assignment-audit',
-              'target_url': sys.argv[3],
+              'state': 'failure',
+              'description': sys.argv[1][:140],
+              'context': 'verification/index-assignment-complete',
+              'target_url': sys.argv[2],
+          }))
+          PY
+            )
+            curl --fail-with-body -L \
+              -X POST \
+              -H 'Accept: application/vnd.github+json' \
+              -H "Authorization: Bearer $GH_TOKEN" \
+              -H 'X-GitHub-Api-Version: 2022-11-28' \
+              "https://api.github.com/repos/${{ github.repository }}/statuses/${{ github.sha }}" \
+              -d "$payload"
+            exit 1
+          fi
+
+          test "$(git rev-parse HEAD)" = '${{ github.sha }}'
+          python .github/complete-index-assignment.py all
+          rm -- \
+            .github/complete-index-assignment.py \
+            .github/workflows/audit-index-assignment.yml
+          git reset --mixed "$UPSTREAM_SHA"
+          git diff --check
+
+          mapfile -t changed < <(git status --short | sed 's/^...//' | sort)
+          expected=(lualib/nelua/analyzer.lua spec/analyzer_spec.lua)
+          if [ "${changed[*]}" != "${expected[*]}" ]; then
+            printf 'unexpected final paths:\n%s\n' "${changed[*]}"
+            exit 1
+          fi
+
+          git add -- lualib/nelua/analyzer.lua spec/analyzer_spec.lua
+          git diff --cached --check
+          git config user.name 'Spaceghost'
+          git config user.email '251370+Spaceghost@users.noreply.github.com'
+          git commit -m 'Reject assignment through __index'
+
+          test "$(git rev-list --count "$UPSTREAM_SHA"..HEAD)" = 1
+          test -z "$(git status --short)"
+          final_sha=$(git rev-parse HEAD)
+          git push --force-with-lease origin HEAD:"$FINAL_BRANCH"
+
+          payload=$(python - "$target_url" <<'PY'
+          import json
+          import sys
+          print(json.dumps({
+              'state': 'success',
+              'description': 'verified against complete upstream matrix',
+              'context': 'verification/upstream-acceptance',
+              'target_url': sys.argv[1],
           }))
           PY
           )
@@ -166,5 +406,6 @@ jobs:
             -H 'Accept: application/vnd.github+json' \
             -H "Authorization: Bearer $GH_TOKEN" \
             -H 'X-GitHub-Api-Version: 2022-11-28' \
-            "https://api.github.com/repos/${{ github.repository }}/statuses/${{ github.sha }}" \
+            "https://api.github.com/repos/${{ github.repository }}/statuses/$final_sha" \
             -d "$payload"
+          echo "final_sha=$final_sha"
