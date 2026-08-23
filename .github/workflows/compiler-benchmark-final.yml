@@ -1,0 +1,123 @@
+name: Compiler benchmark final verification
+
+on:
+  push:
+    branches:
+      - verify/compiler-benchmark
+
+permissions:
+  contents: read
+  issues: write
+  pull-requests: write
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-2025]
+        cc: [gcc, clang]
+        exclude:
+          - os: macos-latest
+            cc: gcc
+    runs-on: ${{ matrix.os }}
+    env:
+      CC: ${{ matrix.cc }}
+      CFLAGS: -Wextra -Werror -Wno-implicit-fallthrough
+    steps:
+      - uses: actions/checkout@master
+      - name: Build, test and run benchmark
+        id: verify
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -o pipefail
+          {
+            "$CC" -v
+            make CC="$CC"
+            make test CC="$CC"
+            NELUA_BENCH_RUNS=1 make benchmark-compiler \
+              BENCHARGS='examples/overview.nelua tests/all_test.nelua'
+          } 2>&1 | tee verify.log
+      - name: Report matrix result
+        if: always()
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          OUTCOME: ${{ steps.verify.outcome }}
+        run: |
+          {
+            echo "Matrix result: \`${{ matrix.os }}\` / \`${{ matrix.cc }}\` = **$OUTCOME**"
+            if [[ "$OUTCOME" != success ]]; then
+              echo
+              echo '```text'
+              tail -n 160 verify.log
+              echo '```'
+            fi
+          } > result.md
+          gh pr comment 10 --repo "$GITHUB_REPOSITORY" --body-file result.md
+          test "$OUTCOME" = success
+
+  test-32bits:
+    runs-on: ubuntu-latest
+    env:
+      CFLAGS: -m32
+    steps:
+      - uses: actions/checkout@master
+      - name: Install dependencies
+        run: sudo apt-get update && sudo apt-get install -y gcc-multilib
+      - name: Build and test
+        run: |
+          make
+          make test
+
+  quality:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@master
+      - uses: leafo/gh-actions-lua@v11
+      - uses: leafo/gh-actions-luarocks@v5
+      - name: Install development tools
+        run: |
+          luarocks install cluacov
+          luarocks install luacheck
+      - name: Coverage, lint, benchmarks and sanitizers
+        shell: bash
+        run: |
+          set -euo pipefail
+          make CFLAGS='-Wextra -Werror -Wno-implicit-fallthrough'
+          make test CFLAGS='-Wextra -Werror -Wno-implicit-fallthrough'
+          echo 'return {}' > .neluacfg.lua
+          make coverage-test
+          make check
+          NELUA_BENCH_RUNS=3 make benchmark-compiler
+          NELUA_BENCH_RUNS=1 make benchmark-compiler \
+            BENCHARGS='examples/overview.nelua tests/all_test.nelua'
+          make clean-nelualua
+          make CFLAGS='-fsanitize=address -fsanitize=undefined'
+          make test CFLAGS='-fsanitize=address -fsanitize=undefined'
+
+  report:
+    if: always()
+    needs: [test, test-32bits, quality]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Report final result
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TEST_RESULT: ${{ needs.test.result }}
+          TEST32_RESULT: ${{ needs.test-32bits.result }}
+          QUALITY_RESULT: ${{ needs.quality.result }}
+        run: |
+          {
+            echo 'Final verification:'
+            echo
+            echo "- supported OS/compiler matrix: **$TEST_RESULT**"
+            echo "- 32-bit build and tests: **$TEST32_RESULT**"
+            echo "- coverage, lint, benchmarks and sanitizers: **$QUALITY_RESULT**"
+          } > result.md
+          gh pr comment 10 --repo "$GITHUB_REPOSITORY" --body-file result.md
+          test "$TEST_RESULT" = success
+          test "$TEST32_RESULT" = success
+          test "$QUALITY_RESULT" = success
