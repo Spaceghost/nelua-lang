@@ -6,7 +6,12 @@ This is intended for comparing compiler changes, not generated program speed.
 Use NELUA_BENCH_RUNS to change repetitions and pass source files as arguments.
 ]]
 
+local executor = require 'nelua.utils.executor'
+local fs = require 'nelua.utils.fs'
+local platform = require 'nelua.utils.platform'
+
 local compilerbench = {}
+local nelua = platform.is_windows and 'nelua.bat' or './nelua'
 
 local phase_order = {
   'startup',
@@ -53,6 +58,18 @@ function compilerbench.parse_runs(value)
   return runs
 end
 
+-- Copy explicit inputs or select the upstream compiler workload.
+function compilerbench.resolve_inputs(args)
+  local inputs = {}
+  for i,input in ipairs(args) do
+    inputs[i] = input
+  end
+  if #inputs == 0 then
+    inputs[1] = 'tests/all_test.nelua'
+  end
+  return inputs
+end
+
 -- Collect one warmup followed by `runs` complete timing samples.
 function compilerbench.collect(runs, measure)
   local samples = {}
@@ -75,8 +92,9 @@ end
 
 --luacov:disable
 
-local function measure_input(executor, fs, nelua, input)
-  local outprefix = fs.tmpname()
+-- Measure one input in a fresh compiler process and remove generated files.
+function compilerbench.measure_input(input, outprefix)
+  outprefix = outprefix or fs.tmpname()
   local output, err = executor.evalex(nelua, {
     '--no-color', '--no-cache', '--timing', '--code', '--output', outprefix, input
   })
@@ -93,26 +111,15 @@ local function report_input(input, samples)
   end
 end
 
-function compilerbench.main(args)
-  local runs = compilerbench.parse_runs(os.getenv('NELUA_BENCH_RUNS'))
-  local inputs = {}
-  for i,input in ipairs(args) do
-    inputs[i] = input
-  end
-  if #inputs == 0 then
-    inputs[1] = 'tests/all_test.nelua'
-  end
-
-  local executor = require 'nelua.utils.executor'
-  local fs = require 'nelua.utils.fs'
-  local platform = require 'nelua.utils.platform'
-  local nelua = platform.is_windows and 'nelua.bat' or './nelua'
+function compilerbench.main(args, runs)
+  runs = runs or compilerbench.parse_runs(os.getenv('NELUA_BENCH_RUNS'))
+  local inputs = compilerbench.resolve_inputs(args)
 
   print(string.format('%-28s %-12s %10s', 'input', 'phase', 'median ms'))
   print(string.rep('-', 52))
   for _,input in ipairs(inputs) do
     local samples = compilerbench.collect(runs, function()
-      return measure_input(executor, fs, nelua, input)
+      return compilerbench.measure_input(input)
     end)
     report_input(input, samples)
   end
