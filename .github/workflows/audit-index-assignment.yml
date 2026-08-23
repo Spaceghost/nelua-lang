@@ -30,10 +30,8 @@ jobs:
 
           expect_index_assignment_error() {
             local name=$1
-            local source=$2
             local file="$RUNNER_TEMP/$name.nelua"
             local log="$RUNNER_TEMP/$name.log"
-            printf '%s\n' "$source" > "$file"
             set +e
             ./nelua "$file" > "$log" 2>&1
             local status=$?
@@ -46,19 +44,67 @@ jobs:
             grep -F 'cannot assign to rvalue returned by `__index`, use `__atindex` for writable indexing' "$log"
           }
 
-          expect_success() {
-            local name=$1
-            local source=$2
-            local file="$RUNNER_TEMP/$name.nelua"
-            printf '%s\n' "$source" > "$file"
-            ./nelua "$file"
-          }
+          cat > "$RUNNER_TEMP/direct.nelua" <<'NELUA'
+          local Farce = @record{}
+          function Farce:__index(x: auto)
+            return 0
+          end
+          local bleb: Farce
+          print(bleb["snert"])
+          bleb["snert"] = 32
+          NELUA
+          expect_index_assignment_error direct
 
-          expect_index_assignment_error direct '__SOURCE__'
-          expect_index_assignment_error multiple '__MULTIPLE__'
-          expect_index_assignment_error pointer_direct '__POINTER_DIRECT__'
-          expect_index_assignment_error nested_record_value '__NESTED_RECORD_VALUE__'
+          cat > "$RUNNER_TEMP/multiple.nelua" <<'NELUA'
+          local R = @record{}
+          function R:__index(x: integer): integer return 0 end
+          local r: R
+          local x: integer
+          r[0], x = 1, 2
+          NELUA
+          expect_index_assignment_error multiple
 
-          expect_success read_index '__READ_INDEX__'
-          expect_success writable_atindex '__WRITABLE_ATINDEX__'
-          expect_success writable_pointer_result '__WRITABLE_POINTER_RESULT__'
+          cat > "$RUNNER_TEMP/pointer_direct.nelua" <<'NELUA'
+          local R = @record{x: integer}
+          function R:__index(i: integer): *integer return &self.x end
+          local r: R
+          local p: *integer
+          r[0] = p
+          NELUA
+          expect_index_assignment_error pointer_direct
+
+          cat > "$RUNNER_TEMP/nested_record_value.nelua" <<'NELUA'
+          local Cell = @record{x: integer}
+          local R = @record{}
+          function R:__index(i: integer): Cell return Cell{} end
+          local r: R
+          r[0].x = 1
+          NELUA
+          expect_index_assignment_error nested_record_value
+
+          cat > "$RUNNER_TEMP/read_index.nelua" <<'NELUA'
+          local R = @record{x: integer}
+          function R:__index(i: integer): integer return self.x + i end
+          local r = R{x=4}
+          assert(r[3] == 7)
+          NELUA
+          ./nelua "$RUNNER_TEMP/read_index.nelua"
+
+          cat > "$RUNNER_TEMP/writable_atindex.nelua" <<'NELUA'
+          local R = @record{x: integer}
+          function R:__atindex(i: auto): *integer return &self.x end
+          local r: R
+          r["key"] = 32
+          assert(r["key"] == 32)
+          NELUA
+          ./nelua "$RUNNER_TEMP/writable_atindex.nelua"
+
+          cat > "$RUNNER_TEMP/writable_pointer_result.nelua" <<'NELUA'
+          local Cell = @record{x: integer}
+          local R = @record{cell: Cell}
+          function R:__index(i: integer): *Cell return &self.cell end
+          local r: R
+          r[0].x = 9
+          assert(r.cell.x == 9)
+          NELUA
+          ./nelua "$RUNNER_TEMP/writable_pointer_result.nelua"
