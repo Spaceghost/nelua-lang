@@ -1,0 +1,43 @@
+name: Compiler benchmark test cycle
+
+on:
+  push:
+    branches:
+      - test/compiler-benchmark-tests
+
+permissions:
+  contents: read
+  issues: write
+  pull-requests: write
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@master
+      - name: Build and test
+        id: test
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -o pipefail
+          {
+            make
+            make test
+          } 2>&1 | tee test.log
+      - name: Report
+        if: always()
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          OUTCOME: ${{ steps.test.outcome }}
+        run: |
+          {
+            echo "Test-cycle result: **$OUTCOME**"
+            echo
+            echo '```text'
+            tail -n 120 test.log
+            echo '```'
+          } > result.md
+          gh pr comment 7 --repo "$GITHUB_REPOSITORY" --body-file result.md
+          test "$OUTCOME" = success
