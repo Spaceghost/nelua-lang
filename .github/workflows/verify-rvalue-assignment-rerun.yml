@@ -1,0 +1,76 @@
+name: rerun rvalue assignment audit
+
+on:
+  push:
+    branches:
+      - verify/rvalue-assignment-general
+
+permissions:
+  contents: write
+  issues: write
+  pull-requests: write
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    env:
+      CC: gcc
+      CFLAGS: -Wextra -Werror -Wno-implicit-fallthrough
+    steps:
+      - uses: actions/checkout@master
+        with:
+          fetch-depth: 0
+
+      - name: Extract the audited script with an observable publish gate
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          workflow = Path('.github/workflows/verify-rvalue-assignment.yml').read_text()
+          anchor = workflow.index('        id: audit\n')
+          start = workflow.index('        run: |\n', anchor) + len('        run: |\n')
+          end = workflow.index('\n      - name: Report result', start)
+          lines = workflow[start:end].splitlines()
+          script = '\n'.join(line[10:] if line.startswith('          ') else line for line in lines) + '\n'
+
+          old = '''git add -- lualib/nelua/analyzer.lua spec/analyzer_spec.lua spec/cgenerator_spec.lua
+          test -z "$(git status --short | grep -vE '^(M |A ) (lualib/nelua/analyzer.lua|spec/analyzer_spec.lua|spec/cgenerator_spec.lua)$' || true)" || exit 1
+          git commit -m "Reject assignment to rvalues" || exit 1
+          '''
+          new = '''git add -- lualib/nelua/analyzer.lua spec/analyzer_spec.lua spec/cgenerator_spec.lua
+          git diff --cached --name-only | sort > /tmp/actual-files
+          printf '%s\\n' lualib/nelua/analyzer.lua spec/analyzer_spec.lua spec/cgenerator_spec.lua | sort > /tmp/expected-files
+          echo 'staged candidate files:'
+          cat /tmp/actual-files
+          diff -u /tmp/expected-files /tmp/actual-files || exit 1
+          git commit -m "Reject assignment to rvalues" || exit 1
+          '''
+          if script.count(old) != 1:
+              raise SystemExit(f'expected one publication guard, found {script.count(old)}')
+          Path('/tmp/audit.sh').write_text(script.replace(old, new, 1))
+          PY
+          bash -n /tmp/audit.sh
+
+      - name: Run the unchanged semantic audit
+        id: run
+        continue-on-error: true
+        shell: bash
+        run: bash /tmp/audit.sh
+
+      - name: Report result
+        if: always()
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          OUTCOME: ${{ steps.run.outcome }}
+        run: |
+          {
+            echo "General rvalue assignment audit, explicit gate: **$OUTCOME**"
+            echo
+            echo '```text'
+            tail -n 220 /tmp/audit.log 2>/dev/null || true
+            echo '```'
+          } > /tmp/result.md
+          gh pr comment 11 --repo "$GITHUB_REPOSITORY" --body-file /tmp/result.md
+          test "$OUTCOME" = success
