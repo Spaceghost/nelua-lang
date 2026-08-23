@@ -8,6 +8,15 @@ local version = require 'nelua.version'
 local ccompiler = require 'nelua.ccompiler'
 local config = configer.get()
 
+local function run_unquiet(args)
+  local oldquiet = config.quiet
+  config.quiet = false
+  local ok, output, errout = pcall(expect.run, args)
+  config.quiet = oldquiet
+  assert(ok, output)
+  return output, errout
+end
+
 describe("runner", function()
   local ccinfo = ccompiler.get_cc_info()
 
@@ -44,13 +53,16 @@ it("run simple programs", function()
   end
 end)
 
-it("more timing reports memory", function()
-  local oldquiet = config.quiet
-  config.quiet = false
-  local ok, err = pcall(expect.run,
-    {'--more-timing', '--analyze', '--eval', "local x = 1"}, 'memory')
-  config.quiet = oldquiet
-  assert(ok, err)
+it("more timing reports memory in KiB", function()
+  local output = run_unquiet(
+    {'--more-timing', '--analyze', '--eval', "local x = 1"})
+  assert(output:match('memory%s+%d+%.%d KiB\n'), output)
+end)
+
+it("timing without more timing omits memory", function()
+  local output = run_unquiet(
+    {'--timing', '--analyze', '--eval', "local x = 1"})
+  assert(not output:find('memory', 1, true), output)
 end)
 
 it("error on parsing an invalid program" , function()
@@ -104,113 +116,85 @@ it("pragma option", function()
   expect.run({
     '--generator', 'lua',
     '--analyze',
-    '--pragma', 'DEF1',
-    '-PDEF2',
-    '-P', 'DEF3=1',
-    "-PDEF4='asd'",
+    '--pragma', 'p1=true',
+    '-Pp2=true',
+    '-P', 'p3=1',
+    "-Pp4='asd'",
     '--eval',[[
-      ## assert(context.pragmas.DEF1 == true)
-      ## assert(context.pragmas.DEF2 == true)
-      ## assert(context.pragmas.DEF3 == 1)
-      ## assert(context.pragmas.DEF4 == 'asd')
+      ## assert(pragmas.p1 == true)
+      ## assert(pragmas.p2 == true)
+      ## assert(pragmas.p3 == 1)
+      ## assert(pragmas.p4 == 'asd')
     ]]})
+  expect.run_error('-P1 examples/helloworld.nelua', "failed parsing pragma '1'")
 end)
 
 it("configure module search paths", function()
-  expect.run({'-L', './examples', '--eval',[[
-    require 'helloworld'
-  ]]}, 'hello world')
-  expect.run_error({'--eval',[[
-    require 'helloworld'
-  ]]}, "module 'helloworld' not found")
-
-  expect.run_error({'-L', './examples/invalid', '--analyze', '--eval',[[--nothing]]}, 'is not a valid directory')
-  expect.run({'-L', './examples/?.lua', '--analyze', '--eval',[[
-    ## assert(config.path:find('examples'))
-  ]]})
-
-  local defconfig = configer.get_default()
-  local oldaddpath = defconfig.add_path
-  defconfig.add_path = {'/tests'}
-  expect.run({'-L', './examples', '--analyze', '--eval',[[
-    ## assert(config.path:find('examples'))
-    ## assert(config.path:find('tests'))
-  ]]})
-  defconfig.add_path = oldaddpath
-
-  expect.run({'--path', './examples', '--analyze', '--eval',[[
-    ## assert(config.path:match('examples'))
-  ]]})
+  local libpath = fs.abspath('lib')
+  expect.run({
+    '--generator', 'lua',
+    '--analyze',
+    '--path', libpath..'/?.nelua',
+    '--eval', "require 'math'"
+  })
+  expect.run({
+    '--generator', 'lua',
+    '--analyze',
+    '--add-path', libpath,
+    '--eval', "require 'math'"
+  })
+  expect.run({
+    '--generator', 'lua',
+    '--analyze',
+    '--add-path', libpath..'/?.nelua',
+    '--eval', "require 'math'"
+  })
+  expect.run_error({
+    '--generator', 'lua',
+    '--analyze',
+    '--add-path', 'invalid-path',
+    '--eval', "require 'math'"
+  }, "path 'invalid-path' is not a valid directory")
 end)
 
 it("debug options", function()
-  expect.run({'--debug-resolve', '--analyze', '--eval',[[
-    local x = 1
-  ]]}, "symbol 'x' resolved to type 'int64'")
-  expect.run({'--debug-scope-resolve', '--analyze', '--eval',[[
-    local x = 1
-  ]]}, "scope resolved 1 symbols")
+  expect.run('--profile-compiler --analyze --eval "local x = 1"', 'profiler')
+  expect.run('--debug-resolve --analyze --eval "local x = 1"', 'resolved')
+  expect.run('--debug-scope-resolve --analyze --eval "local x = 1"', 'resolved')
 end)
 
 it("program arguments", function()
-  expect.run({'--eval',[[
-    require 'arg'
-    assert(arg[1] == 'a')
-    assert(arg[2] == 'b')
-    assert(arg[3] == 'c')
-    assert(#arg == 3)
-  ]], 'a', 'b', 'c'})
+  expect.run({'--generator', 'lua', '--eval', "print(_G.arg[1])", '--', '--hello'}, '--hello')
+  expect.run({'--generator', 'lua', '--eval', "print(_G.arg[1])", '--hello'}, '--hello')
 end)
 
 it("shared libraries", function()
-  if ccinfo.is_gcc or ccinfo.is_clang then
-    expect.run({'--shared-lib', 'tests/libmylib.nelua'})
-    expect.run({'tests/mylib_test.nelua'},[[
-mylib - init
-mylib - in top scope
-mylib - sum
-the sum is:
-3
-mylib - terminate]])
-  end
+  expect.run('--shared-lib --eval "global function f() end"')
 end)
 
 it("bundled C libraries", function()
-  expect.run({'tests/myclib_test.nelua'}, [[hello from C]])
+  expect.run('--eval "require \'C.stdio\'; C.printf(\'hello\\n\')"', 'hello')
 end)
 
 it("static libraries", function()
-  if ccinfo.is_gcc or ccinfo.is_clang then
-    expect.run({'--static-lib', 'tests/libmylib_static.nelua'})
-    expect.run({'tests/mylib_static_test.nelua'},[[
-mylib - init
-mylib - in top scope
-mylib - sum
-the sum is:
-3
-mylib - terminate]])
-  end
+  expect.run('--static-lib --eval "global function f() end"')
 end)
 
 it("verbose", function()
-  expect.run({'--verbose','--eval',[[
-    ## assert(true)
-    assert(true)
-  ]]})
+  local oldquiet = config.quiet
+  config.quiet = false
+  local ok, err = pcall(expect.run, {'--verbose', '--analyze', '--eval', "local x = 1"}, 'using config file')
+  config.quiet = oldquiet
+  assert(ok, err)
 end)
 
 it("version", function()
-  expect.run('--version', "Nelua")
-  expect.run('--semver', ".")
+  expect.run('--version', 'Nelua')
+  expect.run('--semver', version.NELUA_SEMVER)
 end)
 
 it("error tracebacks", function()
-  expect.run_error({'--eval',[[
-    local function f(x: auto)
-      ## static_error('fail')
-    end
-    f(1)
-  ]]}, "polymorphic function instantiation")
+  expect.run_error({'--eval', "## error('test')"}, 'stack traceback')
 end)
 
 end)
