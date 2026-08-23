@@ -142,7 +142,7 @@ test-quick: $(NELUALUA)
 
 # Benchmark compiler phases in isolated processes.
 benchmark-compiler: $(NELUALUA)
-	$(NELUA_RUN) --script spec/tools/compilerbench.lua $(BENCHARGS)
+	$(LUA) -lnelua nelua.lua --script spec/tools/compilerbench.lua $(BENCHARGS)
 
 # Run lua static analysis using lua check.
 check:
