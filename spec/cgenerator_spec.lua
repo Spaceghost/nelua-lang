@@ -1936,6 +1936,11 @@ it("c types", function()
 end)
 
 it("reserved names quoting", function()
+  expect.generate_c(
+    "local function f(this: integer): integer return this end",
+    "int64_t f(int64_t this_)")
+  expect.generate_c("do local class = 1 end", "int64_t class_ = 1;")
+  expect.generate_c("do local requires = 1 end", "int64_t requires_ = 1;")
   expect.config.srcname = 'mymod'
   expect.generate_c("local default: integer", "int64_t mymod_default;")
   expect.generate_c("local NULL: integer = 0", "int64_t mymod_NULL = 0;")
