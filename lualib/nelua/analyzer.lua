@@ -1818,6 +1818,9 @@ local function visitor_Type_MetaKeyIndex(context, node, objtype, objnode, indexn
   local metafields = objtype.metafields
   if metafields.__index then
     newnode = aster.CallMethod{'__index', {indexnode}, objnode}
+    context:transform_and_traverse_node(node, newnode)
+    node.attr.readonlyindex = true
+    return
   elseif metafields.__atindex then
     newnode = aster.UnaryOp{'deref', aster.CallMethod{'__atindex', {indexnode}, objnode}}
   else
@@ -2438,6 +2441,9 @@ function visitors.Assign(context, node)
     local symbol = context:traverse_node(varnode)
     local vartype = varnode.attr.type
     local varattr = varnode.attr
+    if varattr.readonlyindex then
+      varnode:raisef("cannot assign to rvalue returned by `__index`, use `__atindex` for writable indexing")
+    end
     if varattr:is_readonly() and not varattr:is_forward_declare_type() then
       varnode:raisef("cannot assign a constant variable")
     end
