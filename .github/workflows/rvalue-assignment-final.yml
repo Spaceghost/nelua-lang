@@ -1,0 +1,227 @@
+name: Rvalue assignment final verification
+
+on:
+  push:
+    branches:
+      - verify/rvalue-assignment-final
+
+permissions:
+  contents: read
+  issues: write
+  pull-requests: write
+
+jobs:
+  matrix:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-2025]
+        cc: [gcc, clang]
+        exclude:
+          - os: macos-latest
+            cc: gcc
+    runs-on: ${{ matrix.os }}
+    env:
+      CC: ${{ matrix.cc }}
+      CFLAGS: -Wextra -Werror -Wno-implicit-fallthrough
+    steps:
+      - uses: actions/checkout@master
+        with:
+          ref: verify/rvalue-assignment-final
+      - name: Show C compiler information
+        id: compiler
+        run: ${{ matrix.cc }} -v
+      - name: Compile
+        id: compile
+        run: make CC=${{ matrix.cc }}
+      - name: Test
+        id: test
+        run: make test CC=${{ matrix.cc }}
+      - name: Install on Unix
+        id: install_unix
+        if: ${{ matrix.os != 'windows-2025' }}
+        run: sudo make install
+      - name: Install on Windows
+        id: install_windows
+        if: ${{ matrix.os == 'windows-2025' }}
+        run: make install
+      - name: Run hello world
+        id: hello
+        if: ${{ matrix.os != 'windows-2025' }}
+        run: nelua --verbose examples/helloworld.nelua
+      - name: Report
+        if: always()
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          COMPILE: ${{ steps.compile.outcome }}
+          TEST: ${{ steps.test.outcome }}
+          INSTALL_UNIX: ${{ steps.install_unix.outcome }}
+          INSTALL_WINDOWS: ${{ steps.install_windows.outcome }}
+          HELLO: ${{ steps.hello.outcome }}
+        run: |
+          state=success
+          test "$COMPILE" = success || state=failure
+          test "$TEST" = success || state=failure
+          if [[ "${{ matrix.os }}" == windows-2025 ]]; then
+            test "$INSTALL_WINDOWS" = success || state=failure
+          else
+            test "$INSTALL_UNIX" = success || state=failure
+            test "$HELLO" = success || state=failure
+          fi
+          body="Final matrix \`${{ matrix.os }} / ${{ matrix.cc }}\`: **$state**\n\nRun: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+          gh pr comment 13 --repo "$GITHUB_REPOSITORY" --body "$body"
+          test "$state" = success
+
+  test-32bits:
+    runs-on: ubuntu-latest
+    env:
+      CFLAGS: -m32
+    steps:
+      - uses: actions/checkout@master
+        with:
+          ref: verify/rvalue-assignment-final
+      - name: Install dependencies
+        id: dependencies
+        run: sudo apt-get update && sudo apt-get install -y gcc-multilib
+      - name: Compile
+        id: compile
+        run: make
+      - name: Test
+        id: test
+        run: make test
+      - name: Report
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DEPENDENCIES: ${{ steps.dependencies.outcome }}
+          COMPILE: ${{ steps.compile.outcome }}
+          TEST: ${{ steps.test.outcome }}
+        run: |
+          state=success
+          test "$DEPENDENCIES" = success || state=failure
+          test "$COMPILE" = success || state=failure
+          test "$TEST" = success || state=failure
+          body="Final matrix \`32-bit GCC\`: **$state**\n\nRun: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+          gh pr comment 13 --repo "$GITHUB_REPOSITORY" --body "$body"
+          test "$state" = success
+
+  coverage:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@master
+        with:
+          ref: verify/rvalue-assignment-final
+      - uses: leafo/gh-actions-lua@v11
+      - uses: leafo/gh-actions-luarocks@v5
+      - name: Install cluacov
+        id: dependencies
+        run: luarocks install cluacov
+      - name: Coverage
+        id: coverage
+        run: |
+          echo "return {}" > .neluacfg.lua
+          make coverage-test
+      - name: Report
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DEPENDENCIES: ${{ steps.dependencies.outcome }}
+          COVERAGE: ${{ steps.coverage.outcome }}
+        run: |
+          state=success
+          test "$DEPENDENCIES" = success || state=failure
+          test "$COVERAGE" = success || state=failure
+          body="Final matrix \`coverage\`: **$state**\n\nRun: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+          gh pr comment 13 --repo "$GITHUB_REPOSITORY" --body "$body"
+          test "$state" = success
+
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@master
+        with:
+          ref: verify/rvalue-assignment-final
+      - uses: leafo/gh-actions-lua@v11
+      - uses: leafo/gh-actions-luarocks@v5
+      - name: Install luacheck
+        id: dependencies
+        run: luarocks install luacheck
+      - name: Check
+        id: check
+        run: luacheck .
+      - name: Report
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DEPENDENCIES: ${{ steps.dependencies.outcome }}
+          CHECK: ${{ steps.check.outcome }}
+        run: |
+          state=success
+          test "$DEPENDENCIES" = success || state=failure
+          test "$CHECK" = success || state=failure
+          body="Final matrix \`luacheck\`: **$state**\n\nRun: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+          gh pr comment 13 --repo "$GITHUB_REPOSITORY" --body "$body"
+          test "$state" = success
+
+  sanitize:
+    runs-on: ubuntu-latest
+    env:
+      CFLAGS: -fsanitize=address -fsanitize=undefined
+    steps:
+      - uses: actions/checkout@master
+        with:
+          ref: verify/rvalue-assignment-final
+      - name: Compile
+        id: compile
+        run: make
+      - name: Test
+        id: test
+        run: make test
+      - name: Report
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          COMPILE: ${{ steps.compile.outcome }}
+          TEST: ${{ steps.test.outcome }}
+        run: |
+          state=success
+          test "$COMPILE" = success || state=failure
+          test "$TEST" = success || state=failure
+          body="Final matrix \`sanitizers\`: **$state**\n\nRun: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+          gh pr comment 13 --repo "$GITHUB_REPOSITORY" --body "$body"
+          test "$state" = success
+
+  examples:
+    runs-on: ubuntu-latest
+    env:
+      CC: gcc
+      CFLAGS: -Wextra -Werror -Wno-implicit-fallthrough
+    steps:
+      - uses: actions/checkout@master
+        with:
+          ref: verify/rvalue-assignment-final
+      - name: Install SDL2
+        id: dependencies
+        run: sudo apt-get update && sudo apt-get install -y libsdl2-dev
+      - name: Compile Nelua
+        id: compile
+        run: make CC=gcc
+      - name: Compile examples
+        id: examples
+        run: make compile-examples CC=gcc
+      - name: Report
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DEPENDENCIES: ${{ steps.dependencies.outcome }}
+          COMPILE: ${{ steps.compile.outcome }}
+          EXAMPLES: ${{ steps.examples.outcome }}
+        run: |
+          state=success
+          test "$DEPENDENCIES" = success || state=failure
+          test "$COMPILE" = success || state=failure
+          test "$EXAMPLES" = success || state=failure
+          body="Final matrix \`compile examples\`: **$state**\n\nRun: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+          gh pr comment 13 --repo "$GITHUB_REPOSITORY" --body "$body"
+          test "$state" = success
