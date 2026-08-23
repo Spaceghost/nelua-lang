@@ -1308,6 +1308,33 @@ it("records metamethods", function()
   ]])
   expect.analyze_error([[
     local R = @record{}
+    function R:__index(x: integer): integer return 0 end
+    local r: R
+    r[0] = 1
+  ]], "cannot assign to rvalue")
+  expect.analyze_error([[
+    local Cell = @record{x: integer}
+    local R = @record{}
+    function R:__index(x: integer): Cell return Cell{} end
+    local r: R
+    r[0].x = 1
+  ]], "cannot assign to rvalue")
+  expect.analyze_error([[
+    local Cell = @record{items: [1]integer}
+    local R = @record{}
+    function R:__index(x: integer): Cell return Cell{} end
+    local r: R
+    r[0].items[0] = 1
+  ]], "cannot assign to rvalue")
+  expect.analyze_ast([[
+    local Cell = @record{x: integer}
+    local R = @record{cell: Cell}
+    function R:__index(x: integer): *Cell return &self.cell end
+    local r: R
+    r[0].x = 1
+  ]])
+  expect.analyze_error([[
+    local R = @record{}
     global R.__call: integer = 1
     local r: R
     r()
