@@ -140,6 +140,10 @@ test: $(NELUALUA)
 test-quick: $(NELUALUA)
 	@LESTER_QUIET=true LESTER_STOP_ON_FAIL=true $(LUA) spec/init.lua
 
+# Benchmark compiler phases in isolated processes.
+benchmark-compiler: $(NELUALUA)
+	$(NELUA_RUN) --script spec/tools/compilerbench.lua $(BENCHARGS)
+
 # Run lua static analysis using lua check.
 check:
 	@$(LUACHECK) -q .
