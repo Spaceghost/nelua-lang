@@ -27,6 +27,13 @@ local original_generate_name = Scope.generate_name
 local original_declname = CContext.declname
 local original_add_declaration = CContext.add_declaration
 local original_add_qualified_declaration = CEmitter.add_qualified_declaration
+local original_add_val2boolean = CEmitter.add_val2boolean
+
+local comparison_ops = {
+  eq = true, ne = true,
+  lt = true, le = true,
+  gt = true, ge = true,
+}
 
 local function install_hooks()
   if installed then return end
@@ -70,6 +77,27 @@ local function install_hooks()
       return candidate
     end
     return original_declname(self, attr)
+  end
+
+  -- In boolean context the surrounding construct already owns precedence.
+  -- Nelua normally emits `if((a == b))`; compact output can safely use
+  -- `if(a == b)` for the six comparison operators while leaving every other
+  -- expression form untouched. Builtin/special comparisons that do not emit a
+  -- single outer pair are passed through unchanged.
+  function CEmitter:add_val2boolean(val, valtype)
+    local config = configer.get()
+    valtype = valtype or (type(val) == 'table' and val.attr and val.attr.type)
+    if config.compact_c_clean_conditions and valtype and valtype.is_boolean and
+       type(val) == 'table' and val.is_BinaryOp and comparison_ops[val[2]] then
+      local tmp = self:fork()
+      tmp:add_value(val)
+      local text = tmp:generate()
+      if text:sub(1,1) == '(' and text:sub(-1) == ')' then
+        self:add_text(text:sub(2, -2))
+        return
+      end
+    end
+    return original_add_val2boolean(self, val, valtype)
   end
 
   -- A single-header amalgamation already contains its public prototypes before
@@ -129,6 +157,7 @@ function compactc.enable(options)
 
   defaults.compact_c_short_names = options.short_names ~= false
   defaults.compact_c_internal_names = options.internal_names ~= false
+  defaults.compact_c_clean_conditions = options.clean_conditions ~= false
   defaults.compact_c_suppress_export_declarations =
     options.export_declarations == false
 
