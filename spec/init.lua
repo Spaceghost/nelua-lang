@@ -17,6 +17,7 @@ require 'spec.cgenerator_spec'
 require 'spec.preprocessor_spec'
 require 'spec.stdlib_spec'
 require 'spec.runner_spec'
+require 'spec.compactc_spec'
 
 lester.report()
 lester.exit()
