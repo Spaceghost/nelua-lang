@@ -130,36 +130,48 @@ local function install_hooks()
   end
 end
 
+local function set_option(defaults, active, name, value)
+  defaults[name] = value
+  active[name] = value
+end
+
+local function set_pragma(defaults, active, name, value)
+  defaults.pragmas[name] = value
+  active.pragmas = active.pragmas or {}
+  active.pragmas[name] = value
+end
+
 function compactc.enable(options)
   options = options or {}
   local defaults = configer.get_default()
-  local pragmas = defaults.pragmas
+  local active = configer.get()
 
-  -- Deterministic distributable C should not contain source-machine error paths,
-  -- compiler-warning scaffolding, or the command/hash banner used by cached
-  -- application builds.
+  -- `configer` has already constructed an active configuration by the time a
+  -- NELUA_INIT hook can require us. Set both the defaults (for the upcoming
+  -- option rebuild) and the active table (for direct/compiler-library use).
+  -- This makes the profile independent of activation timing.
   if options.error_locations ~= true then
-    pragmas.noerrorloc = true
+    set_pragma(defaults, active, 'noerrorloc', true)
   end
   if options.warning_pragmas ~= true then
-    pragmas.nocwarnpragmas = true
+    set_pragma(defaults, active, 'nocwarnpragmas', true)
   end
   if options.heading ~= true then
-    pragmas.nocheading = true
+    set_pragma(defaults, active, 'nocheading', true)
   end
 
   -- Static assertions stay on unless explicitly disabled. Portable amalgamated
   -- source may disable host ABI assertions and prove portability by compiling
   -- the exact artifact for each target instead.
   if options.static_asserts == false then
-    pragmas.nocstaticassert = true
+    set_pragma(defaults, active, 'nocstaticassert', true)
   end
 
-  defaults.compact_c_short_names = options.short_names ~= false
-  defaults.compact_c_internal_names = options.internal_names ~= false
-  defaults.compact_c_clean_conditions = options.clean_conditions ~= false
-  defaults.compact_c_suppress_export_declarations =
-    options.export_declarations == false
+  set_option(defaults, active, 'compact_c_short_names', options.short_names ~= false)
+  set_option(defaults, active, 'compact_c_internal_names', options.internal_names ~= false)
+  set_option(defaults, active, 'compact_c_clean_conditions', options.clean_conditions ~= false)
+  set_option(defaults, active, 'compact_c_suppress_export_declarations',
+             options.export_declarations == false)
 
   install_hooks()
 end
