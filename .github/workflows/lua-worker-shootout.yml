@@ -26,8 +26,12 @@ jobs:
         run: bash scripts/bootstrap.sh 2>&1 | tee bootstrap.log
       - name: Build and correctness-gate every contender
         run: timeout --signal=KILL 900s python3 perf/prepare.py 2>&1 | tee reports/shootout-build.log
+      - name: Prove shipped profiles match the measured binaries
+        run: timeout --signal=KILL 300s bash perf/check-profiles.sh 2>&1 | tee reports/profile-verification.log
       - name: Measure balanced rounds and memory soak in stock workerd
         run: timeout --signal=KILL 900s node perf/run.mjs 2>&1 | tee reports/shootout-run.log
+      - name: Diagnose heap retention separately from performance timings
+        run: timeout --signal=KILL 300s node perf/memory-diagnostic.mjs 2>&1 | tee reports/memory-diagnostic.log
       - name: Publish result summary
         if: always()
         run: |
@@ -39,6 +43,7 @@ jobs:
           name: lua-shootout-${{ github.run_id }}
           path: |
             experiments/lua-worker/reports/
+            experiments/lua-worker/dist/profiles/
             experiments/lua-worker/dist/shootout/**/reports/
             experiments/lua-worker/dist/shootout/**/core/
             experiments/lua-worker/dist/shootout/**/host/

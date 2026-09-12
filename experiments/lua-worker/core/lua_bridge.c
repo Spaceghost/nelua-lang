@@ -99,6 +99,27 @@ static void capability(lua_State *L, uint32_t id, int kind) {
   cap->id = id; cap->kind = kind;
   luaL_setmetatable(L, CAP);
 }
+/* Trusted dispatch compiled once, with explicit Lua continuations.
+ * Keep all handler results: the outer contract rejects zero/multiple responses. */
+static int handler_return(lua_State *L, int status, lua_KContext prefix) {
+  (void)status;
+  return lua_gettop(L) - (int)prefix;
+}
+static int enter_handler(lua_State *L, int status, lua_KContext context) {
+  (void)status; (void)context;
+  if (!lua_istable(L, 5)) return luaL_error(L, "application must return a fetch handler");
+  lua_getfield(L, 5, "fetch");
+  if (!lua_isfunction(L, -1)) return luaL_error(L, "application must return a fetch handler");
+  lua_remove(L, 5);
+  lua_pushvalue(L, 2); lua_pushvalue(L, 3); lua_pushvalue(L, 4);
+  lua_callk(L, 3, LUA_MULTRET, 4, handler_return);
+  return handler_return(L, LUA_OK, 4);
+}
+static int worker_entry(lua_State *L) {
+  lua_pushvalue(L, 1);
+  lua_callk(L, 0, 1, 0, enter_handler);
+  return enter_handler(L, LUA_OK, 0);
+}
 static int prepare(lua_State *L) {
   Vm *vm = lua_touserdata(L, 1);
   luaL_requiref(L, "_G", luaopen_base, 1); lua_pop(L, 1);
@@ -123,11 +144,7 @@ static int prepare(lua_State *L) {
   luaL_ref(L, LUA_REGISTRYINDEX); /* root owns this coroutine until close */
   if (!lua_checkstack(vm->co, 32)) return luaL_error(L, "coroutine stack allocation failed");
   lua_sethook(vm->co, budget, LUA_MASKCOUNT, 1000);
-  const char *entry = "return function(app, request, env, ctx) "
-    "local h=app(); assert(type(h)=='table' and type(h.fetch)=='function', "
-    "'application must return a fetch handler'); return h.fetch(request,env,ctx) end";
-  if (luaL_loadbufferx(L, entry, strlen(entry), "@worker-entry.lua", "t")) return lua_error(L);
-  lua_call(L, 0, 1); /* only constructs the trusted wrapper; application runs on co */
+  lua_pushcfunction(L, worker_entry);
   if (luaL_loadbufferx(L, vm->source, vm->source_n, "@app.lua", "t")) return lua_error(L);
   lua_createtable(L, 0, 3);
   lua_pushlstring(L, vm->method, vm->method_n); lua_setfield(L, -2, "method");

@@ -14,7 +14,15 @@ nelua="$PWD/.deps/nelua/nelua"
 "$nelua" --no-cache --cc emcc --code -P "unitname=''" -o dist/kernel-wasm.c core/kernel.nelua
 "$nelua" --no-cache --cc gcc --code -P "unitname=''" -o dist/kernel-native.c core/kernel.nelua
 exports='["_malloc","_free","_lw_abi_version","_lw_ping","_lw_open","_lw_start","_lw_state","_lw_sequence","_lw_kind","_lw_status","_lw_data","_lw_size","_lw_complete","_lw_release","_lw_active","_lw_bytes"]'
-emcc -O2 -std=c11 -fwasm-exceptions -sSUPPORT_LONGJMP=wasm \
+# Profiles change optimization only; validation, quotas and hook budgets stay on.
+case "${WASM_PROFILE:-balanced}" in
+  balanced) wasm_flags=(-O2) ;;
+  cpu) wasm_flags=(-O3 -flto) ;;
+  compact) wasm_flags=(-Oz -flto) ;;
+  *) echo 'WASM_PROFILE must be balanced, cpu, or compact' >&2; exit 2 ;;
+esac
+printf '%s\n' "WASM_PROFILE=${WASM_PROFILE:-balanced}" "WASM_FLAGS=${wasm_flags[*]}" > reports/build-profile.txt
+emcc "${wasm_flags[@]}" -std=c11 -fwasm-exceptions -sSUPPORT_LONGJMP=wasm \
   -I"$lua_src" -Icore dist/kernel-wasm.c core/lua_bridge.c "${sources[@]}" \
   --no-entry -sSTANDALONE_WASM=1 -sFILESYSTEM=0 -sALLOW_MEMORY_GROWTH=1 \
   -sINITIAL_MEMORY=4194304 -sMAXIMUM_MEMORY=33554432 -sSTACK_SIZE=1048576 \

@@ -29,8 +29,8 @@ jobs:
         run: bash scripts/build.sh 2>&1 | tee build.log
       - name: Native ASan and UBSan contract
         run: timeout --signal=KILL 60s dist/native-contract 2>&1 | tee reports/native-tests.txt
-      - name: Wasm runtime contracts
-        run: timeout --signal=KILL 60s node --test tests/runtime.test.mjs 2>&1 | tee reports/runtime-tests.tap
+      - name: Wasm runtime and performance-regression contracts
+        run: timeout --signal=KILL 60s node --test tests/runtime.test.mjs perf/regression.test.mjs 2>&1 | tee reports/runtime-tests.tap
       - name: Unmodified workerd HTTP acceptance
         run: timeout --signal=KILL 60s node tests/workerd.test.mjs 2>&1 | tee reports/workerd-tests.txt
       - name: Record descriptive startup memory and boundary samples
