@@ -1,0 +1,8 @@
+{
+  "lua": { "version": "5.5.1", "url": "https://www.lua.org/ftp/lua-5.5.1.tar.gz", "sha256": "1c4b4068d67061f2a2231ad2b5422e77acea1487ea9890f6320af614f4373dce" },
+  "nelua": { "repository": "https://github.com/edubart/nelua-lang.git", "commit": "a58450563e2d2ec49bff499865c8b5cfdf6ff81a" },
+  "emsdk": { "repository": "https://github.com/emscripten-core/emsdk.git", "commit": "eff90ca04a3785f571a8095b3a42b63799cf384a", "version": "4.0.14" },
+  "workerd": "1.20260911.1",
+  "node": "22.16.0",
+  "compatibilityDate": "2026-09-01"
+}

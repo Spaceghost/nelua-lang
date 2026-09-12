@@ -1,0 +1,57 @@
+name: Lua worker performance shootout
+on:
+  pull_request:
+    paths: ['experiments/lua-worker/perf/**', '.github/workflows/lua-worker-shootout.yml']
+permissions:
+  contents: read
+concurrency:
+  group: lua-worker-shootout-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  shootout:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: experiments/lua-worker
+        shell: bash
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22.16.0'
+      - name: Bootstrap the pinned toolchain
+        run: bash scripts/bootstrap.sh 2>&1 | tee bootstrap.log
+      - name: Build and correctness-gate every contender
+        run: timeout --signal=KILL 900s python3 perf/prepare.py 2>&1 | tee reports/shootout-build.log
+      - name: Prove shipped profiles match the measured binaries
+        run: timeout --signal=KILL 300s bash perf/check-profiles.sh 2>&1 | tee reports/profile-verification.log
+      - name: Measure balanced rounds and memory soak in stock workerd
+        run: timeout --signal=KILL 900s node perf/run.mjs 2>&1 | tee reports/shootout-run.log
+      - name: Diagnose heap retention separately from performance timings
+        run: timeout --signal=KILL 300s node perf/memory-diagnostic.mjs 2>&1 | tee reports/memory-diagnostic.log
+      - name: Publish result summary
+        if: always()
+        run: |
+          if test -f reports/shootout/RESULTS.md; then cat reports/shootout/RESULTS.md >> "$GITHUB_STEP_SUMMARY"; fi
+      - name: Retain source, binaries and raw evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: lua-shootout-${{ github.run_id }}
+          path: |
+            experiments/lua-worker/reports/
+            experiments/lua-worker/dist/profiles/
+            experiments/lua-worker/dist/shootout/**/reports/
+            experiments/lua-worker/dist/shootout/**/core/
+            experiments/lua-worker/dist/shootout/**/host/
+            experiments/lua-worker/dist/shootout/**/scripts/build.sh
+            experiments/lua-worker/dist/shootout/**/dist/kernel*
+            experiments/lua-worker/dist/shootout/manifest.json
+            experiments/lua-worker/perf/
+            experiments/lua-worker/toolchain.json
+            experiments/lua-worker/package-lock.json
+          if-no-files-found: error
+          retention-days: 30
