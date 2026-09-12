@@ -1,0 +1,15 @@
+{
+  "name": "lua-nelua-workerd-prototype",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "bootstrap": "bash scripts/bootstrap.sh",
+    "build": "bash scripts/build.sh",
+    "test": "node --test tests/runtime.test.mjs && node tests/workerd.test.mjs",
+    "start": "workerd serve workerd.capnp",
+    "start:bounded": "node scripts/supervise.mjs 60000 node_modules/.bin/workerd serve workerd.capnp"
+  },
+  "devDependencies": { "workerd": "1.20260911.1" },
+  "engines": { "node": ">=22.16.0" }
+}
