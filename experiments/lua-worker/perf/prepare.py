@@ -38,6 +38,16 @@ static int worker_entry(lua_State *L) {
 '''
     return replace_once(source, 'static int prepare(lua_State *L) {', functions + 'static int prepare(lua_State *L) {')
 
+def bootstrap_gc(source):
+    # Stop only during trusted library/coroutine setup. Guest parsing and execution
+    # retain the normal collector, allocator quota and instruction hooks.
+    source = replace_once(source, 'static int prepare(lua_State *L) {',
+        'static int prepare(lua_State *L) {\n  lua_gc(L, LUA_GCSTOP);')
+    source = replace_once(source, '  lua_pushcfunction(L, worker_entry);',
+        '  lua_gc(L, LUA_GCRESTART);\n  lua_pushcfunction(L, worker_entry);')
+    return replace_once(source, 'static int worker_entry(lua_State *L) {',
+        'static int worker_entry(lua_State *L) {\n  if (!lua_gc(L, LUA_GCISRUNNING)) return luaL_error(L, "collector must run for guest code");')
+
 def slots(source):
     source = replace_once(source, '''  for i=0,7 do
     if slots[i].id == id then return &slots[i] end
@@ -97,10 +107,17 @@ if __name__ == '__main__':
     archive = subprocess.run(['git', 'archive', f'{BASE}:experiments/lua-worker'], cwd=checkout, capture_output=True, check=True).stdout
     subprocess.run(['tar', '-x', '-C', str(baseline)], input=archive, check=True)
     assert (baseline/'scripts/build.sh').is_file(), 'frozen baseline archive is incomplete'
-    contenders = [('baseline','-O2',False,False), ('o3-lto','-O3 -flto',False,False),
-                  ('oz-lto','-Oz -flto',False,False), ('entry-o3','-O3 -flto',True,False),
-                  ('combined-o3','-O3 -flto',True,True)]
-    manifest = {'baselineCommit': BASE, 'headCommit': subprocess.check_output(['git','rev-parse','HEAD'],text=True).strip(),
+    sets = {
+        'initial': [('baseline','-O2',False,False), ('o3-lto','-O3 -flto',False,False),
+                    ('oz-lto','-Oz -flto',False,False), ('entry-o3','-O3 -flto',True,False),
+                    ('combined-o3','-O3 -flto',True,True)],
+        'refine': [('baseline','-O2',False,False), ('entry-o2','-O2',True,False),
+                   ('entry-o3','-O3 -flto',True,False), ('entry-oz','-Oz -flto',True,False),
+                   ('entry-simd','-O3 -flto -msimd128',True,False), ('entry-gc','-O3 -flto',True,False)]
+    }
+    selected = os.environ.get('SHOOTOUT_SET', 'refine')
+    contenders = sets[selected]
+    manifest = {'set':selected,'baselineCommit': BASE, 'headCommit': subprocess.check_output(['git','rev-parse','HEAD'],text=True).strip(),
                 'toolchain': json.loads((ROOT/'toolchain.json').read_text()), 'variants': []}
     for name, flags, dispatch, combined in contenders:
         target = OUT/name
@@ -111,6 +128,8 @@ if __name__ == '__main__':
         (target/'reports').mkdir(exist_ok=True)
         if dispatch:
             path=target/'core/lua_bridge.c';path.write_text(entry(path.read_text()))
+        if name == 'entry-gc':
+            path=target/'core/lua_bridge.c';path.write_text(bootstrap_gc(path.read_text()))
         if combined:
             path=target/'core/kernel.nelua';path.write_text(slots(path.read_text()))
             path=target/'host/runtime.mjs';path.write_text(bridge(path.read_text()))
@@ -125,7 +144,7 @@ if __name__ == '__main__':
         run(['timeout','60','node','--test','tests/performance-regression.test.mjs'],target,target/'reports/performance-regression.tap')
         run(['timeout','60','node','tests/workerd.test.mjs'],target,target/'reports/workerd-tests.txt')
         paths=['core/kernel.nelua','core/lua_bridge.c','core/kernel.h','host/runtime.mjs','host/workerd.mjs','scripts/build.sh','dist/kernel.wasm']
-        item={'name':name,'flags':flags,'dispatch':dispatch,'combined':combined,'contract':'PASS',
+        item={'name':name,'flags':flags,'dispatch':dispatch,'combined':combined,'bootstrapGcPause':name=='entry-gc','contract':'PASS',
               'wasmBytes':(target/'dist/kernel.wasm').stat().st_size,
               'sha256':{p:hashlib.sha256((target/p).read_bytes()).hexdigest() for p in paths}}
         manifest['variants'].append(item)
