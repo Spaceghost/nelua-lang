@@ -93,8 +93,10 @@ if __name__ == '__main__':
     baseline = ROOT / '.deps' / 'shootout-baseline'
     if baseline.exists(): shutil.rmtree(baseline)
     baseline.mkdir()
-    archive = subprocess.run(['git', 'archive', f'{BASE}:experiments/lua-worker'], capture_output=True, check=True).stdout
+    checkout = subprocess.check_output(['git','rev-parse','--show-toplevel'],text=True).strip()
+    archive = subprocess.run(['git', 'archive', f'{BASE}:experiments/lua-worker'], cwd=checkout, capture_output=True, check=True).stdout
     subprocess.run(['tar', '-x', '-C', str(baseline)], input=archive, check=True)
+    assert (baseline/'scripts/build.sh').is_file(), 'frozen baseline archive is incomplete'
     contenders = [('baseline','-O2',False,False), ('o3-lto','-O3 -flto',False,False),
                   ('oz-lto','-Oz -flto',False,False), ('entry-o3','-O3 -flto',True,False),
                   ('combined-o3','-O3 -flto',True,True)]
