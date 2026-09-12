@@ -1,0 +1,55 @@
+name: Lua workerd prototype
+on:
+  push:
+    branches: [lua-workerd-prototype]
+    paths: ['experiments/lua-worker/**', '.github/workflows/lua-workerd-prototype.yml']
+  pull_request:
+    paths: ['experiments/lua-worker/**', '.github/workflows/lua-workerd-prototype.yml']
+permissions:
+  contents: read
+concurrency:
+  group: lua-workerd-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  contract:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: experiments/lua-worker
+        shell: bash
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22.16.0'
+      - name: Pin and bootstrap toolchains
+        run: bash scripts/bootstrap.sh 2>&1 | tee bootstrap.log
+      - name: Generate Nelua C and build real Lua for Wasm and native
+        run: bash scripts/build.sh 2>&1 | tee build.log
+      - name: Native ASan and UBSan contract
+        run: timeout --signal=KILL 60s dist/native-contract 2>&1 | tee reports/native-tests.txt
+      - name: Wasm runtime contracts
+        run: timeout --signal=KILL 60s node --test tests/runtime.test.mjs 2>&1 | tee reports/runtime-tests.tap
+      - name: Unmodified workerd HTTP acceptance
+        run: timeout --signal=KILL 60s node tests/workerd.test.mjs 2>&1 | tee reports/workerd-tests.txt
+      - name: Package reproducible source and evidence
+        if: always()
+        run: |
+          mkdir -p reports
+          git rev-parse HEAD > reports/commit.txt
+          tar --exclude=.deps --exclude=node_modules --exclude=source.tar.gz --exclude=bootstrap.log --exclude=build.log -czf /tmp/lua-worker-source.tar.gz .
+          cp /tmp/lua-worker-source.tar.gz reports/source.tar.gz
+      - name: Retain build and test evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: lua-workerd-${{ github.run_id }}
+          path: |
+            experiments/lua-worker/reports/
+            experiments/lua-worker/dist/
+            experiments/lua-worker/bootstrap.log
+            experiments/lua-worker/build.log
+            experiments/lua-worker/package-lock.json
+          if-no-files-found: error
+          retention-days: 14

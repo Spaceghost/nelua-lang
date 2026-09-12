@@ -1,0 +1,167 @@
+-- SPDX-License-Identifier: MIT
+-- Host-independent ownership, bounded buffers, allocation and operation records.
+## pragmas.nogc = true
+## pragmas.noentrypoint = true
+## pragmas.abort = 'trap'
+## pragmas.writestderr = 'none'
+local function memcpy(dst: pointer, src: pointer, n: csize): pointer <cimport, nodecl, cinclude '<string.h>'> end
+local function realloc(p: pointer, n: csize): pointer <cimport, nodecl, cinclude '<stdlib.h>'> end
+local function free(p: pointer) <cimport, nodecl, cinclude '<stdlib.h>'> end
+local function bridge_close(vm: pointer) <cimport> end
+local function bridge_resume(id: uint32): cint <cimport> end
+
+local Invocation = @record{
+  id: uint32, sequence: uint32, state: cint, kind: cint,
+  status: cint, ok: cint, operations: uint32, fetches: uint32,
+  ticks: uint32, used: csize, n: csize, vm: pointer,
+  buffer: [65536]cchar
+}
+-- States: 0 absent, 1 ready, 2 running, 3 waiting, 4 done, 5 failed.
+-- IDs never wrap: exhaustion refuses new invocations rather than aliasing a stale ID.
+local slots: [8]Invocation
+local serial: uint32
+local function lookup(id: uint32): *Invocation
+  if id == 0 then return nilptr end
+  for i=0,7 do
+    if slots[i].id == id then return &slots[i] end
+  end
+  return nilptr
+end
+local function copy(r: *Invocation, p: pointer, n: csize)
+  if n > 0 then memcpy(&r.buffer[0], p, n) end
+  r.n = n
+end
+local function lw_abi_version(): uint32 <cexport> return 1 end
+local function lw_ping(n: uint32): uint32 <cexport> return n end
+local function lw_open(): uint32 <cexport>
+  if serial >= 2147483600 then return 0 end
+  for i=0,7 do
+    local r = &slots[i]
+    if r.id == 0 then
+      $r = Invocation{}
+      serial = serial + 1
+      r.id = serial
+      r.state = 1
+      r.ticks = 1000 -- 1,000 hooks of 1,000 VM instructions.
+      return r.id
+    end
+  end
+  return 0
+end
+local function lw_state(id: uint32): cint <cexport>
+  local r = lookup(id)
+  if r == nilptr then return 0 end
+  return r.state
+end
+local function lw_vm(id: uint32): pointer <cexport>
+  local r = lookup(id)
+  if r == nilptr then return nilptr end
+  return r.vm
+end
+local function lw_attach(id: uint32, vm: pointer): cint <cexport>
+  local r = lookup(id)
+  if r == nilptr or r.state ~= 1 then return -1 end
+  r.vm = vm
+  r.state = 2
+  return 0
+end
+local function lw_tick(id: uint32): cint <cexport>
+  local r = lookup(id)
+  if r == nilptr or r.ticks == 0 then return 0 end
+  r.ticks = r.ticks - 1
+  return 1
+end
+local function lw_lua_alloc(ud: pointer, p: pointer, old: csize, n: csize): pointer <cexport>
+  local r = lookup(uint32(usize(ud)))
+  if r == nilptr then return nilptr end
+  if p == nilptr then old = 0 end -- Lua passes a type tag as osize for new allocations.
+  if n == 0 then
+    free(p)
+    r.used = r.used - old
+    return nilptr
+  end
+  if old > r.used or n > 2097152 or r.used - old > 2097152 - n then return nilptr end
+  local q = realloc(p, n)
+  if q ~= nilptr then r.used = r.used - old + n end
+  return q
+end
+local function lw_issue(id: uint32, kind: cint, p: pointer, n: csize): cint <cexport>
+  local r = lookup(id)
+  if r == nilptr or r.state ~= 2 then return -1 end
+  if kind < 1 or kind > 3 or r.operations >= 16 then return -2 end
+  if (kind == 1 and (n == 0 or n > 256)) or
+     (kind == 2 and (n == 0 or n > 4096 or r.fetches >= 1)) or
+     (kind == 3 and n > 2048) then return -3 end
+  if kind == 2 then r.fetches = r.fetches + 1 end
+  r.operations = r.operations + 1
+  r.sequence = r.sequence + 1
+  r.kind = kind
+  copy(r, p, n)
+  r.state = 3
+  return 0
+end
+local function lw_sequence(id: uint32): uint32 <cexport>
+  local r = lookup(id)
+  if r == nilptr then return 0 end
+  return r.sequence
+end
+local function lw_kind(id: uint32): cint <cexport>
+  local r = lookup(id)
+  if r == nilptr then return 0 end
+  return r.kind
+end
+local function lw_status(id: uint32): cint <cexport>
+  local r = lookup(id)
+  if r == nilptr then return 0 end
+  return r.status
+end
+local function lw_ok(id: uint32): cint <cexport>
+  local r = lookup(id)
+  if r == nilptr then return 0 end
+  return r.ok
+end
+local function lw_data(id: uint32): cstring <cexport>
+  local r = lookup(id)
+  if r == nilptr then return nilptr end
+  return &r.buffer[0]
+end
+local function lw_size(id: uint32): csize <cexport>
+  local r = lookup(id)
+  if r == nilptr then return 0 end
+  return r.n
+end
+local function lw_result(id: uint32, state: cint, status: cint, p: pointer, n: csize): cint <cexport>
+  local r = lookup(id)
+  if r == nilptr or n > 65536 or (state ~= 4 and state ~= 5) then return -1 end
+  copy(r, p, n)
+  r.state, r.status = state, status
+  return state
+end
+local function lw_complete(id: uint32, sequence: uint32, ok: cint, status: cint, p: pointer, n: csize): cint <cexport>
+  local r = lookup(id)
+  if r == nilptr or r.state ~= 3 or r.sequence ~= sequence then return -1 end
+  if n > 65536 or (ok ~= 0 and ok ~= 1) then return -2 end
+  copy(r, p, n)
+  r.ok, r.status, r.state = ok, status, 2
+  return bridge_resume(id)
+end
+local function lw_release(id: uint32): cint <cexport>
+  local r = lookup(id)
+  if r == nilptr then return -1 end
+  -- Keep the ID live until lua_close has called the accounting allocator for every free.
+  if r.vm ~= nilptr then bridge_close(r.vm) end
+  r.vm = nilptr
+  r.id, r.state = 0, 0
+  if r.used ~= 0 then return -2 end
+  return 0
+end
+local function lw_active(): uint32 <cexport>
+  local n: uint32
+  for i=0,7 do if slots[i].id ~= 0 then n = n + 1 end end
+  return n
+end
+local function lw_bytes(): csize <cexport>
+  local n: csize
+  for i=0,7 do n = n + slots[i].used end
+  return n
+end
