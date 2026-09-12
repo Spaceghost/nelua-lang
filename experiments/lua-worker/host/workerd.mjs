@@ -2,7 +2,8 @@
 import module from './kernel.wasm';
 import application from './app.lua';
 import { LuaRuntime, readBounded } from './runtime.mjs';
-const runtime = new LuaRuntime(module);
+// Exported only to trusted host-side contract tests, never through the Lua API.
+export const runtime = new LuaRuntime(module);
 export function capabilities(env) {
   return {
     async get(key, { signal }) {

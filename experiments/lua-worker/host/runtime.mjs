@@ -52,15 +52,16 @@ function bounded(value, max, label) {
 }
 export class LuaRuntime {
   constructor(module) {
-    // These libc imports are denied, not a filesystem, clock, or general WASI bridge.
-    const denied = () => 8; // EBADF
-    const wasi = { fd_close: denied, fd_seek: denied, fd_write: denied,
+    // These retained libc imports are DENIED, not a filesystem or general WASI bridge.
+    // fd_* return WASI EBADF; Emscripten's syscall convention returns negative errno.
+    const denied = () => 8;
+    const wasi = { fd_close: denied, fd_seek: denied, fd_write: denied, fd_read: denied,
       environ_sizes_get: denied, environ_get: denied, clock_time_get: () => 52,
       proc_exit: code => { throw new WorkerError(`Wasm process exit ${code}`, 'WASM_TRAP'); } };
-    const env = { emscripten_notify_memory_growth() {}, emscripten_date_now: () => 0 };
+    const env = { emscripten_notify_memory_growth() {}, __syscall_dup3: () => -8 };
     for (const item of WebAssembly.Module.imports(module)) {
-      if (!(item.module === 'env' && item.name in env) &&
-          !(item.module === 'wasi_snapshot_preview1' && item.name in wasi))
+      if (item.kind !== 'function' || (!(item.module === 'env' && Object.hasOwn(env,item.name)) &&
+          !(item.module === 'wasi_snapshot_preview1' && Object.hasOwn(wasi,item.name))))
         throw new Error(`unapproved Wasm import ${item.module}.${item.name}`);
     }
     this.e = new WebAssembly.Instance(module, { env, wasi_snapshot_preview1: wasi }).exports;
