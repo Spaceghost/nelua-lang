@@ -3,6 +3,7 @@ const config :Workerd.Config = (
   services = [
     (name = "lua", worker = (
       compatibilityDate = "2026-09-01",
+      compatibilityFlags = ["enable_request_signal"],
       modules = [
         (name = "workerd.mjs", esModule = embed "host/workerd.mjs"),
         (name = "runtime.mjs", esModule = embed "host/runtime.mjs"),

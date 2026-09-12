@@ -3,7 +3,9 @@ const config :Workerd.Config = (
   services = [
     (name = "test", worker = (
       compatibilityDate = "2026-09-01",
+      compatibilityFlags = ["enable_request_signal"],
       modules = [
+        (name = "wire.mjs", esModule = embed "wire.mjs"),
         (name = "test.mjs", esModule = embed "in-workerd.mjs"),
         (name = "workerd.mjs", esModule = embed "../host/workerd.mjs"),
         (name = "runtime.mjs", esModule = embed "../host/runtime.mjs"),

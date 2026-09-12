@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
+import { get as httpGet } from 'node:http';
 import { once } from 'node:events';
 import { mkdir, writeFile } from 'node:fs/promises';
 const pause=ms=>new Promise(r=>setTimeout(r,ms));
@@ -37,4 +38,20 @@ await serve('tests/in-workerd.capnp',8788,async()=>{
   console.log('inside stock workerd: '+result.passed.length+' contract groups passed');
   for(const name of result.passed)console.log('PASS '+name);
   console.log('quiescent accounting: '+JSON.stringify(result.stats));
+  // A real TCP disconnect, not merely a manually aborted signal in the same isolate.
+  const client=httpGet('http://127.0.0.1:8788/wire/start',r=>r.resume());
+  client.on('error',()=>{}); // ECONNRESET is the deliberate client-side action below.
+  const status=async()=>{const r=await fetch('http://127.0.0.1:8788/wire/status');return r.json();};
+  let snapshot;
+  try {
+    for(let i=0;i<100;i++){snapshot=await status();if(snapshot.cases[0]?.started)break;await pause(5);}
+    assert.equal(snapshot.cases[0]?.started,true);assert.equal(snapshot.stats.active,1);
+    client.destroy();
+    for(let i=0;i<100;i++){snapshot=await status();if(snapshot.cases[0]?.finished)break;await pause(5);}
+    await writeFile('reports/network-disconnect.json',JSON.stringify(snapshot,null,2)+'\n');
+    assert.equal(snapshot.cases[0]?.networkAbort,true,JSON.stringify(snapshot));
+    assert.equal(snapshot.cases[0]?.finished,true,JSON.stringify(snapshot));
+    assert.equal(snapshot.stats.active,0);assert.equal(snapshot.stats.luaBytes,0);assert.equal(snapshot.stats.admitted,0);assert.equal(snapshot.stats.outstanding,0);
+    console.log('PASS actual client disconnect signals cancellation and releases Lua plus host-operation accounting');
+  } finally {client.destroy();}
 },'in-workerd.log');
