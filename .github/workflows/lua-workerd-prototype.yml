@@ -33,6 +33,8 @@ jobs:
         run: timeout --signal=KILL 60s node --test tests/runtime.test.mjs 2>&1 | tee reports/runtime-tests.tap
       - name: Unmodified workerd HTTP acceptance
         run: timeout --signal=KILL 60s node tests/workerd.test.mjs 2>&1 | tee reports/workerd-tests.txt
+      - name: Record descriptive startup memory and boundary samples
+        run: timeout --signal=KILL 60s node scripts/bench.mjs 2>&1 | tee reports/benchmark-summary.txt
       - name: Package reproducible source and evidence
         if: always()
         run: |

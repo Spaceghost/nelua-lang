@@ -31,9 +31,9 @@ local function copy(r: *Invocation, p: pointer, n: csize)
   if n > 0 then memcpy(&r.buffer[0], p, n) end
   r.n = n
 end
-local function lw_abi_version(): uint32 <cexport> return 1 end
-local function lw_ping(n: uint32): uint32 <cexport> return n end
-local function lw_open(): uint32 <cexport>
+local function lw_abi_version(): uint32 <cexport, codename 'lw_abi_version'> return 1 end
+local function lw_ping(n: uint32): uint32 <cexport, codename 'lw_ping'> return n end
+local function lw_open(): uint32 <cexport, codename 'lw_open'>
   if serial >= 2147483600 then return 0 end
   for i=0,7 do
     local r = &slots[i]
@@ -48,30 +48,31 @@ local function lw_open(): uint32 <cexport>
   end
   return 0
 end
-local function lw_state(id: uint32): cint <cexport>
+local function lw_state(id: uint32): cint <cexport, codename 'lw_state'>
   local r = lookup(id)
   if r == nilptr then return 0 end
   return r.state
 end
-local function lw_vm(id: uint32): pointer <cexport>
+local function lw_vm(id: uint32): pointer <cexport, codename 'lw_vm'>
   local r = lookup(id)
   if r == nilptr then return nilptr end
   return r.vm
 end
-local function lw_attach(id: uint32, vm: pointer): cint <cexport>
+local function lw_attach(id: uint32, vm: pointer): cint <cexport, codename 'lw_attach'>
   local r = lookup(id)
   if r == nilptr or r.state ~= 1 then return -1 end
   r.vm = vm
   r.state = 2
   return 0
 end
-local function lw_tick(id: uint32): cint <cexport>
+local function lw_tick(id: uint32): cint <cexport, codename 'lw_tick'>
   local r = lookup(id)
   if r == nilptr or r.ticks == 0 then return 0 end
   r.ticks = r.ticks - 1
+  if r.ticks == 0 then return 0 end
   return 1
 end
-local function lw_lua_alloc(ud: pointer, p: pointer, old: csize, n: csize): pointer <cexport>
+local function lw_lua_alloc(ud: pointer, p: pointer, old: csize, n: csize): pointer <cexport, codename 'lw_lua_alloc'>
   local r = lookup(uint32(usize(ud)))
   if r == nilptr then return nilptr end
   if p == nilptr then old = 0 end -- Lua passes a type tag as osize for new allocations.
@@ -85,7 +86,7 @@ local function lw_lua_alloc(ud: pointer, p: pointer, old: csize, n: csize): poin
   if q ~= nilptr then r.used = r.used - old + n end
   return q
 end
-local function lw_issue(id: uint32, kind: cint, p: pointer, n: csize): cint <cexport>
+local function lw_issue(id: uint32, kind: cint, p: pointer, n: csize): cint <cexport, codename 'lw_issue'>
   local r = lookup(id)
   if r == nilptr or r.state ~= 2 then return -1 end
   if kind < 1 or kind > 3 or r.operations >= 16 then return -2 end
@@ -100,44 +101,44 @@ local function lw_issue(id: uint32, kind: cint, p: pointer, n: csize): cint <cex
   r.state = 3
   return 0
 end
-local function lw_sequence(id: uint32): uint32 <cexport>
+local function lw_sequence(id: uint32): uint32 <cexport, codename 'lw_sequence'>
   local r = lookup(id)
   if r == nilptr then return 0 end
   return r.sequence
 end
-local function lw_kind(id: uint32): cint <cexport>
+local function lw_kind(id: uint32): cint <cexport, codename 'lw_kind'>
   local r = lookup(id)
   if r == nilptr then return 0 end
   return r.kind
 end
-local function lw_status(id: uint32): cint <cexport>
+local function lw_status(id: uint32): cint <cexport, codename 'lw_status'>
   local r = lookup(id)
   if r == nilptr then return 0 end
   return r.status
 end
-local function lw_ok(id: uint32): cint <cexport>
+local function lw_ok(id: uint32): cint <cexport, codename 'lw_ok'>
   local r = lookup(id)
   if r == nilptr then return 0 end
   return r.ok
 end
-local function lw_data(id: uint32): cstring <cexport>
+local function lw_data(id: uint32): cstring <cexport, codename 'lw_data'>
   local r = lookup(id)
   if r == nilptr then return nilptr end
   return &r.buffer[0]
 end
-local function lw_size(id: uint32): csize <cexport>
+local function lw_size(id: uint32): csize <cexport, codename 'lw_size'>
   local r = lookup(id)
   if r == nilptr then return 0 end
   return r.n
 end
-local function lw_result(id: uint32, state: cint, status: cint, p: pointer, n: csize): cint <cexport>
+local function lw_result(id: uint32, state: cint, status: cint, p: pointer, n: csize): cint <cexport, codename 'lw_result'>
   local r = lookup(id)
   if r == nilptr or n > 65536 or (state ~= 4 and state ~= 5) then return -1 end
   copy(r, p, n)
   r.state, r.status = state, status
   return state
 end
-local function lw_complete(id: uint32, sequence: uint32, ok: cint, status: cint, p: pointer, n: csize): cint <cexport>
+local function lw_complete(id: uint32, sequence: uint32, ok: cint, status: cint, p: pointer, n: csize): cint <cexport, codename 'lw_complete'>
   local r = lookup(id)
   if r == nilptr or r.state ~= 3 or r.sequence ~= sequence then return -1 end
   if n > 65536 or (ok ~= 0 and ok ~= 1) then return -2 end
@@ -145,7 +146,7 @@ local function lw_complete(id: uint32, sequence: uint32, ok: cint, status: cint,
   r.ok, r.status, r.state = ok, status, 2
   return bridge_resume(id)
 end
-local function lw_release(id: uint32): cint <cexport>
+local function lw_release(id: uint32): cint <cexport, codename 'lw_release'>
   local r = lookup(id)
   if r == nilptr then return -1 end
   -- Keep the ID live until lua_close has called the accounting allocator for every free.
@@ -155,12 +156,12 @@ local function lw_release(id: uint32): cint <cexport>
   if r.used ~= 0 then return -2 end
   return 0
 end
-local function lw_active(): uint32 <cexport>
+local function lw_active(): uint32 <cexport, codename 'lw_active'>
   local n: uint32
   for i=0,7 do if slots[i].id ~= 0 then n = n + 1 end end
   return n
 end
-local function lw_bytes(): csize <cexport>
+local function lw_bytes(): csize <cexport, codename 'lw_bytes'>
   local n: csize
   for i=0,7 do n = n + slots[i].used end
   return n
