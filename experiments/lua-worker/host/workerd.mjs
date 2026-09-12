@@ -17,9 +17,16 @@ export function capabilities(env) {
     log(message) { console.log(JSON.stringify({ source: 'lua', message })); }
   };
 }
+export function runWithContext(source, request, host, ctx, options) {
+  const task = runtime.run(source, request, host, options);
+  // Keep bounded cleanup alive even if the HTTP caller abandons its response.
+  // This is a host lifecycle responsibility, not a guest waitUntil capability.
+  ctx.waitUntil(task.then(() => {}, () => {}));
+  return task;
+}
 export default {
-  async fetch(request, env) {
-    try { return await runtime.run(application, request, capabilities(env)); }
+  async fetch(request, env, ctx) {
+    try { return await runWithContext(application, request, capabilities(env), ctx); }
     catch (error) {
       console.error(JSON.stringify({ source: 'lua', code: error.code, traceback: error.message }));
       const status = error.code === 'TIMEOUT' ? 504 : error.code === 'CAPACITY' ? 503 : error.code === 'BODY_LIMIT' ? 413 : 500;

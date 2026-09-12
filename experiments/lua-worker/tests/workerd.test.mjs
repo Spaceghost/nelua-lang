@@ -38,20 +38,29 @@ await serve('tests/in-workerd.capnp',8788,async()=>{
   console.log('inside stock workerd: '+result.passed.length+' contract groups passed');
   for(const name of result.passed)console.log('PASS '+name);
   console.log('quiescent accounting: '+JSON.stringify(result.stats));
-  // A real TCP disconnect, not merely a manually aborted signal in the same isolate.
-  const client=httpGet('http://127.0.0.1:8788/wire/start',r=>r.resume());
-  client.on('error',()=>{}); // ECONNRESET is the deliberate client-side action below.
   const status=async()=>{const r=await fetch('http://127.0.0.1:8788/wire/status');return r.json();};
-  let snapshot;
-  try {
-    for(let i=0;i<100;i++){snapshot=await status();if(snapshot.cases[0]?.started)break;await pause(5);}
-    assert.equal(snapshot.cases[0]?.started,true);assert.equal(snapshot.stats.active,1);
-    client.destroy();
-    for(let i=0;i<100;i++){snapshot=await status();if(snapshot.cases[0]?.finished)break;await pause(5);}
-    await writeFile('reports/network-disconnect.json',JSON.stringify(snapshot,null,2)+'\n');
-    assert.equal(snapshot.cases[0]?.networkAbort,true,JSON.stringify(snapshot));
-    assert.equal(snapshot.cases[0]?.finished,true,JSON.stringify(snapshot));
-    assert.equal(snapshot.stats.active,0);assert.equal(snapshot.stats.luaBytes,0);assert.equal(snapshot.stats.admitted,0);assert.equal(snapshot.stats.outstanding,0);
-    console.log('PASS actual client disconnect signals cancellation and releases Lua plus host-operation accounting');
-  } finally {client.destroy();}
+  // TCP reset proves transport-triggered abort; a quiet close may only be detected
+  // on a later write, so it must still release through the independent deadline.
+  for(const name of ['reset','close']) {
+    const client=httpGet(`http://127.0.0.1:8788/wire/start/${name}`,r=>r.resume());
+    client.on('error',()=>{}); // The client intentionally tears down this connection.
+    let snapshot,record;
+    try {
+      for(let i=0;i<100;i++){snapshot=await status();record=snapshot.cases.find(c=>c.name===name);if(record?.started)break;await pause(5);}
+      assert.equal(record?.started,true);assert.equal(snapshot.stats.active,1);
+      if(name==='reset') {assert(client.socket);client.socket.resetAndDestroy();}
+      else client.destroy();
+      for(let i=0;i<300;i++){snapshot=await status();record=snapshot.cases.find(c=>c.name===name);if(record?.finished)break;await pause(5);}
+      await writeFile(`reports/network-${name}.json`,JSON.stringify(snapshot,null,2)+'\n');
+      assert.equal(record?.finished,true,JSON.stringify(snapshot));
+      if(name==='reset') {
+        assert.equal(record.networkAbort,true,JSON.stringify(snapshot));
+        assert.notEqual(record.errorCode,'TIMEOUT','a deadline is not proof of a transport abort');
+      } else {
+        assert(record.networkAbort||record.errorCode==='TIMEOUT','quiet closure must abort or reach its bounded deadline');
+      }
+      assert.equal(snapshot.stats.active,0);assert.equal(snapshot.stats.luaBytes,0);assert.equal(snapshot.stats.admitted,0);assert.equal(snapshot.stats.outstanding,0);
+      console.log(`PASS TCP ${name}: networkAbort=${record.networkAbort}, error=${record.errorCode}, all invocation/operation accounting zero`);
+    } finally {client.destroy();}
+  }
 },'in-workerd.log');
