@@ -11,12 +11,15 @@ public final class NativeRegressions {
       {"local s=0; for i=1,10 do if i==4 then break end; s=s+i end; return s", "6"},
       {"local function f() for i=1,10 do if i==3 then return i end end end;return f()", "3"},
       {"local n=0; ::again:: n=n+1; if n<3 then goto again end; return n", "3"},
-      {"local n=0; do n=7; goto done end; ::done:: return n", "7"},
+      {"local n=0; do n=7; goto done end; ::done::return n", "7"},
       {"local n=0; local function f() ::again:: n=n+1; if n<4 then goto again end; return n end;return f()", "4"},
       {"local n=0;local function f() n=n+1;return n end;f();return f()", "2"},
       {"local function f() return 3,4 end;local a,b=f();return a+b", "7"},
       {"local a={}; for i=1,4 do a[i]=i*2 end;return a[1]+a[4]", "10"},
-      {"local a=0;for i=1,3 do for j=1,2 do a=a+i*j end end;return a", "18"}
+      {"local a=0;for i=1,3 do for j=1,2 do a=a+i*j end end;return a", "18"},
+      {"local n=0;do local x <close> = setmetatable({}, {__close=function() n=n+1 end}) end;return n", "1"},
+      {"local n=0;local function f() local x <close> = setmetatable({}, {__close=function() n=n+1 end});return 7 end;local r=f();return n*10+r", "17"},
+      {"local n=0;do local x <close> = setmetatable({}, {__close=function() n=n+1 end});goto done end;::done::return n", "1"}
     };
     try (Context c = TrufflePeer.context()) {
       for (int i=0;i<cases.length;i++) {
@@ -36,12 +39,21 @@ public final class NativeRegressions {
         if (!actual.equals(cases[i][1])) throw new AssertionError("regression "+i+": "+actual);
       }
     }
+    try (Context c=TrufflePeer.context()) {
+      boolean failed=false;
+      try { TrufflePeer.eval(c,"exception-close", "closed=0;local function f() local x <close> = setmetatable({}, {__close=function() closed=closed+1 end});error('close-needle')end;f()"); }
+      catch(org.graalvm.polyglot.PolyglotException error) {
+        if(!error.getMessage().contains("close-needle"))throw error;
+        failed=true;
+      }
+      if(!failed || TrufflePeer.eval(c,"closed-value","return closed").asLong()!=1)throw new AssertionError("exception close cleanup");
+    }
     try (Context a=TrufflePeer.context(); Context b=TrufflePeer.context()) {
       Value ca=TrufflePeer.eval(a,"counter-a",TrufflePeer.PROGRAMS.get("counter"));
       Value cb=TrufflePeer.eval(b,"counter-b",TrufflePeer.PROGRAMS.get("counter"));
       if(ca.execute().asLong()!=1 || ca.execute().asLong()!=2 || cb.execute().asLong()!=1)
         throw new AssertionError("context state mixed");
     }
-    System.out.println("{\"controlCases\":"+(cases.length-1)+",\"knownSourceGaps\":[\"numeric-loop-table-indices\"],\"independentContexts\":2,\"status\":\"PASS\"}");
+    System.out.println("{\"controlCases\":"+(cases.length-1)+",\"knownSourceGaps\":[\"numeric-loop-table-indices\"],\"exceptionCloseCleanup\":true,\"independentContexts\":2,\"status\":\"PASS\"}");
   }
 }
