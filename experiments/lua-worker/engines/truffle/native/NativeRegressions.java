@@ -48,12 +48,30 @@ public final class NativeRegressions {
       }
       if(!failed || TrufflePeer.eval(c,"closed-value","return closed").asLong()!=1)throw new AssertionError("exception close cleanup");
     }
+    try (Context c=TrufflePeer.context()) {
+      Value multiple=TrufflePeer.eval(c,"interop-multiple","return 3,4");
+      if(!multiple.hasArrayElements() || multiple.getArraySize()!=2 || multiple.getArrayElement(1).asLong()!=4)
+        throw new AssertionError("multiple-value interop");
+      Value table=TrufflePeer.eval(c,"interop-table","return {12,34,a=56}");
+      if(!table.getMemberKeys().contains("a") || table.getMember("a").asLong()!=56 || table.getArraySize()!=2 || table.getArrayElement(0).asLong()!=12)
+        throw new AssertionError("table/key interop");
+      Value fn=TrufflePeer.eval(c,"interop-function","return function()return 7 end");
+      if(!fn.equals(fn) || fn.execute().asLong()!=7)throw new AssertionError("function identity interop");
+      if(!com.zhhz.truffle.lua.runtime.LuaBoolean.valueOf(true).asString().equals("true")
+        || !com.zhhz.truffle.lua.runtime.LuaBoolean.valueOf(false).asString().equals("false"))
+        throw new AssertionError("boolean presentation interop");
+      var interop=com.oracle.truffle.api.interop.InteropLibrary.getUncached();
+      var iterator=new com.zhhz.truffle.lua.runtime.LuaTableIterator(new Object[]{1L},new Object[]{"key"});
+      if(!interop.hasIteratorNextElement(iterator) || !interop.getIteratorNextElement(iterator).equals(1L)
+        || !interop.getIteratorNextElement(iterator).equals("key") || interop.hasIteratorNextElement(iterator))
+        throw new AssertionError("iterator interop");
+    }
     try (Context a=TrufflePeer.context(); Context b=TrufflePeer.context()) {
       Value ca=TrufflePeer.eval(a,"counter-a",TrufflePeer.PROGRAMS.get("counter"));
       Value cb=TrufflePeer.eval(b,"counter-b",TrufflePeer.PROGRAMS.get("counter"));
       if(ca.execute().asLong()!=1 || ca.execute().asLong()!=2 || cb.execute().asLong()!=1)
         throw new AssertionError("context state mixed");
     }
-    System.out.println("{\"controlCases\":"+(cases.length-1)+",\"knownSourceGaps\":[\"numeric-loop-table-indices\"],\"exceptionCloseCleanup\":true,\"independentContexts\":2,\"status\":\"PASS\"}");
+    System.out.println("{\"controlCases\":"+(cases.length-1)+",\"knownSourceGaps\":[\"numeric-loop-table-indices\"],\"exceptionCloseCleanup\":true,\"interopGroups\":5,\"independentContexts\":2,\"status\":\"PASS\"}");
   }
 }
