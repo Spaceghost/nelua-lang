@@ -1,0 +1,5 @@
+{
+  "baseline": "2066f07986c36ee46f367de28e1eb2c768daaf89",
+  "luau": {"repository": "https://github.com/luau-lang/luau.git", "version": "0.738", "commit": "c54f558b4d5748ab0658610b8ce0c432053e41eb"},
+  "truffleLua": {"repository": "https://github.com/zhxzkhz/LuaTruffle.git", "commit": "001d3005e8045fe5c1d428790293b0a8525a6b09", "graalVersion": "25.0.1"}
+}
