@@ -7,7 +7,7 @@ import {cpus} from 'node:os';
 import {performance} from 'node:perf_hooks';
 import {fixtures,start} from './harness.mjs';
 const variants=['javascript','wasm','native-lua55','native-luajit','native-luajit-trusted','proxy-lua55'];
-const rounds=6;const payload=Buffer.alloc(65536,88);let sequence=0;
+const rounds=6;const payload=Buffer.alloc(65536,88);
 const report={rounds,environment:{node:process.version,cpu:cpus()[0]?.model,cpus:cpus().length,commit:execFileSync('git',['rev-parse','HEAD'],{encoding:'utf8'}).trim()},raw:[],memory:[],cold:[],
  caveats:['One Linux CI machine; six balanced-order independent processes per contender, not independent hardware replication.',
  'Closed-loop external HTTP load; driver and fixture overhead may hide engine differences. No open-loop capacity or coordinated-omission correction.',
@@ -22,7 +22,8 @@ const f=await fixtures();
 const summary=arr=>{const a=[...arr].sort((a,b)=>a-b);return{n:a.length,min:a[0],median:a[Math.floor(a.length/2)],p95:a[Math.min(a.length-1,Math.floor(a.length*.95))],max:a.at(-1)};};
 const cases=[['hello',1,512],['cpu',1,256],['echo',4,128],['get',8,256],['chain',8,256],['ops16',4,128]];
 async function workload(s,name,n,c){
- let next=0;const latencies=[];const before={...f.counts},t=performance.now();
+ // Restart the input sequence per case: every contender receives identical work.
+ let next=0,sequence=0;const latencies=[];const before={...f.counts},t=performance.now();
  await Promise.all(Array.from({length:c},async()=>{while(next++<n){
   let body,expected;if(name==='hello')expected='ok';
   else if(name==='cpu'){const count=10000+(sequence++%1000);body=String(count);let sum=0;for(let i=1;i<=count;i++)sum+=i%97;expected=String(sum);}

@@ -7,6 +7,7 @@ export default {async fetch(request,env,ctx){
  app ??= module.app(source);
  if(new URL(request.url).pathname==='/_peer/stats')return Response.json({...app.stats(),requests});
  const host={
+  retain(promise){ctx.waitUntil(promise);},
   async get(key,{signal}){const r=await env.CONFIG.fetch('http://config.invalid/'+encodeURIComponent(key),{signal,redirect:'manual'});if(r.status===404){await r.body?.cancel();return null;}if(r.status!==200){await r.body?.cancel();throw Error('CONFIG');}return readBounded(r.body,signal);},
   fetch(path,{signal}){return env.UPSTREAM.fetch('http://upstream.invalid'+path,{signal,redirect:'manual'});},
   log(message){console.log(JSON.stringify({source:'lua',message}));}

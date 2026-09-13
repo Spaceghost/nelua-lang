@@ -45,6 +45,8 @@ export class PeerApp {
           if(op.kind===2){const r=await host.fetch(arg,{signal:c.signal});return{status:r.status,body:await readBounded(r.body,c.signal)};}
           await host.log(arg);return{status:200,body:new Uint8Array()};
         }finally{this.orphans--;}})();
+        // Keep settlement accounting alive after the HTTP caller disconnects.
+        host.retain?.(operation.then(()=>{},()=>{}));
         let result,ok=1;
         try{result=await raceAbort(operation,c.signal);if(result.body.length>65536)throw Error('host result bound');}
         catch(error){c.signal.throwIfAborted();ok=0;result={status:502,body:enc.encode('host operation failed (HOST_ERROR)')};}

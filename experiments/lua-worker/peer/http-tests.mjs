@@ -34,7 +34,7 @@ try {
      try{
       let stats;for(let i=0;i<200;i++){stats=await s.stats();if(stats.active===1)break;await pause(5);}assert.equal(stats.active,1);
       const t=performance.now();if(reset){assert(client.socket);client.socket.resetAndDestroy();}else client.destroy();
-      for(let i=0;i<650;i++){stats=await s.stats();if(stats.active===0&&stats.admitted===0)break;await pause(5);}
+      for(let i=0;i<650;i++){stats=await s.stats();if(stats.active===0&&stats.admitted===0&&(stats.outstanding??0)===0)break;await pause(5);}
       const elapsed=performance.now()-t;assert.equal(stats.active,0);assert.equal(stats.admitted,0);
       if(stats.outstanding!==undefined)assert.equal(stats.outstanding,0);
       if(reset)assert(elapsed<1500,'TCP reset cleanup fell back to the 2500 ms deadline');
@@ -47,7 +47,6 @@ try {
    console.log(`PASS ${variant}: ${record.passed.length} HTTP groups; ${record.disconnects.length} real disconnect checks`);
   }finally{await s.stop();await writeFile('reports/peer/http-tests.json',JSON.stringify(evidence,null,2)+'\n');}
  }
- // Dedicated child: hard termination of JIT code that cannot be Lua-hook metered.
  const child=spawn('python3',['peer/jit-probe.py','--runaway'],{stdio:['ignore','pipe','pipe']});let text='';child.stdout.on('data',b=>text+=b);child.stderr.on('data',b=>text+=b);
  const timeout=setTimeout(()=>child.kill('SIGKILL'),1000);const [code,signal]=await once(child,'exit');clearTimeout(timeout);
  assert(text.includes('READY-RUNAWAY'),text);assert.equal(signal,'SIGKILL');evidence.externalTermination={code,signal,readyObserved:true};
