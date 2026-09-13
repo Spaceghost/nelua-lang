@@ -1,0 +1,41 @@
+#!/usr/bin/env python3
+"""Deterministic source corpus; identical JSON is consumed by every backend."""
+import json
+from pathlib import Path
+cases=[]
+def add(name,source,expect=None,*,error=None,count=1,body='',feature='common'):
+    cases.append(dict(name=name,source=source,expect=expect,error=error,count=count,body=body,feature=feature))
+add('hello',"return{fetch=function()return{status=200,body='ok'}end}",'ok')
+add('request-values',"return{fetch=function(r)return{status=200,body=r.method..'|'..r.url..'|'..r.body}end}",'POST|http://worker.invalid/case|a\0b',body='a\0b')
+add('resident-upvalues',"local n=0;return{fetch=function()n=n+1;return{status=200,body=tostring(n)}end}",['1','2','3'],count=3)
+add('read-config',"local h=require'worker.http';return{fetch=function(r,e)return h.text(e.CONFIG:get('greeting'))end}",'hello')
+add('absent-vs-empty',"return{fetch=function(r,e)return{status=200,body=tostring(e.CONFIG:get('missing'))..':'..e.CONFIG:get('empty')}end}",'nil:')
+add('async-chain',"return{fetch=function(r,e,c)local a=e.CONFIG:get('greeting');local b=e.UPSTREAM:fetch('/remote');c.log('done');return{status=200,body=a..':'..b.status..':'..b.body}end}",'hello:201:upstream')
+add('many-operations',"return{fetch=function(r,e)local t={};for i=1,16 do t[i]=e.CONFIG:get('greeting')end;return{status=200,body=table.concat(t,',')}end}",','.join(['hello']*16))
+add('too-many-operations',"return{fetch=function(r,e)for i=1,17 do e.CONFIG:get('greeting')end end}",error='operation rejected')
+add('one-fetch-only',"return{fetch=function(r,e)e.UPSTREAM:fetch('/a');e.UPSTREAM:fetch('/b')end}",error='operation rejected')
+add('stale-capability',"local saved;return{fetch=function(r,e)if not saved then saved=e.CONFIG;return{status=200,body='saved'}end;return{status=200,body=saved:get('greeting')}end}",['saved',None],error=['','capability'],count=2)
+add('capability-type',"return{fetch=function(r,e)return e.CONFIG:fetch('/x')end}",error='capability')
+add('outbound-authority',"return{fetch=function(r,e)return e.UPSTREAM:fetch('https://outside.invalid')end}",error='CAPABILITY')
+add('nul-path',"return{fetch=function(r,e)return e.UPSTREAM:fetch('/a\\0b')end}",error='CAPABILITY')
+add('trace-after-yield',"return{fetch=function(r,e)e.CONFIG:get('greeting');local function broken()error('trace-needle')end;broken()end}",error='trace-needle')
+add('handler-loop',"return{fetch=function()while true do end end}",error='instruction budget')
+add('init-loop',"while true do end",error='instruction budget')
+add('memory-budget',"return{fetch=function()return{status=200,body=string.rep('x',4000000)}end}",error='memory')
+add('body-limit',"return{fetch=function()return{status=200,body=string.rep('x',65537)}end}",error='body limit')
+add('wrong-cardinality',"return{fetch=function()return{status=200,body='x'},2 end}",error='exactly one')
+add('nil-cardinality',"return{fetch=function()end}",error='exactly one')
+add('nan-status',"return{fetch=function()return{status=0/0,body='x'}end}",error='status')
+add('fractional-status',"return{fetch=function()return{status=200.25,body='x'}end}",error='status')
+add('empty-status',"return{fetch=function()return{status=204,body='x'}end}",error='body forbidden')
+add('non-string-body',"return{fetch=function()return{status=200,body=42}end}",error='string')
+add('library-profile',"assert(io==nil and os==nil and debug==nil and coroutine==nil and jit==nil and package==nil and pcall==nil and getfenv==nil and load==nil);return{fetch=function()return{status=200,body='restricted'}end}",'restricted')
+add('source-text-only','\x1bLua malformed chunk',error='binary')
+add('utf8-bytes',"return{fetch=function(r)return{status=200,body=r.body}end}",'héllo 世界',body='héllo 世界')
+for n in [1,31,997,10000]:
+    add(f'integer-loop-{n}',f"return{{fetch=function()local s=0;for i=1,{n} do s=s+i%97 end;return{{status=200,body=tostring(s)}}end}}",str(sum(i%97 for i in range(1,n+1))))
+add('lua55-integer-division',"return{fetch=function()return{status=200,body=tostring(17//5)}end}",'3',feature='lua55')
+add('lua55-bitwise',"return{fetch=function()return{status=200,body=tostring(19 & 7)}end}",'3',feature='lua55')
+add('lua55-const',"local n <const> = 7;return{fetch=function()return{status=200,body=tostring(n)}end}",'7',feature='lua55')
+add('lua55-utf8-library',"return{fetch=function()return{status=200,body=tostring(utf8.len('héllo'))}end}",'5',feature='lua55')
+Path(__file__).with_name('cases.json').write_text(json.dumps(cases,ensure_ascii=False,indent=2)+'\n')

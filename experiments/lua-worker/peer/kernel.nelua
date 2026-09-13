@@ -1,0 +1,132 @@
+-- SPDX-License-Identifier: MIT
+-- Explicitly owned version of the bounded operation kernel. No mutable globals.
+## pragmas.nogc = true
+## pragmas.noentrypoint = true
+## pragmas.abort = 'trap'
+## pragmas.writestderr = 'none'
+local function calloc(n: csize, size: csize): pointer <cimport, nodecl, cinclude '<stdlib.h>'> end
+local function realloc(p: pointer, n: csize): pointer <cimport, nodecl, cinclude '<stdlib.h>'> end
+local function free(p: pointer) <cimport, nodecl, cinclude '<stdlib.h>'> end
+local function memcpy(a: pointer, b: pointer, n: csize): pointer <cimport, nodecl, cinclude '<string.h>'> end
+local Slot = @record{id: uint32, sequence: uint32, state: cint, kind: cint,
+  status: cint, ok: cint, operations: uint32, fetches: uint32, ticks: uint32,
+  n: csize, buffer: [65536]cchar}
+local Kernel = @record{serial: uint32, used: csize, limit: csize, init_ticks: uint32,
+  vm: pointer, slots: [8]Slot}
+local function engine(p: pointer): *Kernel return (@*Kernel)(p) end
+local function lookup(p: pointer, id: uint32): *Slot
+  if p == nilptr or id == 0 then return nilptr end
+  local e = engine(p)
+  for i=0,7 do if e.slots[i].id == id then return &e.slots[i] end end
+  return nilptr
+end
+local function nk_new(limit: csize): pointer <cexport, codename 'nk_new'>
+  if limit < 65536 or limit > 16777216 then return nilptr end
+  local p = calloc(1, #Kernel)
+  if p ~= nilptr then engine(p).limit, engine(p).init_ticks = limit, 1000 end
+  return p
+end
+local function nk_bytes(p: pointer): csize <cexport, codename 'nk_bytes'> return engine(p).used end
+local function nk_active(p: pointer): uint32 <cexport, codename 'nk_active'>
+  local count: uint32
+  for i=0,7 do if engine(p).slots[i].id ~= 0 then count = count + 1 end end
+  return count
+end
+local function nk_delete(p: pointer): cint <cexport, codename 'nk_delete'>
+  if p == nilptr or nk_active(p) ~= 0 or engine(p).used ~= 0 then return -1 end
+  free(p)
+  return 0
+end
+local function nk_setvm(p: pointer, vm: pointer) <cexport, codename 'nk_setvm'> engine(p).vm = vm end
+local function nk_vm(p: pointer): pointer <cexport, codename 'nk_vm'> return engine(p).vm end
+local function nk_alloc(p: pointer, block: pointer, old: csize, n: csize): pointer <cexport, codename 'nk_alloc'>
+  local e = engine(p)
+  if block == nilptr then old = 0 end
+  if old > e.used then return nilptr end
+  if n == 0 then free(block); e.used = e.used - old; return nilptr end
+  if n > e.limit or e.used - old > e.limit - n then return nilptr end
+  local q = realloc(block, n)
+  if q ~= nilptr then e.used = e.used - old + n end
+  return q
+end
+local function nk_open(p: pointer): uint32 <cexport, codename 'nk_open'>
+  local e = engine(p)
+  if e.serial >= 2147483600 then return 0 end
+  for i=0,7 do
+    local s = &e.slots[i]
+    if s.id == 0 then
+      $s = Slot{}
+      e.serial = e.serial + 1
+      s.id, s.state, s.ticks = e.serial, 2, 1000
+      return s.id
+    end
+  end
+  return 0
+end
+local function nk_index(p: pointer, id: uint32): cint <cexport, codename 'nk_index'>
+  for i=0,7 do if id ~= 0 and engine(p).slots[i].id == id then return cint(i) end end
+  return -1
+end
+local function nk_tick(p: pointer, id: uint32): cint <cexport, codename 'nk_tick'>
+  if id == 0 then
+    local e = engine(p)
+    if e.init_ticks == 0 then return 0 end
+    e.init_ticks = e.init_ticks - 1
+    if e.init_ticks == 0 then return 0 end
+    return 1
+  end
+  local s = lookup(p, id)
+  if s == nilptr or s.ticks == 0 then return 0 end
+  s.ticks = s.ticks - 1
+  if s.ticks == 0 then return 0 end
+  return 1
+end
+local function nk_state(p: pointer, id: uint32): cint <cexport, codename 'nk_state'>
+  local s = lookup(p,id); if s == nilptr then return 0 end; return s.state
+end
+local function nk_kind(p: pointer, id: uint32): cint <cexport, codename 'nk_kind'>
+  local s = lookup(p,id); if s == nilptr then return 0 end; return s.kind
+end
+local function nk_status(p: pointer, id: uint32): cint <cexport, codename 'nk_status'>
+  local s = lookup(p,id); if s == nilptr then return 0 end; return s.status
+end
+local function nk_sequence(p: pointer, id: uint32): uint32 <cexport, codename 'nk_sequence'>
+  local s = lookup(p,id); if s == nilptr then return 0 end; return s.sequence
+end
+local function nk_data(p: pointer, id: uint32): pointer <cexport, codename 'nk_data'>
+  local s = lookup(p,id); if s == nilptr then return nilptr end; return &s.buffer[0]
+end
+local function nk_size(p: pointer, id: uint32): csize <cexport, codename 'nk_size'>
+  local s = lookup(p,id); if s == nilptr then return 0 end; return s.n
+end
+local function nk_issue(p: pointer, id: uint32, kind: cint, data: pointer, n: csize): cint <cexport, codename 'nk_issue'>
+  local s = lookup(p,id)
+  if s == nilptr or s.state ~= 2 or s.operations >= 16 or kind < 1 or kind > 3 then return -1 end
+  if (kind == 1 and (n == 0 or n > 256)) or (kind == 2 and (n == 0 or n > 4096 or s.fetches >= 1)) or (kind == 3 and n > 2048) then return -2 end
+  if kind == 2 then s.fetches = s.fetches + 1 end
+  s.operations, s.sequence = s.operations + 1, s.sequence + 1
+  if n > 0 then memcpy(&s.buffer[0], data, n) end
+  s.kind, s.n, s.state = kind, n, 3
+  return 0
+end
+local function nk_resolve(p: pointer, id: uint32, sequence: uint32, ok: cint, status: cint, data: pointer, n: csize): cint <cexport, codename 'nk_resolve'>
+  local s = lookup(p,id)
+  if s == nilptr or s.state ~= 3 or s.sequence ~= sequence then return -1 end
+  if n > 65536 or (ok ~= 0 and ok ~= 1) or status < 100 or status > 599 then return -2 end
+  if n > 0 then memcpy(&s.buffer[0], data, n) end
+  s.ok, s.status, s.n, s.state = ok, status, n, 2
+  return 0
+end
+local function nk_result(p: pointer, id: uint32, state: cint, status: cint, data: pointer, n: csize): cint <cexport, codename 'nk_result'>
+  local s = lookup(p,id)
+  if s == nilptr or n > 65536 or (state ~= 4 and state ~= 5) then return -1 end
+  if n > 0 then memcpy(&s.buffer[0], data, n) end
+  s.state, s.status, s.n = state, status, n
+  return state
+end
+local function nk_close(p: pointer, id: uint32): cint <cexport, codename 'nk_close'>
+  local s = lookup(p,id)
+  if s == nilptr then return -1 end
+  s.id, s.n, s.state = 0, 0, 0
+  return 0
+end
