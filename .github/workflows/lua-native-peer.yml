@@ -36,6 +36,23 @@ jobs:
           timeout --signal=KILL 60s dist/peer/core-luajit-asan 2>&1 | tee reports/peer/luajit-asan.txt
       - name: Build native KJ HTTP hosts
         run: bash peer/build-host.sh 2>&1 | tee reports/peer/host-build.log
+      - name: Source parity and runtime ownership gates
+        run: |
+          python3 peer/make-cases.py
+          timeout --signal=KILL 60s python3 peer/parity-native.py 2>&1 | tee reports/peer/parity-native.log
+          timeout --signal=KILL 60s node peer/node-tests.mjs 2>&1 | tee reports/peer/parity-node.log
+          timeout --signal=KILL 60s python3 peer/jit-probe.py 2>&1 | tee reports/peer/jit.log
+      - name: Actual workerd and native HTTP contracts
+        run: timeout --signal=KILL 180s node peer/http-tests.mjs 2>&1 | tee reports/peer/http-tests.log
+      - name: Matched HTTP shootout and finite memory soak
+        run: timeout --signal=KILL 600s node peer/bench.mjs 2>&1 | tee reports/peer/benchmark.log
+      - name: Record provenance and summary
+        if: always()
+        run: |
+          mkdir -p reports/peer
+          git rev-parse HEAD > reports/peer/commit.txt
+          find peer -type f -not -path '*/__pycache__/*' -print0 | sort -z | xargs -0 sha256sum > reports/peer/source-sha256.txt
+          if test -f reports/peer/RESULTS.md; then cat reports/peer/RESULTS.md >> "$GITHUB_STEP_SUMMARY"; fi
       - name: Retain source binaries and evidence
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
