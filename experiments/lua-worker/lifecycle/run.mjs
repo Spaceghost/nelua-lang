@@ -18,7 +18,7 @@ const status=await readFile('/proc/self/status','utf8');
 const allowed=status.match(/^Cpus_allowed_list:\s+(.+)$/m)[1].split(',').flatMap(s=>{const[a,b=a]=s.split('-').map(Number);return Array.from({length:b-a+1},(_,i)=>a+i);});
 const serverCpu=allowed[0],clientCpu=allowed[1]??allowed[0];
 assert.equal(spawnSync('taskset',['-pc',String(clientCpu),String(process.pid)]).status,0);
-const report={manifest,rounds,environment:{node:process.version,cpu:cpus()[0]?.model,serverCpu,clientCpu},raw:[],cold:[],memory:[],orders:[],
+const report={manifest,rounds,environment:{node:process.version,cpu:cpus()[0]?.model,serverCpu,clientCpu},raw:[],cold:[],memory:[],orders:[],cacheChecks:[],
  caveats:[
  'Same actual workerd Worker Loader for JavaScript, fresh Lua and resident Lua. Lua VMs still execute in V8-hosted Wasm.',
  'Resident applications deliberately preserve Lua globals until eviction. This is not the fresh-state-per-invocation contract.',
@@ -62,7 +62,17 @@ sockets=[(name="http",address="127.0.0.1:${p}",http=(),service="parent")]);`;
  const stop=async()=>{if(proc.exitCode===null&&proc.signalCode===null){proc.kill('SIGTERM');const timer=setTimeout(()=>proc.kill('SIGKILL'),1000);await once(proc,'exit');clearTimeout(timer);}await writeFile(resolve(out,variant+'-'+p+'.log'),logs);};
  try{
   for(let i=0;;i++){if(proc.exitCode!==null||proc.signalCode!==null)throw Error(logs);try{const r=await fetch(base+'/call/hello');const text=await r.text();assert.equal(r.status,200,text);assert.equal(text,'ok');break;}catch(e){if(i>=200)throw Error(e.message+'\n'+logs);await pause(5);}}
-  return{base,proc,stop,coldMs:performance.now()-t,warm};
+  const coldMs=performance.now()-t;
+  // Separate parent requests repeat loader.get(). A constant per-instance
+  // appLoads=1 alone would not prove that the same isolate stayed resident.
+  const values=[];
+  for(let i=0;i<3;i++){
+    const r=await fetch(base+'/call/lifetime');assert.equal(r.status,200);values.push(await r.text());
+  }
+  assert.deepEqual(values,variant==='fresh'?['1','1','1']:['1','2','3'],
+    'loader did not retain application state across parent requests');
+  report.cacheChecks.push({variant,port:p,values});
+  return{base,proc,stop,coldMs,warm};
  }catch(e){await stop();throw e;}
 }
 async function json(server,path){const r=await fetch(server.base+path,{signal:AbortSignal.timeout(60000)});const text=await r.text();assert.equal(r.status,200,text);return JSON.parse(text);}
@@ -86,7 +96,7 @@ for(const variant of variants){console.log('SOAK',variant);const server=await st
  if(server.warm){const s=await json(server,'/evict');assert.equal(s.residentLuaBytes,0);assert.equal(s.apps,0);report.memory.push({variant,phase:'application-evicted',stats:s});}
  }finally{await server.stop();}
 }
-const median=a=>[...a].sort((a,b)=>a-b)[Math.floor(a.length/2)];
+const median=a=>{const s=[...a].sort((a,b)=>a-b),i=Math.floor(s.length/2);return s.length%2?s[i]:(s[i-1]+s[i])/2;};
 const key=r=>r.kind+'/'+r.name+(r.c?'/c'+r.c:'');report.summary=[];
 for(const k of [...new Set(report.raw.map(key))])for(const variant of variants){
  const rows=report.raw.filter(r=>key(r)===k&&r.variant===variant),metric=rows[0].kind==='http'?'rps':'us';
