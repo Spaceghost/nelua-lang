@@ -22,12 +22,20 @@ jobs:
         with: {node-version: '22.16.0'}
       - name: Bootstrap pinned Lua Nelua and Wasm tools
         run: bash scripts/bootstrap.sh 2>&1 | tee bootstrap.log
+      - name: Install KJ development library
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y libcapnp-dev
+          mkdir -p reports/peer
+          dpkg-query -W libcapnp-dev > reports/peer/system-packages.txt
       - name: Build context-owned native Lua LuaJIT and Wasm cores
         run: bash peer/build.sh 2>&1 | tee reports/peer-build.log
       - name: Native sanitizer ownership and failure contracts
         run: |
           timeout --signal=KILL 60s dist/peer/core-lua55-asan 2>&1 | tee reports/peer/lua55-asan.txt
           timeout --signal=KILL 60s dist/peer/core-luajit-asan 2>&1 | tee reports/peer/luajit-asan.txt
+      - name: Build native KJ HTTP hosts
+        run: bash peer/build-host.sh 2>&1 | tee reports/peer/host-build.log
       - name: Retain source binaries and evidence
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
