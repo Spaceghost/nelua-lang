@@ -6,15 +6,18 @@ import json, subprocess, sys, zipfile
 profile=sys.argv[1]
 jar=Path('dist/engines/truffle')/profile/'language.jar'
 metadata=['com.zhhz.truffle.lua.LuaLanguageProvider',
-          'com.zhhz.truffle.lua.runtime.LuaType']
+          'com.zhhz.truffle.lua.runtime.LuaType',
+          'com.zhhz.truffle.lua.runtime.LuaType$TypeCheck']
 suffixes=('Gen$InteropLibraryExports.class','Gen$InteropLibraryExports$Cached.class','Gen$InteropLibraryExports$Uncached.class')
 with zipfile.ZipFile(jar) as z:
     names=metadata+sorted(n[:-6].replace('/','.') for n in z.namelist() if n.startswith('com/zhhz/truffle/lua/') and n.endswith(suffixes))
-assert len(names)==53, 'pinned metadata changed; review initialization list'
+assert len(names)==54, 'pinned metadata changed; review initialization list'
 rows=[]
 for name in names:
     declaration=subprocess.check_output(['javap','-private','-classpath',str(jar),name],text=True)
     fields=[line.strip() for line in declaration.splitlines() if 'static ' in line and ';' in line and '(' not in line and 'static {}' not in line]
+    if name.endswith('$TypeCheck'):
+        assert not fields, 'type-predicate interface unexpectedly has state'
     for field in fields:
         assert 'final ' in field, (name,field)
         if name.endswith('.LuaType'):
