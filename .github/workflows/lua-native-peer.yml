@@ -1,0 +1,43 @@
+name: Lua native peer shootout
+on:
+  pull_request:
+    paths: ['experiments/lua-worker/peer/**', '.github/workflows/lua-native-peer.yml']
+permissions:
+  contents: read
+concurrency:
+  group: lua-native-peer-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  peer:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    defaults:
+      run:
+        shell: bash
+        working-directory: experiments/lua-worker
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with: {fetch-depth: 0}
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with: {node-version: '22.16.0'}
+      - name: Bootstrap pinned Lua Nelua and Wasm tools
+        run: bash scripts/bootstrap.sh 2>&1 | tee bootstrap.log
+      - name: Build context-owned native Lua LuaJIT and Wasm cores
+        run: bash peer/build.sh 2>&1 | tee reports/peer-build.log
+      - name: Native sanitizer ownership and failure contracts
+        run: |
+          timeout --signal=KILL 60s dist/peer/core-lua55-asan 2>&1 | tee reports/peer/lua55-asan.txt
+          timeout --signal=KILL 60s dist/peer/core-luajit-asan 2>&1 | tee reports/peer/luajit-asan.txt
+      - name: Retain source binaries and evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: lua-native-peer-${{ github.run_id }}
+          path: |
+            experiments/lua-worker/peer/
+            experiments/lua-worker/dist/peer/
+            experiments/lua-worker/reports/
+            experiments/lua-worker/toolchain.json
+            experiments/lua-worker/package-lock.json
+          if-no-files-found: error
+          retention-days: 30
