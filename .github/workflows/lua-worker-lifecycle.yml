@@ -1,0 +1,44 @@
+name: Lua worker lifecycle shootout
+on:
+  pull_request:
+    paths: ['experiments/lua-worker/lifecycle/**', '.github/workflows/lua-worker-lifecycle.yml']
+permissions:
+  contents: read
+concurrency:
+  group: lua-worker-lifecycle-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  lifecycle:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    defaults:
+      run:
+        working-directory: experiments/lua-worker
+        shell: bash
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22.16.0'
+      - name: Bootstrap pinned source and toolchains
+        run: bash scripts/bootstrap.sh 2>&1 | tee bootstrap.log
+      - name: Build and validate fresh and resident lifecycles
+        run: timeout --signal=KILL 900s python3 lifecycle/prepare.py 2>&1 | tee reports/lifecycle-build.log
+      - name: Retain source binaries and test evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: lua-lifecycle-${{ github.run_id }}
+          path: |
+            experiments/lua-worker/reports/
+            experiments/lua-worker/lifecycle/
+            experiments/lua-worker/dist/lifecycle/**/reports/
+            experiments/lua-worker/dist/lifecycle/**/core/
+            experiments/lua-worker/dist/lifecycle/**/host/
+            experiments/lua-worker/dist/lifecycle/**/dist/kernel*
+            experiments/lua-worker/dist/lifecycle/**/dist/lifecycle-native
+            experiments/lua-worker/dist/lifecycle/manifest.json
+          if-no-files-found: error
+          retention-days: 30
