@@ -11,6 +11,8 @@ jobs:
   chase:
     runs-on: ubuntu-24.04
     timeout-minutes: 30
+    env:
+      CHASE_SET: loading
     defaults:
       run:
         working-directory: experiments/lua-worker
@@ -26,6 +28,8 @@ jobs:
         run: bash scripts/bootstrap.sh 2>&1 | tee bootstrap.log
       - name: Build and gate every architecture contender
         run: timeout --signal=KILL 900s python3 chase/prepare.py 2>&1 | tee reports/chase-build.log
+      - name: Validate packed adapter and unbiased JavaScript reference
+        run: timeout --signal=KILL 90s node chase/packing.test.mjs 2>&1 | tee reports/packing-tests.txt
       - name: Measure matched dispatch lifetimes and memory
         run: timeout --signal=KILL 900s node chase/run.mjs 2>&1 | tee reports/chase-run.log
       - name: Publish measured summary
@@ -43,6 +47,13 @@ jobs:
             experiments/lua-worker/lifecycle/
             experiments/lua-worker/dist/chase/**/core/
             experiments/lua-worker/dist/chase/**/host/
+            experiments/lua-worker/dist/chase/**/lifecycle/
+            experiments/lua-worker/dist/chase/**/scripts/build.sh
+            experiments/lua-worker/dist/chase/**/child.mjs
+            experiments/lua-worker/dist/chase/**/parent.mjs
+            experiments/lua-worker/dist/chase/**/bench.capnp
+            experiments/lua-worker/dist/chase/**/bounded-helper.mjs
+            experiments/lua-worker/dist/chase/**/variant.txt
             experiments/lua-worker/dist/chase/**/reports/
             experiments/lua-worker/dist/chase/**/dist/kernel*
             experiments/lua-worker/dist/chase/manifest.json

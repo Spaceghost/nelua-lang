@@ -39,5 +39,28 @@ source=source.slice(0,begin)+' caveats:'+JSON.stringify([
  'No inspector or forced GC in performance or 50,000-invocation soaks. RSS includes every isolate and retained host garbage.',
  'No hosted deployment, native server, JIT for guest Lua, or claim of superiority on unmeasured workloads.'
  ])+'};'+source.slice(end+4);
+
+if(process.env.CHASE_SET==='loading') {
+  source=source.replace('Frozen resident control and three ablations: shared immutable completion reason; lazy I/O machinery; lazy I/O plus empty-coroutine pool.',
+    'Loading set: resident control, confirmed lazy I/O, lazy plus one call-scoped slab, and lazy plus fixed-graph module packing.');
+  source=source.replace('Empty pooled coroutines are retained app allocations, not live requests; explicit eviction must release their storage.',
+    'JavaScript reference imports only the shared bounded-reader helper, not any Lua-specific implementation. Packed Lua reduces child module count without changing application source, VM, memory, or authority.');
+  once("import assert from 'node:assert/strict';", "import assert from 'node:assert/strict';\nimport {pack,boundedHelper} from './packing.mjs';");
+  once(" const runtime=resolve('dist/chase',variant==='javascript'?'resident':variant,'host/runtime.mjs');",
+       " let runtime=resolve('dist/chase',variant==='javascript'?'resident':variant,'host/runtime.mjs');");
+  once(" const child=variant==='javascript'?", " let child=variant==='javascript'?");
+  once(" await writeFile(resolve(dir,'child.mjs'),child);", `
+ const packSource=await readFile(runtime,'utf8');
+ const commonSource=await readFile('lifecycle/bench-common.mjs','utf8');
+ if(variant==='javascript') {
+   runtime=resolve(dir,'bounded-helper.mjs');
+   await writeFile(runtime,boundedHelper(packSource));
+ }
+ if(variant==='packed') child=pack(packSource,commonSource,await readFile('lifecycle/bench.lua','utf8'));
+ await writeFile(resolve(dir,'child.mjs'),child);`);
+  once("await writeFile(resolve(dir,'parent.mjs'),variant==='javascript'?parentSource.replace(\"import kernel from './kernel.wasm';\",'const kernel=null;'):parentSource);",
+       `await writeFile(resolve(dir,'parent.mjs'),variant==='javascript'?parentSource.replace("import kernel from './kernel.wasm';",'const kernel=null;'):variant==='packed'?parentSource.replace("const modules={'main.mjs':{js:child},'runtime.mjs':{js:runtime},'common.mjs':{js:common},'app.lua':{text:application}};", "const modules={'main.mjs':{js:child}};"):parentSource);`);
+  once("for(const lifetime of [1,2,8,32,128])", "for(const lifetime of [...[1,2,8,32,128].slice(round%5),...[1,2,8,32,128].slice(0,round%5)])");
+}
 await writeFile('chase/run.generated.mjs',source);
 await import('./run.generated.mjs');

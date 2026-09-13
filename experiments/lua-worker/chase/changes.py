@@ -82,3 +82,25 @@ uint32_t wa_cached_coroutines(uint32_t id) {
   return a ? a->cached_coroutines : 0;
 }
 '''
+
+
+def slab(source):
+    begin = source.index('  withBytes(values, fn) {')
+    end = source.index('  async operation(', begin)
+    return source[:begin] + '''  withBytes(values, fn) {
+    // Call-scoped storage: no pointer or live view survives an await.
+    const size = values.reduce((total, value) => total + value.length, 0);
+    const base = this.e.malloc(Math.max(size, 1));
+    if (!base) throw new WorkerError('Wasm allocation limit', 'MEMORY_LIMIT');
+    try {
+      const heap = new Uint8Array(this.e.memory.buffer), args = [];
+      let offset = 0;
+      for (const value of values) {
+        heap.set(value, base + offset);
+        args.push(base + offset, value.length);
+        offset += value.length;
+      }
+      return fn(...args);
+    } finally { this.e.free(base); }
+  }
+''' + source[end:]

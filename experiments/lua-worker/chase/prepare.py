@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Frozen lifecycle controls, output-checked contenders, no production changes."""
 import hashlib, importlib.util, json, os, pathlib, shutil, subprocess
-from changes import completion, lazy, pool, once
+from changes import completion, lazy, pool, slab, once
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 BASE = 'abf9213181e95feaede032532b268203f4751feb'
 OUT = ROOT/'dist/chase'
@@ -32,8 +32,9 @@ if __name__ == '__main__':
     archive = subprocess.check_output(['git','archive',f'{lifecycle.BASE}:experiments/lua-worker'],cwd=repo)
     subprocess.run(['tar','-x','-C',str(fresh)],input=archive,check=True)
     manifest={'baseline':BASE,'freshSource':lifecycle.BASE,'head':subprocess.check_output(['git','rev-parse','HEAD'],text=True).strip(),
-      'toolchain':json.loads((frozen/'toolchain.json').read_text()),'variants':[]}
-    for name in ['resident','completion','lazy','pooled']:
+      'experimentSet':os.environ.get('CHASE_SET','dispatch'),'toolchain':json.loads((frozen/'toolchain.json').read_text()),'variants':[]}
+    names = ['resident','lazy','slab','packed'] if os.environ.get('CHASE_SET') == 'loading' else ['resident','completion','lazy','pooled']
+    for name in names:
         target=OUT/name
         if target.exists(): shutil.rmtree(target)
         shutil.copytree(fresh,target)
@@ -49,7 +50,8 @@ if __name__ == '__main__':
             assert digest(p)=='492a01af033f74ff80741e3eafa6a67a01a4aeabaa8cdfdabb1d45e145256336'
             assert digest(target/'core/lua_bridge.c')=='a97ea36a978b16a9054dbcc5dc7efea65e1c774eb10381b20ec6b27878f34600'
         if name=='completion':p.write_text(completion(p.read_text()))
-        if name in ['lazy','pooled']:p.write_text(lazy(p.read_text()))
+        if name in ['lazy','pooled','slab','packed']:p.write_text(lazy(p.read_text()))
+        if name=='slab':p.write_text(slab(p.read_text()))
         extras=['wa_open','wa_load','wa_start','wa_release','wa_bytes','wa_pending','wa_app_count','wa_error_data','wa_error_size','wa_load_count','wa_collect']
         if name=='pooled':
             p=target/'core/lua_bridge.c';p.write_text(pool(p.read_text()))
