@@ -1,0 +1,48 @@
+name: Truffle Lua qualification
+on:
+  pull_request:
+    paths: ['experiments/lua-worker/engines/truffle/**', 'experiments/lua-worker/engines/pins.json', '.github/workflows/lua-truffle.yml']
+permissions:
+  contents: read
+jobs:
+  truffle:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: experiments/lua-worker
+        shell: bash
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22.16.0'
+      - uses: graalvm/setup-graalvm@0426e2e191540e8514dff98dc52a5f5146a2a276
+        with:
+          distribution: 'graalvm-community'
+          java-version: '25.0.1'
+          check-for-updates: 'false'
+      - name: Build pinned Truffle implementation and Polyglot host
+        run: |
+          mkdir -p reports/truffle
+          npm ci --no-audit --no-fund
+          timeout -s KILL 600s bash engines/truffle/build.sh 2>&1 | tee reports/truffle/build.log
+      - name: Qualify source semantics and route through stock workerd
+        run: timeout -s KILL 600s node engines/truffle/run.mjs 2>&1 | tee reports/truffle/run.log
+      - name: Retain exact source identity
+        if: always()
+        run: |
+          mkdir -p reports/truffle
+          git rev-parse HEAD > reports/truffle/commit.txt
+          find engines/truffle -type f -print0 | sort -z | xargs -0 sha256sum > reports/truffle/host-source-sha256.txt
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: truffle-workerd-${{ github.run_id }}
+          path: |
+            experiments/lua-worker/engines/truffle/
+            experiments/lua-worker/engines/pins.json
+            experiments/lua-worker/reports/truffle/
+            experiments/lua-worker/dist/engines/truffle/
+          retention-days: 30
+          if-no-files-found: error

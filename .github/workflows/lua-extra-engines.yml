@@ -1,0 +1,64 @@
+name: Additional Lua engines
+on:
+  pull_request:
+    paths: ['experiments/lua-worker/engines/**', '.github/workflows/lua-extra-engines.yml']
+permissions:
+  contents: read
+jobs:
+  luau:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: experiments/lua-worker
+        shell: bash
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22.16.0'
+      - name: Baseline toolchains and native cores
+        run: |
+          mkdir -p reports/engines
+          bash scripts/bootstrap.sh 2>&1 | tee reports/engines/bootstrap.log
+          sudo apt-get update -qq
+          sudo apt-get install -y libcapnp-dev=1.0.1-4
+          bash peer/build.sh 2>&1 | tee reports/engines/baseline-build.log
+          bash peer/build-host.sh
+          python3 peer/make-cases.py
+          python3 peer/parity-native.py
+          node peer/node-tests.mjs
+      - name: Build Luau native and Wasm with separate sanitizer gate
+        run: bash engines/build-luau.sh 2>&1 | tee reports/engines/luau-build.log
+      - name: Native and in-workerd parity and cancellation gates
+        run: |
+          timeout -s KILL 60s dist/engines/core-luau-asan 2>&1 | tee reports/engines/luau-asan.txt
+          python3 engines/prepare-tests.py
+          timeout -s KILL 60s python3 peer/engine-native.py 2>&1 | tee reports/engines/luau-native.txt
+          timeout -s KILL 90s node engines/luau-tests.mjs 2>&1 | tee reports/engines/luau-tests.txt
+          timeout -s KILL 180s node peer/engine-http.mjs 2>&1 | tee reports/engines/luau-http.txt
+      - name: Matched stock-workerd and native HTTP measurements
+        run: timeout -s KILL 600s node peer/engine-bench.mjs 2>&1 | tee reports/engines/luau-bench.txt
+      - name: Record source and toolchain evidence
+        if: always()
+        run: |
+          git rev-parse HEAD > reports/engines/commit.txt
+          cp .deps/luau/LICENSE.txt reports/engines/luau-LICENSE.txt || true
+          cp .deps/luau/lua_LICENSE.txt reports/engines/luau-lua-LICENSE.txt || true
+          { cmake --version; gcc --version; g++ --version; node --version; } > reports/engines/tools.txt
+          find engines peer dist/peer dist/engines -type f ! -path '*/__pycache__/*' -print0 | sort -z | xargs -0 sha256sum > reports/engines/files-sha256.txt
+          if test -f reports/engines/RESULTS.md; then cat reports/engines/RESULTS.md >> "$GITHUB_STEP_SUMMARY"; fi
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: luau-workerd-${{ github.run_id }}
+          path: |
+            experiments/lua-worker/engines/
+            experiments/lua-worker/peer/
+            experiments/lua-worker/dist/peer/
+            experiments/lua-worker/dist/engines/
+            experiments/lua-worker/reports/
+            experiments/lua-worker/toolchain.json
+            experiments/lua-worker/package-lock.json
+          retention-days: 30
+          if-no-files-found: error
