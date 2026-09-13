@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Rebuild a frozen fresh-worker control and resident-app lifecycle variants."""
 import hashlib, json, os, pathlib, shutil, subprocess
+from dispatch import optimize
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 BASE = 'b73f74cae2a228768d482b2c0640e9decc619e8b'
 OUT = ROOT / 'dist/lifecycle'
@@ -65,7 +66,17 @@ if __name__ == '__main__':
             p=target/'core/kernel.nelua'; p.write_text(p.read_text()+'\n'+(ROOT/'lifecycle/application.nelua').read_text())
             p=target/'core/lua_bridge.c'; p.write_text(resident_bridge(p.read_text()))
             shutil.copyfile(ROOT/'lifecycle/api.h',target/'core/lifecycle.h')
-            p=target/'host/runtime.mjs'; p.write_text(resident_js(p.read_text()))
+            p=target/'host/runtime.mjs'; p.write_text(optimize(resident_js(p.read_text())))
+            # The selected source must equal the measured lazy adapter, not merely resemble it.
+            expected='fcdfa78e6725bd72ab83626f5af5774a9baa821c6119a86d6c1a3a88dbf0a98e'
+            assert hashlib.sha256(p.read_bytes()).hexdigest()==expected
+            shutil.copyfile(ROOT/'lifecycle/dispatch-contracts.mjs',target/'lifecycle/dispatch-contracts.mjs')
+            p=target/'lifecycle/contracts.mjs'
+            p.write_text("import {extraSuite} from './dispatch-contracts.mjs';\n"+once(p.read_text(),
+                '  return {warm,passed};','  passed.push(...await extraSuite(make));\n  return {warm,passed};'))
+            p=target/'lifecycle/workerd-tests.mjs'
+            p.write_text(once(p.read_text(),'(name="contracts.mjs",esModule=embed "contracts.mjs"),',
+                '(name="contracts.mjs",esModule=embed "contracts.mjs"),(name="dispatch-contracts.mjs",esModule=embed "dispatch-contracts.mjs"),'))
             p=target/'scripts/build.sh'
             extras=['wa_open','wa_load','wa_start','wa_release','wa_bytes','wa_pending','wa_app_count','wa_error_data','wa_error_size','wa_load_count','wa_collect']
             s=once(p.read_text(),'"_lw_bytes"]', '"_lw_bytes",'+','.join('"_'+n+'"' for n in extras)+']')
@@ -82,6 +93,8 @@ if __name__ == '__main__':
             run(['timeout','60','node','--test','tests/runtime.test.mjs','tests/performance-regression.test.mjs'],target,target/'reports/original-tests.tap')
         run(['timeout','90','node','lifecycle/node-tests.mjs'],target,target/'reports/lifecycle-node.txt')
         run(['timeout','90','node','lifecycle/workerd-tests.mjs'],target,target/'reports/lifecycle-workerd.txt')
+        if name == 'resident':
+            assert hashlib.sha256((target/'dist/kernel.wasm').read_bytes()).hexdigest() == '8bef38601a1b10a04e6e5f25c324f7e09e1f8ee5313b1ea9b72a5eb2fce3337c'
         files=['core/kernel.nelua','core/lua_bridge.c','host/runtime.mjs','dist/kernel.wasm']
         manifest['variants'].append({'name':name,'warm':warm,'profile':profile,'contract':'PASS',
             'wasmBytes':(target/'dist/kernel.wasm').stat().st_size,
