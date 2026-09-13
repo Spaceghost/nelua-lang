@@ -26,6 +26,12 @@ jobs:
         run: bash scripts/bootstrap.sh 2>&1 | tee bootstrap.log
       - name: Build and validate fresh and resident lifecycles
         run: timeout --signal=KILL 900s python3 lifecycle/prepare.py 2>&1 | tee reports/lifecycle-build.log
+      - name: Measure actual Worker Loader creation and cached dispatch
+        run: timeout --signal=KILL 600s node lifecycle/run.mjs 2>&1 | tee reports/lifecycle-run.log
+      - name: Publish measured summary
+        if: always()
+        run: |
+          if test -f reports/lifecycle/RESULTS.md; then cat reports/lifecycle/RESULTS.md >> "$GITHUB_STEP_SUMMARY"; fi
       - name: Retain source binaries and test evidence
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
