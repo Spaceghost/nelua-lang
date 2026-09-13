@@ -22,10 +22,10 @@ jobs:
         with: {node-version: '22.16.0'}
       - name: Bootstrap pinned Lua Nelua and Wasm tools
         run: bash scripts/bootstrap.sh 2>&1 | tee bootstrap.log
-      - name: Install KJ development library
+      - name: Install pinned KJ development library
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y libcapnp-dev
+          sudo apt-get install -y libcapnp-dev=1.0.1-4
           mkdir -p reports/peer
           dpkg-query -W libcapnp-dev > reports/peer/system-packages.txt
       - name: Build context-owned native Lua LuaJIT and Wasm cores
@@ -46,12 +46,12 @@ jobs:
         run: timeout --signal=KILL 180s node peer/http-tests.mjs 2>&1 | tee reports/peer/http-tests.log
       - name: Matched HTTP shootout and finite memory soak
         run: timeout --signal=KILL 600s node peer/bench.mjs 2>&1 | tee reports/peer/benchmark.log
-      - name: Record provenance and summary
+      - name: Record provenance licenses and summary
         if: always()
         run: |
           mkdir -p reports/peer
           git rev-parse HEAD > reports/peer/commit.txt
-          find peer -type f -not -path '*/__pycache__/*' -print0 | sort -z | xargs -0 sha256sum > reports/peer/source-sha256.txt
+          if test -f dist/peer/host-lua55; then bash peer/evidence.sh; fi
           if test -f reports/peer/RESULTS.md; then cat reports/peer/RESULTS.md >> "$GITHUB_STEP_SUMMARY"; fi
       - name: Retain source binaries and evidence
         if: always()
@@ -62,6 +62,8 @@ jobs:
             experiments/lua-worker/peer/
             experiments/lua-worker/dist/peer/
             experiments/lua-worker/reports/
+            experiments/lua-worker/scripts/bootstrap.sh
+            experiments/lua-worker/package.json
             experiments/lua-worker/toolchain.json
             experiments/lua-worker/package-lock.json
           if-no-files-found: error

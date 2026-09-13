@@ -20,6 +20,7 @@ try {
   const check=async(name,fn)=>{await fn();record.passed.push(name);};
   try {
    await check('hello and persistent app state',async()=>{await call(s,'/hello',undefined,'ok');for(let i=1;i<=3;i++)await call(s,'/counter',undefined,String(i));});
+   await check('method and absolute request URL',()=>call(s,'/info','','POST|'+s.base+'/info'));
    await check('64 KiB binary body',async()=>{const b=Buffer.from(Uint8Array.from({length:65536},(_,i)=>i%251));await call(s,'/echo',b,b);});
    await check('input-dependent computation',async()=>{for(const n of [31,997,10000,10999]){let sum=0;for(let i=1;i<=n;i++)sum+=i%97;await call(s,'/cpu',String(n),String(sum));}});
    await check('CONFIG value empty absence and operation count',async()=>{const before=f.counts.get;await call(s,'/get','greeting','hello');await call(s,'/get','missing','missing');await call(s,'/get','empty','');await call(s,'/ops16',undefined,'hello');assert.equal(f.counts.get-before,19);});

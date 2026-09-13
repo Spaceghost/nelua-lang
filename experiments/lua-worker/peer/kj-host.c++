@@ -31,7 +31,7 @@ public:
   Peer(np_app *app,kj::Timer& timer,const kj::HttpHeaderTable& table,kj::HttpClient& config,kj::HttpClient& upstream)
     :app(app),timer(timer),table(table),config(config),upstream(upstream){}
   ~Peer(){KJ_ASSERT(admitted==0);KJ_ASSERT(np_delete(app)==0);}
-  kj::Promise<void> request(kj::HttpMethod method,kj::StringPtr url,const kj::HttpHeaders&,
+  kj::Promise<void> request(kj::HttpMethod method,kj::StringPtr url,const kj::HttpHeaders& headers,
                            kj::AsyncInputStream& input,Response& output) override {
     // Local diagnostic endpoint. Listener is restricted to loopback/Unix sockets.
     if(url=="/_peer/stats") {
@@ -40,11 +40,16 @@ public:
       return send(output,Reply{200,copyBytes(s.cStr(),s.size())},false);
     }
     if(admitted>=8)return send(output,Reply{503,copyBytes("capacity",8)},false);
-    auto call=kj::heap<Call>(*this,method,kj::str(url));auto& c=*call;
-    auto task=input.readAllBytes(BODY_LIMIT).then([this,&c](kj::Array<kj::byte> body)->kj::Promise<Reply>{
+    auto authority=headers.get(kj::HttpHeaderId::HOST).orDefault("worker.invalid");
+    auto logicalUrl=url.startsWith("/")?kj::str("http://",authority,url):kj::str(url);
+    if(logicalUrl.size()>4096)return send(output,Reply{413,copyBytes("URL limit",9)},false);
+    auto call=kj::heap<Call>(*this,method,kj::mv(logicalUrl));auto& c=*call;
+    // KJ's readAllBytes limit is exclusive. Admit exactly BODY_LIMIT bytes,
+    // while retaining the independent explicit bound before invoking Lua.
+    auto task=input.readAllBytes(BODY_LIMIT+1).then([this,&c](kj::Array<kj::byte> body)->kj::Promise<Reply>{
+      KJ_REQUIRE(body.size()<=BODY_LIMIT,"body limit exceeded");
       auto method=kj::str(c.method);
-      auto canonical=c.url.startsWith("/")?kj::str("http://worker.invalid",c.url):kj::str(c.url);
-      c.id=np_start(app,method.cStr(),method.size(),canonical.cStr(),canonical.size(),
+      c.id=np_start(app,method.cStr(),method.size(),c.url.cStr(),c.url.size(),
                     reinterpret_cast<const char*>(body.begin()),body.size());
       KJ_REQUIRE(c.id!=0,"native invocation admission failed");return drive(c);
     });
@@ -66,7 +71,7 @@ private:
     Peer& owner;kj::HttpMethod method;kj::String url;uint32_t id=0;
     kj::String operationUrl;kj::HttpHeaders operationHeaders;
     Call(Peer& owner,kj::HttpMethod method,kj::String url):owner(owner),method(method),url(kj::mv(url)),operationHeaders(owner.table){++owner.admitted;}
-    ~Call(){if(id)KJ_ASSERT(np_close(owner.app,id)==0);--owner.admitted;}
+    ~Call(){if(id){KJ_ASSERT(np_close(owner.app,id)==0);}--owner.admitted;}
   };
   np_app *app;kj::Timer& timer;const kj::HttpHeaderTable& table;
   kj::HttpClient& config;kj::HttpClient& upstream;
@@ -92,7 +97,9 @@ private:
     req.body=nullptr;
     auto result=req.response.then([](kj::HttpClient::Response response)->kj::Promise<Reply>{
       unsigned status=response.statusCode;auto body=kj::mv(response.body);
-      return body->readAllBytes(BODY_LIMIT).then([status](kj::Array<kj::byte> bytes)->Reply{return {status,kj::mv(bytes)};}).attach(kj::mv(body));
+      return body->readAllBytes(BODY_LIMIT+1).then([status](kj::Array<kj::byte> bytes)->Reply{
+        KJ_REQUIRE(bytes.size()<=BODY_LIMIT,"body limit exceeded");return {status,kj::mv(bytes)};
+      }).attach(kj::mv(body));
     }).catch_([](kj::Exception&&)->Reply{return {502,copyBytes("host operation failed (HOST_ERROR)",33),false};});
     return result.then([this,&c,seq,kind](Reply result)->kj::Promise<Reply>{
       int ok=result.transportOk && (kind!=1 || result.status==200 || result.status==404);

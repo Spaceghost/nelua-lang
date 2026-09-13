@@ -5,6 +5,7 @@ local counter = 0
 return {
   fetch = function(request, env, ctx)
     local path = request.url:match('https?://[^/]+(/[^?]*)') or request.url:match('^([^?]+)')
+    if path == '/info' then return http.text(request.method..'|'..request.url) end
     if path == '/hello' then return http.text('ok') end
     if path == '/echo' then return http.text(request.body) end
     if path == '/counter' then counter=counter+1;return http.text(tostring(counter)) end
@@ -20,10 +21,7 @@ return {
       local upstream=env.UPSTREAM:fetch('/'..(request.body~='' and request.body or 'echo'))
       return http.text(greeting..':'..upstream.body)
     end
-    if path == '/ops16' then
-      local value;for i=1,16 do value=env.CONFIG:get('greeting') end
-      return http.text(value)
-    end
+    if path == '/ops16' then local value;for i=1,16 do value=env.CONFIG:get('greeting') end;return http.text(value) end
     if path == '/fail' then env.CONFIG:get('greeting');error('http-trace-needle') end
     if path == '/loop' then while true do end end
     return http.text('not found',404)

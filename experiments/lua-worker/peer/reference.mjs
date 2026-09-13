@@ -7,7 +7,8 @@ export default {async fetch(request,env){
  if(path==='/_peer/stats')return Response.json({active:0,admitted:0,luaBytes:0,traces:0,requests});
  const body=await readBounded(request.body,request.signal);const text=dec.decode(body);let result,status=200;
  const get=async key=>{const r=await env.CONFIG.fetch('http://config.invalid/'+encodeURIComponent(key),{redirect:'manual'});if(r.status===404){await r.body?.cancel();return null;}if(r.status!==200)throw Error('CONFIG');return readBounded(r.body,request.signal);};
- if(path==='/hello')result='ok';
+ if(path==='/info')result=request.method+'|'+request.url;
+ else if(path==='/hello')result='ok';
  else if(path==='/echo')result=body;
  else if(path==='/counter')result=String(++counter);
  else if(path==='/cpu'){const n=Number(text);if(!Number.isSafeInteger(n)||n<1||n>20000)throw Error('invalid loop count');let sum=0;for(let i=1;i<=n;i++)sum+=i%97;result=String(sum);}
