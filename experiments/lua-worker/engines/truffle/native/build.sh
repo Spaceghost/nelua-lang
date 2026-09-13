@@ -24,15 +24,14 @@ for profile in lib linear-lib; do
     > "reports/truffle-native/$profile-qualification.log" 2>&1
   java --enable-native-access=ALL-UNNAMED -cp "$cp" NativeImagePeer --jit-probe \
     > "reports/truffle-native/$profile-jit.log" 2>&1
-  # The generated stateless language registration is cached by Truffle in the
-  # image. Only this metadata provider is build-initialized, not Lua contexts.
-  javap -private -c -classpath "dist/engines/truffle/$profile/language.jar" \
-    com.zhhz.truffle.lua.LuaLanguageProvider > "reports/truffle-native/$profile-provider.txt"
+  # Truffle caches generated registration and interop metadata in its image.
+  # Derive and inspect an exact generated-class list, never a package wildcard.
+  image_init=$(python3 engines/truffle/native/image-init.py "$profile")
   # Build failures remain failures. No Java launcher fallback is accepted.
   /usr/bin/time -v native-image --no-fallback --parallelism=4 \
     -J-Xmx${NATIVE_BUILD_HEAP:-10g} -O2 -march=compatibility \
     --enable-native-access=ALL-UNNAMED -R:MaxHeapSize=268435456 \
-    --initialize-at-build-time=com.zhhz.truffle.lua.LuaLanguageProvider \
+    "--initialize-at-build-time=$image_init" \
     -cp "$cp" NativeImagePeer -o "dist/engines/truffle-native/truffle-$profile" \
     2>&1 | tee "reports/truffle-native/$profile-build.log"
   file "dist/engines/truffle-native/truffle-$profile" | tee "reports/truffle-native/$profile-file.txt"
