@@ -1,0 +1,83 @@
+-- SPDX-License-Identifier: MIT
+-- App residency is independent from invocation ownership. One app per Wasm
+-- instance; native callers serialize entry and supply one kernel per worker.
+local function warm_destroy(p: pointer) <cimport> end
+local ApplicationBudget = @record{id: uint32, sequence: uint32, active: uint32,
+  state: cint, ticks: uint32, used: csize, vm: pointer,
+  error_n: csize, error_buffer: [8192]cchar}
+local app: ApplicationBudget
+local function wa_open(): uint32 <cexport, codename 'wa_open'>
+  if app.id ~= 0 or app.sequence >= 2147483600 then return 0 end
+  app.sequence = app.sequence + 1
+  app.id, app.state, app.ticks = app.sequence, 1, 1000
+  app.error_n, app.used, app.active = 0, 0, 0
+  app.vm = nilptr
+  return app.id
+end
+local function wa_ptr(id: uint32): pointer <cexport, codename 'wa_ptr'>
+  if id == 0 or id ~= app.id then return nilptr end
+  return app.vm
+end
+local function wa_attach(id: uint32, p: pointer): cint <cexport, codename 'wa_attach'>
+  if id == 0 or id ~= app.id or app.state ~= 1 or app.vm ~= nilptr then return -1 end
+  app.vm = p
+  return 0
+end
+local function wa_ready(id: uint32): cint <cexport, codename 'wa_ready'>
+  if id == 0 or id ~= app.id or app.state ~= 1 then return -1 end
+  app.state = 2
+  return 0
+end
+local function wa_pin(id: uint32): cint <cexport, codename 'wa_pin'>
+  if id == 0 or id ~= app.id or app.state ~= 2 or app.active >= 8 then return -1 end
+  app.active = app.active + 1
+  return 0
+end
+local function wa_unpin(id: uint32): cint <cexport, codename 'wa_unpin'>
+  if id == 0 or id ~= app.id or app.active == 0 then return -1 end
+  app.active = app.active - 1
+  return 0
+end
+local function wa_tick(id: uint32): cint <cexport, codename 'wa_tick'>
+  if id == 0 or id ~= app.id or app.ticks == 0 then return 0 end
+  app.ticks = app.ticks - 1
+  if app.ticks == 0 then return 0 end
+  return 1
+end
+local function wa_alloc(ud: pointer, p: pointer, old: csize, n: csize): pointer <cexport, codename 'wa_alloc'>
+  if uint32(usize(ud)) ~= app.id or app.id == 0 then return nilptr end
+  if p == nilptr then old = 0 end
+  if n == 0 then
+    free(p)
+    app.used = app.used - old
+    return nilptr
+  end
+  -- A strict 2 MiB aggregate app budget, including resident code and all requests.
+  if old > app.used or n > 2097152 or app.used-old > 2097152-n then return nilptr end
+  local q = realloc(p, n)
+  if q ~= nilptr then app.used = app.used-old+n end
+  return q
+end
+local function wa_error(p: pointer, n: csize): cint <cexport, codename 'wa_error'>
+  if n > 8192 then n = 8192 end
+  if n > 0 then memcpy(&app.error_buffer[0], p, n) end
+  app.error_n = n
+  return -1
+end
+local function wa_error_data(): cstring <cexport, codename 'wa_error_data'> return &app.error_buffer[0] end
+local function wa_error_size(): csize <cexport, codename 'wa_error_size'> return app.error_n end
+local function wa_bytes(): csize <cexport, codename 'wa_bytes'> return app.used end
+local function wa_pending(): uint32 <cexport, codename 'wa_pending'> return app.active end
+local function wa_app_count(): uint32 <cexport, codename 'wa_app_count'>
+  if app.id ~= 0 then return 1 end
+  return 0
+end
+local function wa_release(id: uint32): cint <cexport, codename 'wa_release'>
+  if id == 0 or id ~= app.id or app.active ~= 0 then return -1 end
+  -- Keep the allocation owner live until lua_close finishes every free.
+  if app.vm ~= nilptr then warm_destroy(app.vm) end
+  app.vm = nilptr
+  if app.used ~= 0 then return -2 end
+  app.id, app.state, app.error_n = 0, 0, 0
+  return 0
+end

@@ -6,6 +6,8 @@
   "scripts": {
     "bootstrap": "bash scripts/bootstrap.sh",
     "build": "bash scripts/build.sh",
+    "build:resident": "python3 lifecycle/prepare.py",
+    "start:resident": "workerd serve dist/lifecycle/resident/workerd.capnp",
     "test": "node --test tests/runtime.test.mjs perf/regression.test.mjs && node tests/workerd.test.mjs",
     "start": "workerd serve workerd.capnp",
     "start:bounded": "node scripts/supervise.mjs 60000 node_modules/.bin/workerd serve workerd.capnp"
