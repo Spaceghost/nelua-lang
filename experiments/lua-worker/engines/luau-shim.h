@@ -22,6 +22,15 @@ static int peer_luau_error(lua_State *L,const char *fmt,...){
 #define luaL_error peer_luau_error
 static int peer_luau_throw(lua_State *L){lua_error(L);return 0;}
 #define lua_error peer_luau_throw
+static void peer_luau_traceback(lua_State *L,lua_State *from,const char *message,int level){
+  /* Luau emits real source frames without Lua's conventional heading. Keep
+   * those frames and normalize only the host-facing envelope, not the test. */
+  luaL_traceback(L,from,NULL,level);
+  const char *frames=lua_tostring(L,-1);
+  lua_pushfstringL(L,"%s\nstack traceback:\n%s",message?message:"Lua error",frames?frames:"");
+  lua_remove(L,-2);
+}
+#define luaL_traceback peer_luau_traceback
 static int luaL_ref(lua_State *L,int index){
   if(index!=LUA_REGISTRYINDEX)return luaL_error(L,"invalid registry");
   int r=lua_ref(L,-1);lua_pop(L,1);return r;
