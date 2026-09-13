@@ -1,20 +1,31 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: MIT
-"""Allow generated interop metadata and fixed type descriptors in the image."""
+"""Initialize audited generated Truffle DSL/interop metadata, never app state."""
 from pathlib import Path
-import json, subprocess, sys, zipfile
+import json, re, subprocess, sys, zipfile
 profile=sys.argv[1]
 jar=Path('dist/engines/truffle')/profile/'language.jar'
 metadata=['com.zhhz.truffle.lua.LuaLanguageProvider',
           'com.zhhz.truffle.lua.runtime.LuaType',
           'com.zhhz.truffle.lua.runtime.LuaType$TypeCheck']
-suffixes=('Gen$InteropLibraryExports.class','Gen$InteropLibraryExports$Cached.class','Gen$InteropLibraryExports$Uncached.class')
+# Generated DSL nodes contain InlineSupport field descriptors that cannot be
+# constructed at native runtime. Include their precise generated classes, not
+# the runtime/parser/AST packages or application Context classes.
 with zipfile.ZipFile(jar) as z:
-    names=metadata+sorted(n[:-6].replace('/','.') for n in z.namelist() if n.startswith('com/zhhz/truffle/lua/') and n.endswith(suffixes))
-assert len(names)==54, 'pinned metadata changed; review initialization list'
+    names=metadata+sorted(n[:-6].replace('/','.') for n in z.namelist() if n.startswith('com/zhhz/truffle/lua/') and re.search(r'Gen(?:\$[^/]*)?\.class$', n))
+assert len(names)==178, 'pinned metadata changed; review initialization list'
+# One javap process avoids starting a JVM for each generated metadata class.
+output=subprocess.check_output(['javap','-private','-classpath',str(jar),*names],text=True)
+declarations={}
+for chunk in re.split(r'(?m)^Compiled from ',output)[1:]:
+    header=chunk.splitlines()[1]
+    match=re.search(r'(?:class|interface) ([\w.$]+)',header)
+    assert match, header
+    declarations[match.group(1)]='Compiled from '+chunk
+assert set(declarations)==set(names), 'incomplete javap declarations'
 rows=[]
 for name in names:
-    declaration=subprocess.check_output(['javap','-private','-classpath',str(jar),name],text=True)
+    declaration=declarations[name]
     fields=[line.strip() for line in declaration.splitlines() if 'static ' in line and ';' in line and '(' not in line and 'static {}' not in line]
     if name.endswith('$TypeCheck'):
         assert not fields, 'type-predicate interface unexpectedly has state'
@@ -29,7 +40,11 @@ for name in names:
             # Never a Lua context, application value, executor or I/O instance.
             assert any(token in field for token in ('$assertionsDisabled;', 'FinalBitSet ENABLED_MESSAGES;',
                 '$Uncached UNCACHED;', '$Cached CACHE;', 'InlineSupport$StateField ',
-                'InlineSupport$ReferenceField<', 'InlinedBranchProfile ')), (name,field)
+                'InlineSupport$ReferenceField<', 'InlinedBranchProfile ',
+                'LibraryFactory<com.oracle.truffle.api.interop.InteropLibrary> ',
+                'LibraryFactory<com.oracle.truffle.api.library.DynamicDispatchLibrary> ',
+                'LibraryFactory<com.oracle.truffle.api.object.DynamicObjectLibrary> ',
+                'LuaToMemberNode INLINED_', 'LuaToTruffleStringNode INLINED_')), (name,field)
     rows.append({'class':name,'staticFields':fields,'declaration':declaration})
 out=Path('reports/truffle-native')
 (out/(profile+'-image-init.json')).write_text(json.dumps({'classes':rows,'excluded':'LuaLanguage, LuaContext, application state, host globals; no package-wide initialization'},indent=2)+'\n')
