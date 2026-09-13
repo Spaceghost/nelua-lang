@@ -9,18 +9,22 @@ import {performance} from 'node:perf_hooks';
 import {fixtures,start as peerStart} from '../../peer/harness.mjs';
 const pause=ms=>new Promise(r=>setTimeout(r,ms));
 await mkdir('reports/truffle',{recursive:true});await mkdir('dist/engines/truffle',{recursive:true});
-const javaArgs=['-Xms32m','-Xmx256m','--enable-native-access=ALL-UNNAMED','-Dpolyglot.engine.TraceCompilation=true','-Dpolyglot.engine.BackgroundCompilation=false','-cp','dist/engines/truffle/classes:dist/engines/truffle/lib/*','TrufflePeer'];
-async function launch(args,log){
- const p=spawn('java',[...javaArgs,...args],{stdio:['ignore','pipe','pipe']});let logs='';p.stdout.on('data',d=>logs+=d);p.stderr.on('data',d=>logs+=d);
+const javaArgs=['-Dsun.net.httpserver.nodelay=true','-Xms32m','-Xmx256m','--enable-native-access=ALL-UNNAMED','-Dpolyglot.engine.TraceCompilation=true','-Dpolyglot.engine.BackgroundCompilation=false','-cp','dist/engines/truffle/classes:dist/engines/truffle/lib/*','TrufflePeer'];
+function argsFor(variant){return variant==='truffle-baseline'?javaArgs.map(x=>x.replace('truffle/lib/*','truffle/baseline-lib/*')):javaArgs;}
+async function launch(args,log,variant='truffle'){
+ const p=spawn('java',[...argsFor(variant),...args],{stdio:['ignore','pipe','pipe']});let logs='';p.stdout.on('data',d=>logs+=d);p.stderr.on('data',d=>logs+=d);
  const killer=setTimeout(()=>p.kill('SIGKILL'),60000);const [code,signal]=await once(p,'exit');clearTimeout(killer);await writeFile(log,logs);assert.equal(code,0,logs+' '+signal);return logs;
 }
 await launch(['--probe','reports/truffle/qualification.json'],'reports/truffle/qualification.log');
 const qualification=JSON.parse(await readFile('reports/truffle/qualification.json','utf8'));assert(qualification.coreQualified);assert.equal(qualification.asyncWorkerQualified,false);
+await launch(['--probe','reports/truffle/qualification-baseline.json'],'reports/truffle/qualification-baseline.log','truffle-baseline');
+const baselineQualification=JSON.parse(await readFile('reports/truffle/qualification-baseline.json','utf8'));
+assert.deepEqual(qualification,baselineQualification,'boundary patch changed qualification semantics');
 let serial=0;const f=await fixtures();
 async function start(variant){
  if(variant==='javascript')return peerStart('javascript',f);
  const port=21100+(++serial)*2,procs=[],logs=[];const t=performance.now();
- const j=spawn('java',[...javaArgs,String(port)],{stdio:['ignore','pipe','pipe']});procs.push(j);j.stdout.on('data',d=>logs.push(d.toString()));j.stderr.on('data',d=>logs.push(d.toString()));
+ const j=spawn('java',[...argsFor(variant),String(port)],{stdio:['ignore','pipe','pipe']});procs.push(j);j.stdout.on('data',d=>logs.push(d.toString()));j.stderr.on('data',d=>logs.push(d.toString()));
  const timer=setTimeout(()=>{for(const p of procs)p.kill('SIGKILL');},60000);
  const stop=async()=>{clearTimeout(timer);for(const p of procs)if(p.exitCode===null&&p.signalCode===null)p.kill('SIGTERM');for(const p of procs)if(p.exitCode===null&&p.signalCode===null){const k=setTimeout(()=>p.kill('SIGKILL'),1000);await once(p,'exit');clearTimeout(k);}await writeFile(`reports/truffle/${variant}-${serial}.log`,logs.join(''));};
  try{
@@ -36,7 +40,7 @@ async function start(variant){
   return{base,coldMs:performance.now()-t,stop,logs,async rss(){let sum=0;for(const p of procs){const txt=await readFile(`/proc/${p.pid}/status`,'utf8');sum+=Number(txt.match(/^VmRSS:\s+(\d+) kB$/m)[1]);}return sum;}};
  }catch(e){await stop();throw e;}
 }
-const variants=['javascript','truffle','proxy-truffle'],rounds=3,raw=[],cold=[],memory=[],contracts=[];
+const variants=['javascript','truffle-baseline','truffle','proxy-truffle'],rounds=4,raw=[],cold=[],memory=[],contracts=[];
 const median=v=>{const a=[...v].sort((a,b)=>a-b);return(a[Math.floor((a.length-1)/2)]+a[Math.floor(a.length/2)])/2;};
 async function invoke(s,path,body,status=200){const r=await fetch(s.base+path,{...(body!==undefined?{method:'POST',body}:{}),signal:AbortSignal.timeout(6000)});const b=await r.text();assert.equal(r.status,status,b);return b;}
 async function workload(s,name,n){
@@ -60,12 +64,13 @@ try{
   }finally{await s.stop();}
  }
  const summary=[];for(const name of ['hello','cpu'])for(const variant of variants)summary.push({name,variant,medianRps:median(raw.filter(x=>x.name===name&&x.variant===variant).map(x=>x.rps))});
- const report={qualification,rounds,raw,summary,cold,memory,contracts,caveats:[
+ const report={qualification,baselineQualification,javaArgs,rounds,raw,summary,cold,memory,contracts,caveats:[
   'Synchronous trusted fixed-source qualification lane only: no coroutine/async capability or binary Lua-string parity.',
   'Truffle/JVM runs outside stock workerd; proxy-truffle is an actual external service, not a JVM embedded in workerd.',
   'The JDK HttpServer host differs from workerd. Every traced JVM runs with -Xmx256m; process RSS includes VM/JIT metadata too.',
+  'JDK TCP_NODELAY is enabled for baseline and patched Truffle to avoid delayed-ACK transport artifacts.',
   'TraceCompilation logs are retained. Compiler availability is not proof every measured handler compiled or reached steady state.',
-  'Three fresh processes per contender; closed-loop one-client HTTP, not production capacity or engine-only execution speed.',
+  'Four fresh processes per contender; closed-loop one-client HTTP, not production capacity or engine-only execution speed.',
   'JavaScript receives the same inputs/warmup. No async case is replaced with synchronous I/O to fake admission.'
  ]};
  await writeFile('reports/truffle/shootout.json',JSON.stringify(report,null,2)+'\n');
