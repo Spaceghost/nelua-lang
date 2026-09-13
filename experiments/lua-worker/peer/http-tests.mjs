@@ -43,6 +43,17 @@ try {
      }finally{client.destroy();}
     }
    }
+   if(variant==='native-luajit-trusted')await check('trusted JIT compiles the actual routed application',async()=>{
+    // Four functional CPU cases are not a JIT warmup contract. Exercise the
+    // actual HTTP app with variable inputs; never count a JIT-on flag as proof.
+    const before=(await s.stats()).traces;
+    for(let i=0;i<200;i++){
+     const n=10000+i;let sum=0;for(let j=1;j<=n;j++)sum+=j%97;
+     await call(s,'/cpu',String(n),String(sum));
+    }
+    const after=(await s.stats()).traces;assert(after>0,'no compiled JIT traces after checked warmup');
+    record.jitQualification={checkedCalls:200,tracesBefore:before,tracesAfter:after};
+   });
    const stats=await s.stats();assert.equal(stats.active,0);assert.equal(stats.admitted,0);record.stats=stats;
    if(variant==='native-luajit-trusted')assert(stats.traces>0,'no compiled JIT traces');
    console.log(`PASS ${variant}: ${record.passed.length} HTTP groups; ${record.disconnects.length} real disconnect checks`);

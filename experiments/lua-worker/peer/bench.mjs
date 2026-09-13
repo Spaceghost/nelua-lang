@@ -8,9 +8,10 @@ import {performance} from 'node:perf_hooks';
 import {fixtures,start} from './harness.mjs';
 const variants=['javascript','wasm','native-lua55','native-luajit','native-luajit-trusted','proxy-lua55'];
 const rounds=6;const payload=Buffer.alloc(65536,88);
-const report={rounds,environment:{node:process.version,cpu:cpus()[0]?.model,cpus:cpus().length,commit:execFileSync('git',['rev-parse','HEAD'],{encoding:'utf8'}).trim()},raw:[],memory:[],cold:[],
+const report={rounds,environment:{node:process.version,cpu:cpus()[0]?.model,cpus:cpus().length,commit:execFileSync('git',['rev-parse','HEAD'],{encoding:'utf8'}).trim()},raw:[],memory:[],cold:[],warmup:[],
  caveats:['One Linux CI machine; six balanced-order independent processes per contender, not independent hardware replication.',
  'Closed-loop external HTTP load; driver and fixture overhead may hide engine differences. No open-loop capacity or coordinated-omission correction.',
+ 'Reference outputs are precomputed outside timing. All contenders receive 200 checked CPU warmup calls and 32 for each other case; actual JIT traces are required before timing.',
  'Native hosts use distro KJ; workerd uses its own bundled version. Libraries and HTTP paths are not byte-identical.',
  'Native Lua and Wasm compile the same context-owned core and run identical Lua source; JavaScript uses equivalent explicit handlers.',
  'The new Wasm adapter is a same-core control, not the previous fastest lazy-I/O prototype.',
@@ -22,15 +23,22 @@ const f=await fixtures();
 const summary=arr=>{const a=[...arr].sort((a,b)=>a-b);return{n:a.length,min:a[0],median:a[Math.floor(a.length/2)],p95:a[Math.min(a.length-1,Math.floor(a.length*.95))],max:a.at(-1)};};
 const cases=[['hello',1,512],['cpu',1,256],['echo',4,128],['get',8,256],['chain',8,256],['ops16',4,128]];
 async function workload(s,name,n,c){
- // Restart the input sequence per case: every contender receives identical work.
- let next=0,sequence=0;const latencies=[];const before={...f.counts},t=performance.now();
- await Promise.all(Array.from({length:c},async()=>{while(next++<n){
-  let body,expected;if(name==='hello')expected='ok';
-  else if(name==='cpu'){const count=10000+(sequence++%1000);body=String(count);let sum=0;for(let i=1;i<=count;i++)sum+=i%97;expected=String(sum);}
+ // Build and verify the workload vector before the timer. In particular,
+ // computing the reference sum in the load-driver timed loop hides VM cost.
+ // Input sequences restart per case; every contender receives the same bytes.
+ const vector=Array.from({length:n},(_,i)=>{
+  let body,expected;
+  if(name==='hello')expected='ok';
+  else if(name==='cpu'){const count=10000+(i%1000);body=String(count);let sum=0;for(let j=1;j<=count;j++)sum+=j%97;expected=String(sum);}
   else if(name==='echo'){body=payload;expected=payload;}
   else expected=name==='chain'?'hello:upstream':'hello';
+  return{body,expected:Buffer.from(expected)};
+ });
+ let next=0;const latencies=[];const before={...f.counts},t=performance.now();
+ await Promise.all(Array.from({length:c},async()=>{while(next<n){
+  const {body,expected}=vector[next++];
   const began=performance.now();const r=await fetch(s.base+'/'+name,{...(body!==undefined?{method:'POST',body}:{}),signal:AbortSignal.timeout(6000)});
-  const b=Buffer.from(await r.arrayBuffer());assert.equal(r.status,200,b.toString());assert.deepEqual(b,Buffer.from(expected));latencies.push(performance.now()-began);
+  const b=Buffer.from(await r.arrayBuffer());assert.equal(r.status,200,b.toString());assert.deepEqual(b,expected);latencies.push(performance.now()-began);
  }}));
  const ms=performance.now()-t;assert.equal(latencies.length,n);
  const gets=name==='get'||name==='chain'?n:name==='ops16'?16*n:0,fetches=name==='chain'?n:0;
@@ -43,7 +51,12 @@ try{
   for(const variant of order){
    console.log('MEASURE',round+1,variant);const s=await start(variant,f);report.cold.push({round,variant,ms:s.coldMs});
    try{
-    for(const [name,c] of cases)await workload(s,name,32,c);
+    // Fixed, identical warmup for every contender; prove compilation before
+    // timed samples rather than discovering it sometime after the benchmark.
+    for(const [name,c] of cases)await workload(s,name,name==='cpu'?200:32,c);
+    const warmupStats=await s.stats();assert.equal(warmupStats.active,0);assert.equal(warmupStats.admitted,0);
+    if(variant==='native-luajit-trusted')assert(warmupStats.traces>0,'trusted JIT did not compile during common warmup');
+    report.warmup.push({round,variant,cpuCalls:200,otherCaseCalls:32,stats:warmupStats});
     for(const [name,c,n] of cases){const value=await workload(s,name,n,c);report.raw.push({round,variant,name,c,n,...value});}
     const stats=await s.stats();assert.equal(stats.active,0);assert.equal(stats.admitted,0);
     if(variant==='native-luajit-trusted')assert(stats.traces>0);
