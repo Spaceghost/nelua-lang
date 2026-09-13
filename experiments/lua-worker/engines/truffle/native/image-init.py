@@ -7,13 +7,15 @@ profile=sys.argv[1]
 jar=Path('dist/engines/truffle')/profile/'language.jar'
 metadata=['com.zhhz.truffle.lua.LuaLanguageProvider',
           'com.zhhz.truffle.lua.runtime.LuaType',
-          'com.zhhz.truffle.lua.runtime.LuaType$TypeCheck']
+          'com.zhhz.truffle.lua.runtime.LuaType$TypeCheck',
+          'com.zhhz.truffle.lua.LuaLanguage$ReferenceMetadata',
+          'com.zhhz.truffle.lua.runtime.LuaContext$ReferenceMetadata']
 # Generated DSL nodes contain InlineSupport field descriptors that cannot be
 # constructed at native runtime. Include their precise generated classes, not
 # the runtime/parser/AST packages or application Context classes.
 with zipfile.ZipFile(jar) as z:
     names=metadata+sorted(n[:-6].replace('/','.') for n in z.namelist() if n.startswith('com/zhhz/truffle/lua/') and re.search(r'Gen(?:\$[^/]*)?\.class$', n))
-assert len(names)==178, 'pinned metadata changed; review initialization list'
+assert len(names)==180, 'pinned metadata changed; review initialization list'
 # One javap process avoids starting a JVM for each generated metadata class.
 output=subprocess.check_output(['javap','-private','-classpath',str(jar),*names],text=True)
 declarations={}
@@ -31,7 +33,9 @@ for name in names:
         assert not fields, 'type-predicate interface unexpectedly has state'
     for field in fields:
         assert 'final ' in field, (name,field)
-        if name.endswith('.LuaType'):
+        if name.endswith('$ReferenceMetadata'):
+            assert ('TruffleLanguage$LanguageReference<' in field or 'TruffleLanguage$ContextReference<' in field) and ' REFERENCE;' in field, (name,field)
+        elif name.endswith('.LuaType'):
             # Fixed descriptors contain a name and a capture-free type predicate.
             # PRECEDENCE is a fixed descriptor array; no application values.
             assert 'com.zhhz.truffle.lua.runtime.LuaType' in field, (name,field)

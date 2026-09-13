@@ -10,6 +10,7 @@ java -version 2>reports/truffle-native/java-version.txt
 bash engines/truffle/build.sh
 # Native-image compatibility workaround shared by all new JVM/native variants.
 # Only interop inspection helpers cross boundaries; guest compilation stays on.
+python3 engines/truffle/native/reference-metadata.py
 python3 engines/truffle/native/interop-boundaries.py
 mvn -B -f .deps/trufflelua/pom.xml -pl language -am -Dmaven.test.skip=true package
 cp .deps/trufflelua/language/target/language.jar dist/engines/truffle/lib/language.jar
