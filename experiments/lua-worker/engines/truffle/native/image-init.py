@@ -1,17 +1,16 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: MIT
-"""Allow generated interop metadata and fixed type/nil descriptors in the image."""
+"""Allow generated interop metadata and fixed type descriptors in the image."""
 from pathlib import Path
 import json, subprocess, sys, zipfile
 profile=sys.argv[1]
 jar=Path('dist/engines/truffle')/profile/'language.jar'
 metadata=['com.zhhz.truffle.lua.LuaLanguageProvider',
-          'com.zhhz.truffle.lua.runtime.LuaType',
-          'com.zhhz.truffle.lua.runtime.LuaNil']
+          'com.zhhz.truffle.lua.runtime.LuaType']
 suffixes=('Gen$InteropLibraryExports.class','Gen$InteropLibraryExports$Cached.class','Gen$InteropLibraryExports$Uncached.class')
 with zipfile.ZipFile(jar) as z:
     names=metadata+sorted(n[:-6].replace('/','.') for n in z.namelist() if n.startswith('com/zhhz/truffle/lua/') and n.endswith(suffixes))
-assert len(names)==54, 'pinned metadata changed; review initialization list'
+assert len(names)==53, 'pinned metadata changed; review initialization list'
 rows=[]
 for name in names:
     declaration=subprocess.check_output(['javap','-private','-classpath',str(jar),name],text=True)
@@ -22,8 +21,6 @@ for name in names:
             # Fixed descriptors contain a name and a capture-free type predicate.
             # PRECEDENCE is a fixed descriptor array; no application values.
             assert 'com.zhhz.truffle.lua.runtime.LuaType' in field, (name,field)
-        elif name.endswith('.LuaNil'):
-            assert 'LuaNil SINGLETON;' in field or '$assertionsDisabled;' in field, (name,field)
         else:
             # Class metadata, stateless dispatch helpers and field descriptors.
             # Never a Lua context, application value, executor or I/O instance.
