@@ -1,0 +1,96 @@
+name: All-engine optimization chase
+on:
+  pull_request:
+    paths: ['experiments/lua-worker/chase/**', '.github/workflows/lua-all-engine-chase.yml']
+permissions:
+  contents: read
+concurrency:
+  group: all-engine-chase-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  engines:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    defaults:
+      run:
+        working-directory: experiments/lua-worker
+        shell: bash
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22.16.0'
+      - name: Pinned tools and host libraries
+        run: |
+          mkdir -p reports/chase
+          bash scripts/bootstrap.sh > reports/chase/bootstrap.log 2>&1
+          sudo apt-get update -qq
+          sudo apt-get install -y libcapnp-dev=1.0.1-4
+      - name: Build and gate both frozen profiles
+        run: timeout -s KILL 1500s python3 chase/prepare.py 2>&1 | tee reports/chase/prepare.log
+      - name: Paired all-engine HTTP and memory measurements
+        run: timeout -s KILL 900s node chase/bench.mjs 2>&1 | tee reports/chase/bench.log
+      - name: Summarize
+        if: always()
+        run: |
+          git rev-parse HEAD > reports/chase/commit.txt
+          if test -f reports/chase/RESULTS.md; then cat reports/chase/RESULTS.md >> "$GITHUB_STEP_SUMMARY"; fi
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: all-engine-chase-${{ github.run_id }}
+          path: |
+            experiments/lua-worker/chase/
+            experiments/lua-worker/reports/chase/
+            experiments/lua-worker/dist/chase/manifest.json
+            experiments/lua-worker/dist/chase/*/peer/
+            experiments/lua-worker/dist/chase/*/dist/
+            experiments/lua-worker/dist/chase/*/reports/
+            experiments/lua-worker/toolchain.json
+            experiments/lua-worker/engines/pins.json
+            experiments/lua-worker/package-lock.json
+          retention-days: 30
+          if-no-files-found: error
+  truffle:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    defaults:
+      run:
+        working-directory: experiments/lua-worker
+        shell: bash
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22.16.0'
+      - uses: graalvm/setup-graalvm@0426e2e191540e8514dff98dc52a5f5146a2a276
+        with:
+          distribution: graalvm-community
+          java-version: '25.0.1'
+          check-for-updates: 'false'
+      - name: Native guest-root graph experiment and controls
+        run: |
+          mkdir -p reports/chase-truffle
+          npm ci --no-audit --no-fund
+          timeout -s KILL 2100s bash chase/truffle.sh 2>&1 | tee reports/chase-truffle/build-and-run.log
+      - name: Record evidence
+        if: always()
+        run: |
+          git rev-parse HEAD > reports/chase-truffle/commit.txt
+          if test -f reports/chase-truffle/RESULTS.md; then cat reports/chase-truffle/RESULTS.md >> "$GITHUB_STEP_SUMMARY"; fi
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: truffle-root-chase-${{ github.run_id }}
+          path: |
+            experiments/lua-worker/chase/
+            experiments/lua-worker/engines/truffle/
+            experiments/lua-worker/reports/truffle-native/
+            experiments/lua-worker/reports/chase-truffle/
+            experiments/lua-worker/dist/chase/truffle/
+            experiments/lua-worker/dist/engines/truffle/
+            experiments/lua-worker/dist/engines/truffle-native/
+          retention-days: 30
+          if-no-files-found: error
