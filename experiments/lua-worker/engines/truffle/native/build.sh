@@ -8,8 +8,6 @@ native-image --version | tee reports/truffle-native/native-image-version.txt
 java -version 2>reports/truffle-native/java-version.txt
 # Preserve the previous boundary-only experiment as a real same-run control.
 bash engines/truffle/build.sh
-# Native-image compatibility workaround shared by all new JVM/native variants.
-# Only interop inspection helpers cross boundaries; guest compilation stays on.
 python3 engines/truffle/native/reference-metadata.py
 python3 engines/truffle/native/interop-boundaries.py
 mvn -B -f .deps/trufflelua/pom.xml -pl language -am -Dmaven.test.skip=true package
@@ -30,21 +28,21 @@ for profile in lib linear-lib; do
     > "reports/truffle-native/$profile-qualification.log" 2>&1
   java --enable-native-access=ALL-UNNAMED -cp "$cp" NativeImagePeer --jit-probe \
     > "reports/truffle-native/$profile-jit.log" 2>&1
-  # Truffle caches generated registration and interop metadata in its image.
-  # Derive and inspect an exact generated-class list, never a package wildcard.
   image_init=$(python3 engines/truffle/native/image-init.py "$profile")
-  # Build failures remain failures. No Java launcher fallback is accepted.
+  # Reference objects carry runtime language indexes, not just class metadata.
+  # Never snapshot an unresolved index from the builder's language registry.
+  runtime_init='com.zhhz.truffle.lua.LuaLanguage$ReferenceMetadata,com.zhhz.truffle.lua.runtime.LuaContext$ReferenceMetadata'
   /usr/bin/time -v native-image --no-fallback --parallelism=4 \
     -J-Xmx${NATIVE_BUILD_HEAP:-10g} -O2 -march=compatibility \
     --enable-native-access=ALL-UNNAMED -R:MaxHeapSize=268435456 \
-    "--initialize-at-build-time=$image_init" \
+    "--initialize-at-build-time=$image_init" "--initialize-at-run-time=$runtime_init" \
     -cp "$cp" NativeImagePeer -o "dist/engines/truffle-native/truffle-$profile" \
     2>&1 | tee "reports/truffle-native/$profile-build.log"
   file "dist/engines/truffle-native/truffle-$profile" | tee "reports/truffle-native/$profile-file.txt"
   readelf -h "dist/engines/truffle-native/truffle-$profile" > "reports/truffle-native/$profile-elf.txt"
   ldd "dist/engines/truffle-native/truffle-$profile" > "reports/truffle-native/$profile-ldd.txt"
   if grep -qi 'libjvm' "reports/truffle-native/$profile-ldd.txt"; then exit 1; fi
-  "dist/engines/truffle-native/truffle-$profile" --identity > "reports/truffle-native/$profile-native-identity.json"
+  env -u JAVA_HOME -u CLASSPATH PATH=/no-java "$PWD/dist/engines/truffle-native/truffle-$profile" --identity > "reports/truffle-native/$profile-native-identity.json"
   python3 - "$profile" <<'PY'
 import json,sys
 p=sys.argv[1]

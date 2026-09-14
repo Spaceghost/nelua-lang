@@ -7,16 +7,14 @@ profile=sys.argv[1]
 jar=Path('dist/engines/truffle')/profile/'language.jar'
 metadata=['com.zhhz.truffle.lua.LuaLanguageProvider',
           'com.zhhz.truffle.lua.runtime.LuaType',
-          'com.zhhz.truffle.lua.runtime.LuaType$TypeCheck',
-          'com.zhhz.truffle.lua.LuaLanguage$ReferenceMetadata',
-          'com.zhhz.truffle.lua.runtime.LuaContext$ReferenceMetadata']
-# Generated DSL nodes contain InlineSupport field descriptors that cannot be
-# constructed at native runtime. Include their precise generated classes, not
-# the runtime/parser/AST packages or application Context classes.
+          'com.zhhz.truffle.lua.runtime.LuaType$TypeCheck']
+# Language/ContextReference holders are intentionally NOT image-initialized.
+# In GraalVM 25.0.1, their final index can become RESERVED_NULL (-1) before
+# language discovery. Resolve them in the launched runtime, not the builder.
+# Generated DSL nodes still need their immutable InlineSupport registrations.
 with zipfile.ZipFile(jar) as z:
     names=metadata+sorted(n[:-6].replace('/','.') for n in z.namelist() if n.startswith('com/zhhz/truffle/lua/') and re.search(r'Gen(?:\$[^/]*)?\.class$', n))
-assert len(names)==180, 'pinned metadata changed; review initialization list'
-# One javap process avoids starting a JVM for each generated metadata class.
+assert len(names)==178, 'pinned metadata changed; review initialization list'
 output=subprocess.check_output(['javap','-private','-classpath',str(jar),*names],text=True)
 declarations={}
 for chunk in re.split(r'(?m)^Compiled from ',output)[1:]:
@@ -33,15 +31,9 @@ for name in names:
         assert not fields, 'type-predicate interface unexpectedly has state'
     for field in fields:
         assert 'final ' in field, (name,field)
-        if name.endswith('$ReferenceMetadata'):
-            assert ('TruffleLanguage$LanguageReference<' in field or 'TruffleLanguage$ContextReference<' in field) and ' REFERENCE;' in field, (name,field)
-        elif name.endswith('.LuaType'):
-            # Fixed descriptors contain a name and a capture-free type predicate.
-            # PRECEDENCE is a fixed descriptor array; no application values.
+        if name.endswith('.LuaType'):
             assert 'com.zhhz.truffle.lua.runtime.LuaType' in field, (name,field)
         else:
-            # Class metadata, stateless dispatch helpers and field descriptors.
-            # Never a Lua context, application value, executor or I/O instance.
             assert any(token in field for token in ('$assertionsDisabled;', 'FinalBitSet ENABLED_MESSAGES;',
                 '$Uncached UNCACHED;', '$Cached CACHE;', 'InlineSupport$StateField ',
                 'InlineSupport$ReferenceField<', 'InlinedBranchProfile ',
@@ -51,5 +43,5 @@ for name in names:
                 'LuaToMemberNode INLINED_', 'LuaToTruffleStringNode INLINED_')), (name,field)
     rows.append({'class':name,'staticFields':fields,'declaration':declaration})
 out=Path('reports/truffle-native')
-(out/(profile+'-image-init.json')).write_text(json.dumps({'classes':rows,'excluded':'LuaLanguage, LuaContext, application state, host globals; no package-wide initialization'},indent=2)+'\n')
+(out/(profile+'-image-init.json')).write_text(json.dumps({'classes':rows,'excluded':'Language/ContextReference holders, LuaLanguage, LuaContext, application state, host globals; no package-wide initialization'},indent=2)+'\n')
 print(','.join(names))
