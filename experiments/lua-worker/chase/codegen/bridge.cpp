@@ -26,8 +26,11 @@ extern "C" int cg_compile(lua_State* L, int index, uint32_t* functions, size_t* 
 // evidence that an application's instructions ran through the native path.
 extern "C" int cg_in_application(lua_State* L) noexcept {
     auto* ci = L->ci;
-    return ci && (ci->flags & LUA_CALLINFO_NATIVE) && ci->p && ci->p->source &&
-        std::strcmp(getstr(ci->p->source), "@app.lua") == 0;
+    if (!ci || !(ci->flags & LUA_CALLINFO_NATIVE) || !isLua(ci)) return 0;
+    // CallInfo::p is only maintained when the pinned LuauCIProto flag is on.
+    // The closure's Proto is valid in either mode; do not read optional cache data.
+    Proto* proto = clvalue(ci->func)->l.p;
+    return proto && proto->source && std::strcmp(getstr(proto->source), "@app.lua") == 0;
 }
 extern "C" void cg_enable(lua_State* L, int enabled) noexcept {
     Luau::CodeGen::setNativeExecutionEnabled(L, enabled != 0);
