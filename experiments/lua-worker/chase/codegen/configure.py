@@ -20,7 +20,7 @@ if 'mkdtemp' not in h:
 Path('peer/codegen-harness.mjs').write_text(h)
 s=Path('peer/engine-http.mjs').read_text().replace("'./engine-harness.mjs'","'./codegen-harness.mjs'")
 s=once(s,"['javascript','wasm','native-lua55','native-luau','wasm-luau','proxy-luau']", "['javascript','native-luau-interp','native-luau-compiled','proxy-luau-compiled']")
-s=s.replace('reports/peer/http-tests.json','reports/codegen/http-tests.json')
+s=once(s,'reports/engines/luau-http.json','reports/codegen/http-tests.json')
 Path('peer/codegen-http.mjs').write_text(s)
 s=Path('peer/bench.mjs').read_text()
 s=once(s,"from './harness.mjs'", "from './codegen-harness.mjs'")
