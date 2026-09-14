@@ -29,6 +29,10 @@ public final class RuntimeRoots implements Feature {
         }
       }
     }
+    // The broader AST graph reaches boolean boxing during deoptimization.
+    // Register the generic static target explicitly so its deopt version is
+    // parsed as a root as well; never disable the compiler's consistency check.
+    methods.add(Class.forName("com.zhhz.truffle.lua.runtime.LuaBoolean",false,anchor.getClassLoader()).getDeclaredMethod("valueOf",boolean.class));
     methods.sort(Comparator.comparing(Method::toGenericString));
     if(methods.isEmpty())throw new IllegalStateException("no generic AST execution methods discovered");
     return methods;

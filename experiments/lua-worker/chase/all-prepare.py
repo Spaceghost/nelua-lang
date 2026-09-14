@@ -13,6 +13,16 @@ def run(args,target,name):
     with log.open('w') as f:p=subprocess.run(args,cwd=target,stdout=f,stderr=subprocess.STDOUT,timeout=900)
     if p.returncode:
         print(log.read_text()[-18000:],flush=True);raise SystemExit(f'{log}: exit {p.returncode}')
+def short_socket_paths(target):
+    # Native UNIX socket paths have a platform length limit. All profiles use
+    # the same private short directory, allocated before the startup clock.
+    p=target/'peer/harness.mjs';s=p.read_text()
+    s=once(s,'readFile,writeFile,mkdir,unlink','readFile,writeFile,mkdir,unlink,mkdtemp,rm')
+    s=once(s,'const socket=resolve(dir,`peer-${index}.sock`);',
+           "const socketDir=await mkdtemp('/tmp/lw-peer-');const socket=resolve(socketDir,'peer.sock');")
+    s=once(s,'  await unlink(socket).catch(()=>{});',
+           '  await unlink(socket).catch(()=>{});await rm(socketDir,{recursive:true,force:true});')
+    p.write_text(s)
 def patch(target, conservative=False):
     if not conservative:
         p=target/'peer/kernel.nelua';s=p.read_text()
@@ -55,6 +65,7 @@ if __name__=='__main__':
         (target/'.deps').symlink_to(ROOT/'.deps',target_is_directory=True)
         (target/'node_modules').symlink_to(ROOT/'node_modules',target_is_directory=True)
         (target/'reports/chase').mkdir(parents=True)
+        short_socket_paths(target)
         if profile!='control':patch(target,conservative=profile=='conservative')
         commands=[(['bash','peer/build.sh'],'build.log'),(['bash','peer/build-host.sh'],'host.log'),
           (['timeout','60','dist/peer/core-lua55-asan'],'lua55-asan.log'),(['timeout','60','dist/peer/core-luajit-asan'],'luajit-asan.log'),
@@ -66,6 +77,6 @@ if __name__=='__main__':
           (['timeout','180','node','peer/engine-http.mjs'],'luau-http.log'),(['node','--test','chase/regression.test.mjs'],'regression.tap')]
         for args,name in commands:
             print('GATE',profile,name,flush=True);run(args,target,name)
-        files=['peer/kernel.nelua','peer/runtime.c','peer/wasm.mjs','peer/reference.mjs','peer/worker.lua','dist/peer/kernel.wasm','dist/peer/kernel-luau.wasm','dist/peer/libpeer-lua55.so','dist/peer/libpeer-luajit.so','dist/peer/libpeer-luau.so']
+        files=['peer/harness.mjs','peer/engine-harness.mjs','peer/kernel.nelua','peer/runtime.c','peer/wasm.mjs','peer/reference.mjs','peer/worker.lua','dist/peer/kernel.wasm','dist/peer/kernel-luau.wasm','dist/peer/libpeer-lua55.so','dist/peer/libpeer-luajit.so','dist/peer/libpeer-luau.so']
         manifest['profiles'].append({'profile':profile,'gate':'PASS','sha256':{p:hashlib.sha256((target/p).read_bytes()).hexdigest() for p in files}})
         (OUT/'manifest.json').write_text(json.dumps(manifest,indent=2)+'\n')
