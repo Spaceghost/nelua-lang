@@ -1,0 +1,69 @@
+name: Luau native CodeGen shootout
+on:
+  pull_request:
+    paths: ['experiments/lua-worker/chase/codegen/**', '.github/workflows/lua-codegen-shootout.yml']
+permissions:
+  contents: read
+concurrency:
+  group: luau-codegen-${{ github.ref }}-${{ github.event.pull_request.head.sha }}
+  cancel-in-progress: true
+jobs:
+  codegen:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: experiments/lua-worker
+        shell: bash
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22.16.0'
+      - name: Pinned controls and Luau interpreter builds
+        run: |
+          mkdir -p reports/codegen
+          bash scripts/bootstrap.sh > reports/codegen/bootstrap.log 2>&1
+          sudo apt-get update -qq
+          sudo apt-get install -y libcapnp-dev=1.0.1-4
+          bash peer/build.sh > reports/codegen/peer-build.log 2>&1
+          bash peer/build-host.sh
+          python3 peer/make-cases.py
+          python3 peer/parity-native.py
+          node peer/node-tests.mjs
+          bash engines/build-luau.sh > reports/codegen/luau-build.log 2>&1
+          python3 engines/prepare-tests.py
+      - name: Build native CodeGen and instrumented qualification controls
+        run: timeout -s KILL 600s python3 chase/codegen/prepare.py 2>&1 | tee reports/codegen/build.log
+      - name: Check source parity native execution and cancellation
+        run: |
+          timeout -s KILL 120s python3 chase/codegen/checks.py 2>&1 | tee reports/codegen/checks.log
+          python3 chase/codegen/configure.py
+          timeout -s KILL 180s node peer/codegen-http.mjs 2>&1 | tee reports/codegen/http.log
+      - name: Eight rotated rounds and finite memory soak
+        run: timeout -s KILL 900s node peer/codegen-bench.mjs 2>&1 | tee reports/codegen/bench.log
+      - name: Record source and binary identity
+        if: always()
+        run: |
+          mkdir -p reports/codegen
+          git rev-parse HEAD > reports/codegen/commit.txt
+          { g++ --version; cmake --version; node --version; } > reports/codegen/toolchains.txt
+          cp .deps/luau/LICENSE.txt reports/codegen/luau-LICENSE.txt
+          cp .deps/luau/lua_LICENSE.txt reports/codegen/lua-LICENSE.txt
+          find chase/codegen dist/codegen peer -type f ! -path '*/__pycache__/*' -print0 | sort -z | xargs -0 sha256sum > reports/codegen/files-sha256.txt
+          if test -f reports/codegen/RESULTS.md; then cat reports/codegen/RESULTS.md >> "$GITHUB_STEP_SUMMARY"; fi
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: luau-codegen-${{ github.run_id }}
+          path: |
+            experiments/lua-worker/chase/codegen/
+            experiments/lua-worker/engines/
+            experiments/lua-worker/peer/
+            experiments/lua-worker/dist/codegen/
+            experiments/lua-worker/reports/codegen/
+            experiments/lua-worker/reports/peer/
+            experiments/lua-worker/toolchain.json
+            experiments/lua-worker/package-lock.json
+          retention-days: 30
+          if-no-files-found: error
