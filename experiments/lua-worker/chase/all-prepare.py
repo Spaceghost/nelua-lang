@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Freeze controls, derive small optimizations, gate both before timing."""
+"""Freeze controls, derive small optimizations, gate profiles before timing."""
 from pathlib import Path
 import hashlib,json,shutil,subprocess,os
 ROOT=Path(__file__).resolve().parents[1]
@@ -13,18 +13,27 @@ def run(args,target,name):
     with log.open('w') as f:p=subprocess.run(args,cwd=target,stdout=f,stderr=subprocess.STDOUT,timeout=900)
     if p.returncode:
         print(log.read_text()[-18000:],flush=True);raise SystemExit(f'{log}: exit {p.returncode}')
-def patch(target):
-    p=target/'peer/kernel.nelua';s=p.read_text()
-    s=once(s,'      $s = Slot{}','''      -- Reset all visible metadata. Bytes beyond n are never exposed to guests.
+def patch(target, conservative=False):
+    if not conservative:
+        p=target/'peer/kernel.nelua';s=p.read_text()
+        s=once(s,'      $s = Slot{}','''      -- Reset all visible metadata. Bytes beyond n are never exposed to guests.
       -- This is not secure erasure; the native/Wasm host is already trusted.
       s.sequence, s.kind, s.status, s.ok = 0, 0, 0, 0
       s.operations, s.fetches, s.n = 0, 0, 0''');p.write_text(s)
     p=target/'peer/wasm.mjs';s=p.read_text()
     s=once(s,"const enc=new TextEncoder(),dec=new TextDecoder();","const enc=new TextEncoder(),dec=new TextDecoder();\nconst strictDecoder=new TextDecoder('utf-8',{fatal:true}),EMPTY=new Uint8Array();")
     start=s.index('  async run(');end=s.index('\n}\nexport function raceAbort',start)
-    s=s[:start]+(ROOT/'chase/wasm-run.mjs').read_text().rstrip()+s[end:]
-    start=s.index('  withBytes(');end=s.index('\n  cstr(',start)
-    s=s[:start]+'''  withBytes(values,fn){
+    candidate=(ROOT/'chase/wasm-run.mjs').read_text().rstrip()
+    if conservative:
+        buffered=s[start:end].replace('  async run(', '  async _runBuffered(', 1)
+        candidate=candidate.replace('  async run(', '  async _runBodyless(', 1)
+        wrapper='  run(request,host,options){return request.body?this._runBuffered(request,host,options):this._runBodyless(request,host,options);}'
+        s=s[:start]+wrapper+'\n'+candidate+'\n'+buffered+s[end:]
+    else:
+        s=s[:start]+candidate+s[end:]
+    if not conservative:
+        start=s.index('  withBytes(');end=s.index('\n  cstr(',start)
+        s=s[:start]+'''  withBytes(values,fn){
     const e=this.e,parts=values.map(bytes),n=parts.reduce((sum,b)=>sum+b.length,0);
     const p=e.malloc(Math.max(n,1));if(!p)throw Error('Wasm allocation');
     try{const heap=new Uint8Array(e.memory.buffer),args=[];let offset=0;
@@ -38,7 +47,7 @@ if __name__=='__main__':
     repo=subprocess.check_output(['git','rev-parse','--show-toplevel'],text=True).strip()
     archive=subprocess.check_output(['git','archive',f'{BASE}:experiments/lua-worker'],cwd=repo)
     manifest={'baseline':BASE,'checkout':subprocess.check_output(['git','rev-parse','HEAD'],text=True).strip(),'profiles':[]}
-    for profile in ['control','candidate']:
+    for profile in ['control','candidate','conservative']:
         target=OUT/profile
         if target.exists():shutil.rmtree(target)
         target.mkdir();subprocess.run(['tar','-x','-C',str(target)],input=archive,check=True)
@@ -46,7 +55,7 @@ if __name__=='__main__':
         (target/'.deps').symlink_to(ROOT/'.deps',target_is_directory=True)
         (target/'node_modules').symlink_to(ROOT/'node_modules',target_is_directory=True)
         (target/'reports/chase').mkdir(parents=True)
-        if profile=='candidate':patch(target)
+        if profile!='control':patch(target,conservative=profile=='conservative')
         commands=[(['bash','peer/build.sh'],'build.log'),(['bash','peer/build-host.sh'],'host.log'),
           (['timeout','60','dist/peer/core-lua55-asan'],'lua55-asan.log'),(['timeout','60','dist/peer/core-luajit-asan'],'luajit-asan.log'),
           (['python3','peer/make-cases.py'],'cases.log'),(['python3','peer/parity-native.py'],'parity-native.log'),

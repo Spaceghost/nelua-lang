@@ -12,6 +12,7 @@ runtime_init='com.zhhz.truffle.lua.LuaLanguage$ReferenceMetadata,com.zhhz.truffl
  -J--add-exports=org.graalvm.nativeimage.builder/com.oracle.svm.hosted=ALL-UNNAMED \
  -J--add-exports=org.graalvm.nativeimage.builder/com.oracle.svm.graal.hosted.runtimecompilation=ALL-UNNAMED \
  -J--add-exports=jdk.internal.vm.ci/jdk.vm.ci.meta=ALL-UNNAMED \
+ -J--add-opens=org.graalvm.nativeimage.builder/com.oracle.svm.graal.hosted.runtimecompilation=ALL-UNNAMED \
  --enable-native-access=ALL-UNNAMED -R:MaxHeapSize=268435456 \
  -H:+UnlockExperimentalVMOptions -H:+PrintRuntimeCompileMethods -H:-UnlockExperimentalVMOptions \
  "--initialize-at-build-time=$image_init" "--initialize-at-run-time=$runtime_init" \
@@ -30,11 +31,20 @@ python3 - <<'PY'
 from pathlib import Path
 p=Path('engines/truffle/native/run.mjs');s=p.read_text()
 s=s.replace("'proxy-native-linear'];","'native-roots','proxy-native-linear'];")
-s=s.replace("const rounds=6,", "const rounds=4,")
+s=s.replace("const rounds=6,", "const rounds=7,")
+s=s.replace('Six balanced fresh-process rounds', 'Seven rotated fresh-process rounds')
+s=s.replace('The JavaScript baseline', 'The optimized JavaScript reference')
 s=s.replace("function command(v){const profile", "function command(v){if(v==='native-roots')return{exe:resolve('dist/chase/truffle/native-roots'),args:['-Dsun.net.httpserver.nodelay=true','-Xms32m','-Xmx256m']};const profile")
 s=s.replace("const dir='reports/truffle-native';", "const dir='reports/chase-truffle';")
 s=s.replace('const file=`${dir}/${profile}${native?', 'const file=`reports/truffle-native/${profile}${native?')
+s=s.replace(' report.summary=[];', ''' const rootsText=await readFile('reports/chase-truffle/jit.log','utf8');
+ assert(rootsText.includes('JIT_PROBE {"checkedCalls":1600'),'root diagnostic incomplete');
+ const rootLines=rootsText.split('\\n');
+ report.jit.push({profile:'AST execute-method roots',native:true,file:'reports/chase-truffle/jit.log',guestCompiled:rootLines.some(l=>l.includes('opt done')&&l.includes('Src cpu-handler.lua')),completions:rootLines.filter(l=>l.includes('opt done')&&l.includes('Src cpu-handler.lua')),failures:rootLines.filter(l=>l.includes('opt failed')&&l.includes('Src cpu-handler.lua'))});
+ report.summary=[];''')
 p.with_name('chase-run.mjs').write_text(s)
 PY
+cp chase/reference.mjs peer/reference.mjs
+cp peer/reference.mjs reports/chase-truffle/javascript-reference.mjs
 node engines/truffle/native/chase-run.mjs
 sha256sum dist/chase/truffle/native-roots chase/RuntimeRoots.java > reports/chase-truffle/sha256.txt
