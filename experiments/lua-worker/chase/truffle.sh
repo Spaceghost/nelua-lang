@@ -2,11 +2,14 @@
 # SPDX-License-Identifier: MIT
 set -euo pipefail
 cd "$(dirname "$0")/.."
+npm ci --no-audit --no-fund
 bash engines/truffle/native/build.sh
 mkdir -p dist/chase/truffle/classes reports/chase-truffle
 cp_path='dist/engines/truffle/classes:dist/engines/truffle/linear-lib/*:dist/chase/truffle/classes'
 javac -cp "$cp_path" -d dist/chase/truffle/classes chase/RuntimeRoots.java
 image_init=$(python3 engines/truffle/native/image-init.py linear-lib)
+execution_init=$(python3 chase/image-execution-init.py linear-lib)
+image_init="$image_init,$execution_init"
 runtime_init='com.zhhz.truffle.lua.LuaLanguage$ReferenceMetadata,com.zhhz.truffle.lua.runtime.LuaContext$ReferenceMetadata'
 /usr/bin/time -v native-image --no-fallback --parallelism=4 -J-Xmx10g -O2 -march=compatibility \
  -J--add-exports=org.graalvm.nativeimage.builder/com.oracle.svm.hosted=ALL-UNNAMED \
@@ -16,35 +19,35 @@ runtime_init='com.zhhz.truffle.lua.LuaLanguage$ReferenceMetadata,com.zhhz.truffl
  --enable-native-access=ALL-UNNAMED -R:MaxHeapSize=268435456 \
  -H:+UnlockExperimentalVMOptions -H:+PrintRuntimeCompileMethods -H:-UnlockExperimentalVMOptions \
  "--initialize-at-build-time=$image_init" "--initialize-at-run-time=$runtime_init" \
- --features=RuntimeRoots -cp "$cp_path" NativeImagePeer -o dist/chase/truffle/native-roots \
+ --features=RuntimeRoots -cp "$cp_path" NativeImagePeer -o dist/chase/truffle/native-exec-init \
  2>&1 | tee reports/chase-truffle/roots-build.log
-file dist/chase/truffle/native-roots > reports/chase-truffle/roots-file.txt
-ldd dist/chase/truffle/native-roots > reports/chase-truffle/roots-ldd.txt
+file dist/chase/truffle/native-exec-init > reports/chase-truffle/roots-file.txt
+ldd dist/chase/truffle/native-exec-init > reports/chase-truffle/roots-ldd.txt
 ! grep -qi libjvm reports/chase-truffle/roots-ldd.txt
-env -u JAVA_HOME -u CLASSPATH PATH=/no-java "$PWD/dist/chase/truffle/native-roots" --identity > reports/chase-truffle/identity.json
+env -u JAVA_HOME -u CLASSPATH PATH=/no-java "$PWD/dist/chase/truffle/native-exec-init" --identity > reports/chase-truffle/identity.json
 python3 -c "import json; assert json.load(open('reports/chase-truffle/identity.json'))['nativeImage'] is True"
-dist/chase/truffle/native-roots --regressions > reports/chase-truffle/regressions.json
+dist/chase/truffle/native-exec-init --regressions > reports/chase-truffle/regressions.json
 cmp reports/chase-truffle/regressions.json reports/truffle-native/linear-lib-native-regressions.json
-dist/chase/truffle/native-roots --probe reports/chase-truffle/qualification.json > reports/chase-truffle/qualification.log 2>&1
-dist/chase/truffle/native-roots --jit-probe > reports/chase-truffle/jit.log 2>&1
+dist/chase/truffle/native-exec-init --probe reports/chase-truffle/qualification.json > reports/chase-truffle/qualification.log 2>&1
+dist/chase/truffle/native-exec-init --jit-probe > reports/chase-truffle/jit.log 2>&1
 python3 - <<'PY'
 from pathlib import Path
 p=Path('engines/truffle/native/run.mjs');s=p.read_text()
-s=s.replace("'proxy-native-linear'];","'native-roots','proxy-native-linear'];")
+s=s.replace("'proxy-native-linear'];","'native-exec-init','proxy-native-linear'];")
 s=s.replace("const rounds=6,", "const rounds=7,")
 s=s.replace('Six balanced fresh-process rounds', 'Seven rotated fresh-process rounds')
 s=s.replace('The JavaScript baseline', 'The optimized JavaScript reference')
-s=s.replace("function command(v){const profile", "function command(v){if(v==='native-roots')return{exe:resolve('dist/chase/truffle/native-roots'),args:['-Dsun.net.httpserver.nodelay=true','-Xms32m','-Xmx256m']};const profile")
+s=s.replace("function command(v){const profile", "function command(v){if(v==='native-exec-init')return{exe:resolve('dist/chase/truffle/native-exec-init'),args:['-Dsun.net.httpserver.nodelay=true','-Xms32m','-Xmx256m']};const profile")
 s=s.replace("const dir='reports/truffle-native';", "const dir='reports/chase-truffle';")
 s=s.replace('const file=`${dir}/${profile}${native?', 'const file=`reports/truffle-native/${profile}${native?')
-s=s.replace(' report.summary=[];', ''' const rootsText=await readFile('reports/chase-truffle/jit.log','utf8');
+s=s.replace(' report.summary=[];', r''' const rootsText=await readFile('reports/chase-truffle/jit.log','utf8');
  assert(rootsText.includes('JIT_PROBE {"checkedCalls":1600'),'root diagnostic incomplete');
- const rootLines=rootsText.split('\\n');
- report.jit.push({profile:'AST execute-method roots',native:true,file:'reports/chase-truffle/jit.log',guestCompiled:rootLines.some(l=>l.includes('opt done')&&l.includes('Src cpu-handler.lua')),completions:rootLines.filter(l=>l.includes('opt done')&&l.includes('Src cpu-handler.lua')),failures:rootLines.filter(l=>l.includes('opt failed')&&l.includes('Src cpu-handler.lua'))});
+ const rootLines=rootsText.split('\n');
+ report.jit.push({profile:'Audited execution class initialization; no forced roots',native:true,file:'reports/chase-truffle/jit.log',guestCompiled:rootLines.some(l=>l.includes('opt done')&&l.includes('Src cpu-handler.lua')),completions:rootLines.filter(l=>l.includes('opt done')&&l.includes('Src cpu-handler.lua')),failures:rootLines.filter(l=>l.includes('opt failed')&&l.includes('Src cpu-handler.lua'))});
  report.summary=[];''')
 p.with_name('chase-run.mjs').write_text(s)
 PY
 cp chase/reference.mjs peer/reference.mjs
 cp peer/reference.mjs reports/chase-truffle/javascript-reference.mjs
 node engines/truffle/native/chase-run.mjs
-sha256sum dist/chase/truffle/native-roots chase/RuntimeRoots.java > reports/chase-truffle/sha256.txt
+sha256sum dist/chase/truffle/native-exec-init chase/RuntimeRoots.java chase/image-execution-init.py > reports/chase-truffle/sha256.txt
