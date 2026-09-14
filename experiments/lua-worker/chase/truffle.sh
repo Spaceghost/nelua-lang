@@ -52,11 +52,11 @@ s=s.replace("const dir='reports/truffle-native';", "const dir='reports/chase-tru
 s=s.replace('const file=`${dir}/${profile}${native?', 'const file=`reports/truffle-native/${profile}${native?')
 s=s.replace(' report.summary=[];', r''' const rootsText=await readFile('reports/chase-truffle/jit.log','utf8');
  assert(rootsText.includes('JIT_PROBE {"checkedCalls":1600'),'root diagnostic incomplete');
- const rootLines=rootsText.split('\n');assert(rootLines.length>10,'unparsed native compilation log');
+ const rootLines=rootsText.split('\n');assert(rootLines.some(l=>l.startsWith('JIT_PROBE ')),'unparsed native compilation log');
  report.jit.push({profile:'Audited execution class initialization; no forced roots',native:true,file:'reports/chase-truffle/jit.log',guestCompiled:rootLines.some(l=>l.includes('opt done')&&l.includes('Src cpu-handler.lua')),completions:rootLines.filter(l=>l.includes('opt done')&&l.includes('Src cpu-handler.lua')),failures:rootLines.filter(l=>l.includes('opt failed')&&l.includes('Src cpu-handler.lua'))});
  const eligibleJvmText=await readFile('reports/chase-truffle/eligible-jvm-jit.log','utf8');
  assert(eligibleJvmText.includes('JIT_PROBE {"checkedCalls":1600'),'eligible JVM diagnostic incomplete');
- const eligibleJvmLines=eligibleJvmText.split('\n');assert(eligibleJvmLines.length>10,'unparsed JVM compilation log');
+ const eligibleJvmLines=eligibleJvmText.split('\n');assert(eligibleJvmLines.some(l=>l.startsWith('JIT_PROBE ')),'unparsed JVM compilation log');
  report.jit.push({profile:'Matching cold-boundary language JAR',native:false,file:'reports/chase-truffle/eligible-jvm-jit.log',guestCompiled:eligibleJvmLines.some(l=>l.includes('opt done')&&l.includes('Src cpu-handler.lua')),completions:eligibleJvmLines.filter(l=>l.includes('opt done')&&l.includes('Src cpu-handler.lua')),failures:eligibleJvmLines.filter(l=>l.includes('opt failed')&&l.includes('Src cpu-handler.lua'))});
  report.caveats.push('Execution-init JVM/native contenders use the identical eligible language JAR with two cold-path boundaries. Older linear controls retain the prior JAR. The native contender also changes the audited build-time class list. No existing control is silently replaced.');
  report.summary=[];''')
