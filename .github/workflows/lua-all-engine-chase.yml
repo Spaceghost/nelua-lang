@@ -29,7 +29,7 @@ jobs:
           sudo apt-get update -qq
           sudo apt-get install -y libcapnp-dev=1.0.1-4
       - name: Build and gate both frozen profiles
-        run: timeout -s KILL 1500s python3 chase/prepare.py 2>&1 | tee reports/chase/prepare.log
+        run: timeout -s KILL 1500s python3 chase/all-prepare.py 2>&1 | tee reports/chase/prepare.log
       - name: Paired all-engine HTTP and memory measurements
         run: timeout -s KILL 900s node chase/bench.mjs 2>&1 | tee reports/chase/bench.log
       - name: Summarize
