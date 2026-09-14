@@ -1,0 +1,60 @@
+name: Truffle Native Image shootout
+on:
+  pull_request:
+    paths: ['experiments/lua-worker/engines/truffle/native/**', '.github/workflows/lua-truffle-native-image.yml']
+permissions:
+  contents: read
+concurrency:
+  group: truffle-native-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  native-image:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    defaults:
+      run:
+        working-directory: experiments/lua-worker
+        shell: bash
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22.16.0'
+      - uses: graalvm/setup-graalvm@0426e2e191540e8514dff98dc52a5f5146a2a276
+        with:
+          java-version: '25.0.1'
+          distribution: 'graalvm-community'
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          check-for-updates: false
+      - name: Build real native executables and preserve JVM controls
+        run: |
+          mkdir -p reports/truffle-native
+          npm ci --no-audit --no-fund
+          timeout -s KILL 1500s bash engines/truffle/native/build.sh 2>&1 | tee reports/truffle-native/build.log
+      - name: Compare native JVM and stock-workerd HTTP paths
+        run: timeout -s KILL 500s node engines/truffle/native/run.mjs 2>&1 | tee reports/truffle-native/run.log
+      - name: Retain build identity source and evidence
+        if: always()
+        run: |
+          mkdir -p reports/truffle-native
+          git rev-parse HEAD > reports/truffle-native/commit.txt
+          find engines/truffle peer dist/engines/truffle dist/engines/truffle-native -type f ! -path '*/__pycache__/*' -print0 | sort -z | xargs -0 sha256sum > reports/truffle-native/files-sha256.txt
+          if test -f reports/truffle-native/RESULTS.md; then cat reports/truffle-native/RESULTS.md >> "$GITHUB_STEP_SUMMARY"; fi
+      - name: Upload native artifacts and raw results
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: truffle-native-${{ github.run_id }}
+          path: |
+            experiments/lua-worker/engines/truffle/
+            experiments/lua-worker/engines/pins.json
+            experiments/lua-worker/peer/
+            experiments/lua-worker/dist/engines/truffle/
+            experiments/lua-worker/dist/engines/truffle-native/
+            experiments/lua-worker/reports/truffle/
+            experiments/lua-worker/reports/truffle-native/
+            experiments/lua-worker/package.json
+            experiments/lua-worker/package-lock.json
+            experiments/lua-worker/toolchain.json
+          retention-days: 30
+          if-no-files-found: error
