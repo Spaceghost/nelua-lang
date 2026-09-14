@@ -32,9 +32,12 @@ for profile in lib linear-lib; do
   # Reference objects carry runtime language indexes, not just class metadata.
   # Never snapshot an unresolved index from the builder's language registry.
   runtime_init='com.zhhz.truffle.lua.LuaLanguage$ReferenceMetadata,com.zhhz.truffle.lua.runtime.LuaContext$ReferenceMetadata'
+  # Build-only diagnostic: retain the methods selected for runtime compilation.
+  # Timed executables still do not emit compilation diagnostics.
   /usr/bin/time -v native-image --no-fallback --parallelism=4 \
     -J-Xmx${NATIVE_BUILD_HEAP:-10g} -O2 -march=compatibility \
     --enable-native-access=ALL-UNNAMED -R:MaxHeapSize=268435456 \
+    -H:+UnlockExperimentalVMOptions -H:+PrintRuntimeCompileMethods -H:-UnlockExperimentalVMOptions \
     "--initialize-at-build-time=$image_init" "--initialize-at-run-time=$runtime_init" \
     -cp "$cp" NativeImagePeer -o "dist/engines/truffle-native/truffle-$profile" \
     2>&1 | tee "reports/truffle-native/$profile-build.log"

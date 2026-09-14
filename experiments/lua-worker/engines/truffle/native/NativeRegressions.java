@@ -72,6 +72,26 @@ public final class NativeRegressions {
       if(ca.execute().asLong()!=1 || ca.execute().asLong()!=2 || cb.execute().asLong()!=1)
         throw new AssertionError("context state mixed");
     }
-    System.out.println("{\"controlCases\":"+(cases.length-1)+",\"knownSourceGaps\":[\"numeric-loop-table-indices\"],\"exceptionCloseCleanup\":true,\"interopGroups\":5,\"independentContexts\":2,\"status\":\"PASS\"}");
+    int differential=0;
+    try (Context c=TrufflePeer.context()) {
+      // Different source shapes and trip counts, not a hard-coded CPU kernel.
+      // Run separately from timing on both JVM/native and both language JARs.
+      for (int n=1;n<=50;n++) {
+        long sum=(long)n*(n+1)/2;
+        String[] programs={
+          "local s=0;for i=1,"+n+" do s=s+i end;return s",
+          "local s=0;for i="+n+",1,-1 do s=s+i end;return s",
+          "local s=0;local function f(i) s=s+i end;for i=1,"+n+" do f(i) end;return s",
+          "local i=0;local s=0;::again:: i=i+1;s=s+i;if i<"+n+" then goto again end;return s"
+        };
+        for (String source:programs) {
+          long result=TrufflePeer.eval(c,"differential-"+differential,source).asLong();
+          if(result!=sum)throw new AssertionError("differential "+differential+": "+result+" != "+sum);
+          differential++;
+        }
+      }
+    }
+    if(differential!=200)throw new AssertionError("incomplete differential corpus");
+    System.out.println("{\"controlCases\":"+(cases.length-1)+",\"differentialSourceCases\":"+differential+",\"knownSourceGaps\":[\"numeric-loop-table-indices\"],\"exceptionCloseCleanup\":true,\"interopGroups\":5,\"independentContexts\":2,\"status\":\"PASS\"}");
   }
 }
