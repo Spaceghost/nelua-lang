@@ -43,8 +43,11 @@ public final class RuntimeRoots implements Feature {
       Object feature=runtime.getMethod("singleton").invoke(null);
       Object meta=Class.forName("com.oracle.svm.hosted.FeatureImpl$BeforeAnalysisAccessImpl").getMethod("getMetaAccess").invoke(access);
       Method lookup=Class.forName("jdk.vm.ci.meta.MetaAccessProvider").getMethod("lookupJavaMethod",Executable.class);
-      Method prepare=null;for(Method m:runtime.getMethods())if(m.getName().equals("prepareMethodForRuntimeCompilation")&&m.getParameterCount()==2)prepare=m;
-      if(prepare==null)throw new NoSuchMethodException("prepareMethodForRuntimeCompilation");
+      // Select the documented pinned signature, not reflection iteration order:
+      // the builder exposes another overload with two parameters.
+      Method prepare=runtime.getMethod("prepareMethodForRuntimeCompilation",
+          Class.forName("jdk.vm.ci.meta.ResolvedJavaMethod"),
+          Class.forName("com.oracle.svm.hosted.FeatureImpl$BeforeAnalysisAccessImpl"));
       List<Method> methods=entryMethods();
       for(Method guest:methods){prepare.invoke(feature,lookup.invoke(meta,guest),access);System.out.println("PEER_RUNTIME_ROOT "+guest.toGenericString());}
       System.out.println("PEER_RUNTIME_ROOT_COUNT "+methods.size());
@@ -56,7 +59,13 @@ public final class RuntimeRoots implements Feature {
       Object feature=runtime.getMethod("singleton").invoke(null);
       Field field=runtime.getDeclaredField("invalidForRuntimeCompilation");field.setAccessible(true);
       Map<?,?> rejected=(Map<?,?>)field.get(feature);
-      rejected.entrySet().stream().filter(e->e.getKey().toString().contains("com.zhhz.")).map(Object::toString).sorted().forEach(s->System.out.println("PEER_RUNTIME_REJECT "+s));
+      Method format=Class.forName("jdk.vm.ci.meta.ResolvedJavaMethod").getMethod("format",String.class);
+      List<String> messages=new ArrayList<>();
+      for(var entry:rejected.entrySet()){
+        String method=(String)format.invoke(entry.getKey(),"%H.%n(%p)");
+        if(method.startsWith("com.zhhz."))messages.add(method+" => "+entry.getValue());
+      }
+      Collections.sort(messages);for(String message:messages)System.out.println("PEER_RUNTIME_REJECT "+message);
       System.out.println("PEER_RUNTIME_REJECT_TOTAL "+rejected.size());
     }catch(Exception e){throw new IllegalStateException("pinned compiler rejection diagnostics unavailable",e);}
   }
