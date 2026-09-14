@@ -33,14 +33,16 @@ jobs:
           node peer/node-tests.mjs
           bash engines/build-luau.sh > reports/codegen/luau-build.log 2>&1
           python3 engines/prepare-tests.py
-      - name: Build native CodeGen and instrumented qualification controls
-        run: timeout -s KILL 600s python3 chase/codegen/prepare.py 2>&1 | tee reports/codegen/build.log
+      - name: Build factorial CodeGen and cached-meter controls
+        run: |
+          python3 chase/codegen/fastmeter.py
+          timeout -s KILL 600s python3 chase/codegen/prepare-fast.py 2>&1 | tee reports/codegen/build.log
       - name: Check source parity native execution and cancellation
         run: |
-          timeout -s KILL 120s python3 chase/codegen/checks.py 2>&1 | tee reports/codegen/checks.log
-          python3 chase/codegen/configure.py
+          timeout -s KILL 120s python3 chase/codegen/checks-fast.py 2>&1 | tee reports/codegen/checks.log
+          python3 chase/codegen/configure-fast.py
           timeout -s KILL 180s node peer/codegen-http.mjs 2>&1 | tee reports/codegen/http.log
-      - name: Eight rotated rounds and finite memory soak
+      - name: Ten rotated rounds and finite memory soak
         run: timeout -s KILL 900s node peer/codegen-bench.mjs 2>&1 | tee reports/codegen/bench.log
       - name: Record source and binary identity
         if: always()
