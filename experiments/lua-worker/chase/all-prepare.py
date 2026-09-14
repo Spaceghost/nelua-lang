@@ -24,34 +24,27 @@ def short_socket_paths(target):
            '  await unlink(socket).catch(()=>{});await rm(socketDir,{recursive:true,force:true});')
     p.write_text(s)
 def patch(target, conservative=False):
+    # Retain the frozen full-buffer reset. Only add a verified cache hint:
+    # collisions fall back to the original scan and IDs/limits never change.
     if not conservative:
         p=target/'peer/kernel.nelua';s=p.read_text()
-        s=once(s,'      $s = Slot{}','''      -- Reset all visible metadata. Bytes beyond n are never exposed to guests.
-      -- This is not secure erasure; the native/Wasm host is already trusted.
-      s.sequence, s.kind, s.status, s.ok = 0, 0, 0, 0
-      s.operations, s.fetches, s.n = 0, 0, 0''');p.write_text(s)
+        s=once(s,'vm: pointer, slots: [8]Slot}', 'vm: pointer, slots: [8]Slot, hints: [256]uint8}')
+        s=once(s,'  local e = engine(p)\n  for i=0,7 do if e.slots[i].id == id',
+          '  local e = engine(p)\n  local hint = e.hints[id % 256]\n  if e.slots[hint].id == id then return &e.slots[hint] end\n  for i=0,7 do if e.slots[i].id == id')
+        s=once(s,'      s.id, s.state, s.ticks = e.serial, 2, 1000',
+          '      s.id, s.state, s.ticks = e.serial, 2, 1000\n      e.hints[s.id % 256] = uint8(i)')
+        s=once(s, "local function nk_index(p: pointer, id: uint32): cint <cexport, codename 'nk_index'>\n",
+          "local function nk_index(p: pointer, id: uint32): cint <cexport, codename 'nk_index'>\n  if p == nilptr or id == 0 then return -1 end\n  local e = engine(p)\n  local hint = e.hints[id % 256]\n  if e.slots[hint].id == id then return cint(hint) end\n")
+        p.write_text(s)
     p=target/'peer/wasm.mjs';s=p.read_text()
     s=once(s,"const enc=new TextEncoder(),dec=new TextDecoder();","const enc=new TextEncoder(),dec=new TextDecoder();\nconst strictDecoder=new TextDecoder('utf-8',{fatal:true}),EMPTY=new Uint8Array();")
     start=s.index('  async run(');end=s.index('\n}\nexport function raceAbort',start)
-    candidate=(ROOT/'chase/wasm-run.mjs').read_text().rstrip()
-    if conservative:
-        buffered=s[start:end].replace('  async run(', '  async _runBuffered(', 1)
-        candidate=candidate.replace('  async run(', '  async _runBodyless(', 1)
-        wrapper='  run(request,host,options){return request.body?this._runBuffered(request,host,options):this._runBodyless(request,host,options);}'
-        s=s[:start]+wrapper+'\n'+candidate+'\n'+buffered+s[end:]
-    else:
-        s=s[:start]+candidate+s[end:]
-    if not conservative:
-        start=s.index('  withBytes(');end=s.index('\n  cstr(',start)
-        s=s[:start]+'''  withBytes(values,fn){
-    const e=this.e,parts=values.map(bytes),n=parts.reduce((sum,b)=>sum+b.length,0);
-    const p=e.malloc(Math.max(n,1));if(!p)throw Error('Wasm allocation');
-    try{const heap=new Uint8Array(e.memory.buffer),args=[];let offset=0;
-      for(const b of parts){heap.set(b,p+offset);args.push(p+offset,b.length);offset+=b.length;}
-      return fn(...args);
-    }finally{e.free(p);}
-  }'''+s[end:]
-    p.write_text(s);shutil.copyfile(ROOT/'chase/reference.mjs',target/'peer/reference.mjs')
+    buffered=s[start:end].replace('  async run(', '  async _runBuffered(', 1)
+    bodyless=(ROOT/'chase/wasm-run.mjs').read_text().rstrip().replace('  async run(', '  async _runBodyless(', 1)
+    wrapper='  run(request,host,options){return request.body?this._runBuffered(request,host,options):this._runBodyless(request,host,options);}'
+    s=s[:start]+wrapper+'\n'+bodyless+'\n'+buffered+s[end:]
+    p.write_text(s)
+    shutil.copyfile(ROOT/'chase/reference.mjs',target/'peer/reference.mjs')
 if __name__=='__main__':
     os.chdir(ROOT);OUT.mkdir(parents=True,exist_ok=True)
     repo=subprocess.check_output(['git','rev-parse','--show-toplevel'],text=True).strip()

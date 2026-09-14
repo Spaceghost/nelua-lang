@@ -16,10 +16,10 @@ const report={rounds,manifest:JSON.parse(await readFile('dist/chase/manifest.jso
  'Closed-loop checked HTTP, not isolated engine speed or open-loop capacity. The driver and backend fixtures can limit throughput.',
  'Each control/candidate pair runs in a new process. Pair order alternates; engine order rotates. The three Wasm profiles rotate positions over six rounds. No CPU-affinity or universal hardware claim.',
  'All engines receive identical variable-input arithmetic and identical warmup. Trusted LuaJIT requires actual traces and is not instruction-hook equivalent.',
- 'Native and Wasm candidates share the metadata-reset change. Wasm additionally uses lazy I/O setup and one input slab; JavaScript preserves synchronous routes.',
- 'The conservative Wasm profile keeps the original kernel, input allocation strategy and buffered-body execution path, optimizing only bodyless dispatch. Native modes do not benchmark duplicate conservative builds.',
+ 'Native/Wasm candidates add a 256-byte validated identity lookup hint with collision fallback. Full buffer resets and original buffered request handling are retained. Wasm bodyless dispatch uses lazy I/O; JavaScript preserves synchronous routes.',
+ 'The conservative Wasm profile optimizes only bodyless dispatch; candidate adds the checked lookup hint. Both retain original input allocation and buffered request handling. Native modes do not benchmark duplicate conservative builds.',
  'No application source, hook frequency, body limit, quota, supported capability, or backend operation count changes.',
- 'Metadata-only reset is not secure erasure. No old bytes are visible through length-bounded guest results; the native/Wasm host remains trusted.',
+ 'Lookup hints never grant authority: full invocation IDs are compared before use, collisions scan live slots, and all stale-ID and buffer-clearing behavior is preserved.',
  'Native and workerd hosts have different HTTP, KJ and isolation overheads. Truffle is separately qualified in Native Image mode, not inserted as an async-compatible contestant.',
  'RSS includes engine process only; client/fixtures excluded. Finite hello-only soak is not a leak-free or indefinite plateau proof. No forced GC or inspector.',
  'Startup is process launch plus readiness, not dynamic worker identity creation or hosted cold start.'

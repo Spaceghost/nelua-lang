@@ -42,3 +42,24 @@ for(const name of ['kernel.wasm','kernel-luau.wasm']){
   const g=app(get);await assert.rejects(g.run(req(),{...host,get:async()=>new Uint8Array(65537)}),/HOST_ERROR/);clean(g);g.dispose();
  });
 }
+
+for(const name of ['kernel.wasm','kernel-luau.wasm']) {
+ test(name+': a live request survives 1024 colliding identity hints',async()=>{
+  const module=await WebAssembly.compile(await readFile('dist/peer/'+name));
+  const a=new PeerModule(module).app("return{fetch=function(r,e)return{status=200,body=e.CONFIG:get('x')}end}");
+  const live=a.start('GET','https://worker.invalid/',''),sequence=a.info(live).seq;
+  assert.equal(a.info(live).state,3);
+  try {
+   for(let i=0;i<1024;i++) {
+    const other=a.start('GET','https://worker.invalid/','');assert(other && other!==live);
+    assert.equal(a.complete(other,a.info(other).seq,1,200,'new'),4);
+    assert.equal(a.close(other),0);
+    // Every 256 admissions overwrites the same hash bucket with another slot.
+    assert.equal(a.info(live).state,3);assert.equal(a.info(live).seq,sequence);
+    assert.equal(a.complete(other,1,1,200,'stale'),-1);
+   }
+   assert.equal(a.complete(live,sequence,1,200,'original'),4);
+   assert.equal(new TextDecoder().decode(a.info(live).body),'original');
+  } finally {assert.equal(a.close(live),0);a.dispose();}
+ });
+}
