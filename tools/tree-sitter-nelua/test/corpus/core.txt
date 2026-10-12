@@ -1,0 +1,148 @@
+==================
+Typed numeric declaration
+==================
+local amount: uint32 = 0xff_u32
+---
+
+(source_file
+  (variable_declaration
+    (parameter
+      (identifier)
+      (identifier))
+    (number)))
+
+==================
+Type constructor names are contextual identifiers
+==================
+global callback = @function(record: *uint8): uint32
+local enum: uint32 = 1
+---
+
+(source_file
+  (variable_declaration
+    (parameter
+      (identifier))
+    (type_expression
+      (function_type
+        (type_field
+          (identifier)
+          (pointer_type
+            (identifier)))
+        (identifier))))
+  (variable_declaration
+    (parameter
+      (identifier)
+      (identifier))
+    (number)))
+
+==================
+Long delimiters are exact and opaque
+==================
+--[==[ comment with ]=] and [[ nested-looking bytes ]==]
+##[==[ local code = 'Lua, not Nelua' ]==]
+local message = [==[ x ]=] y ]==]
+---
+
+(source_file
+  (comment)
+  (preprocessor)
+  (variable_declaration
+    (parameter
+      (identifier))
+    (long_string)))
+
+==================
+Pointer array and annotations
+==================
+global Bytes: type <cimport,nodecl,codename 'const uint8_t*'> = @*[0]uint8
+---
+
+(source_file
+  (variable_declaration
+    (parameter
+      (identifier)
+      (identifier)
+      (annotations
+        (annotation
+          (identifier))
+        (annotation
+          (identifier))
+        (annotation
+          (identifier)
+          (string))))
+    (type_expression
+      (pointer_type
+        (array_type
+          (number)
+          (identifier))))))
+
+==================
+Nelua control flow and native expressions
+==================
+local function take(p: *uint32): uint32 <inline>
+  defer release(p) end
+  for i: uint32 = 0, < 4 do
+    if i == 2 then continue end
+    $p = $p ~ (1_u32 << i)
+  end
+  switch $p do
+    case 0 then return 0
+    else return $p
+  end
+end
+---
+
+(source_file
+  (function_declaration
+    (identifier)
+    (function_body
+      (parameter
+        (identifier)
+        (pointer_type
+          (identifier)))
+      (identifier)
+      (annotations
+        (annotation
+          (identifier)))
+      (block
+        (defer_statement
+          (block
+            (call_statement
+              (call_expression
+                (identifier)
+                (arguments
+                  (identifier))))))
+        (for_statement
+          (parameter
+            (identifier)
+            (identifier))
+          (number)
+          (number)
+          (block
+            (if_statement
+              (binary_expression
+                (identifier)
+                (number))
+              (block
+                (continue_statement)))
+            (assignment_statement
+              (unary_expression
+                (identifier))
+              (binary_expression
+                (unary_expression
+                  (identifier))
+                (parenthesized_expression
+                  (binary_expression
+                    (number)
+                    (identifier)))))))
+        (switch_statement
+          (unary_expression
+            (identifier))
+          (number)
+          (block
+            (return_statement
+              (number)))
+          (block
+            (return_statement
+              (unary_expression
+                (identifier)))))))))
