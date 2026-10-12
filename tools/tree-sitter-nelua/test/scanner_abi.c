@@ -25,7 +25,7 @@ static void check(const char *text, bool accept, unsigned token, size_t end) {
 }
 int main(void) {
     check("[[x]]rest",true,0,5);
-    check("[==[a]=]b]==]rest",true,0,12);
+    check("[==[a]=]b]==]rest",true,0,13);
     check("[==[unterminated]=]",false,0,0);
     check("[=oops",false,0,0);
     check("-- short\nrest",true,1,8);
