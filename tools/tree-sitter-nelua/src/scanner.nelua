@@ -1,0 +1,46 @@
+-- External lexer for arbitrary matching long-bracket delimiters. No state/heap.
+-- All scanning logic is Nelua; TSLexer is Tree-sitter's foreign ABI.
+## cinclude '"tree_sitter/parser.h"'
+global Lexer: type <cimport,nodecl,ctypedef,cincomplete,codename 'TSLexer'> = @record{
+  lookahead: int32, result_symbol: uint16,
+  advance: function(pointer,boolean), mark_end: function(pointer), eof: function(pointer): boolean
+}
+local LexerPtr: type <cimport,nodecl,codename 'TSLexer*'> = @*Lexer
+local Symbols: type <cimport,nodecl,codename 'const bool*'> = @*[0]boolean
+local function step(lexer: LexerPtr) lexer.advance(lexer,false) end
+global function tree_sitter_nelua_external_scanner_create(): pointer <cexport,codename 'tree_sitter_nelua_external_scanner_create'> return nilptr end
+global function tree_sitter_nelua_external_scanner_destroy(payload: pointer) <cexport,codename 'tree_sitter_nelua_external_scanner_destroy'> end
+global function tree_sitter_nelua_external_scanner_serialize(payload: pointer, buffer: cstring): uint32 <cexport,codename 'tree_sitter_nelua_external_scanner_serialize'> return 0 end
+global function tree_sitter_nelua_external_scanner_deserialize(payload: pointer, buffer: cstring, length: uint32) <cexport,codename 'tree_sitter_nelua_external_scanner_deserialize'> end
+global function tree_sitter_nelua_external_scanner_scan(payload: pointer, lexer: LexerPtr, valid: Symbols): boolean <cexport,codename 'tree_sitter_nelua_external_scanner_scan'>
+  -- Match grammar extras (whitespace) without including them in the token.
+  while lexer.lookahead == 32 or lexer.lookahead == 9 or lexer.lookahead == 10 or lexer.lookahead == 13 or lexer.lookahead == 12 do lexer.advance(lexer,true) end
+  local token: uint16 = 0
+  if lexer.lookahead == 45 and valid[1] then
+    step(lexer); if lexer.lookahead ~= 45 then return false end; step(lexer); token = 1
+  elseif lexer.lookahead == 35 and valid[2] then
+    step(lexer); if lexer.lookahead ~= 35 then return false end; step(lexer); token = 2
+  elseif lexer.lookahead ~= 91 or not valid[0] then return false end
+  local long: boolean = false
+  local equals: uint32 = 0
+  if lexer.lookahead == 91 then
+    step(lexer)
+    while lexer.lookahead == 61 do equals = equals + 1; step(lexer) end
+    if lexer.lookahead == 91 then long = true; step(lexer) end
+  end
+  if not long then
+    if token == 0 then return false end
+    while not lexer.eof(lexer) and lexer.lookahead ~= 10 and lexer.lookahead ~= 13 do step(lexer) end
+    lexer.result_symbol = token; lexer.mark_end(lexer); return true
+  end
+  while not lexer.eof(lexer) do
+    if lexer.lookahead == 93 then
+      step(lexer); local count: uint32 = 0
+      while lexer.lookahead == 61 do count = count + 1; step(lexer) end
+      if count == equals and lexer.lookahead == 93 then
+        step(lexer); lexer.result_symbol = token; lexer.mark_end(lexer); return true
+      end
+    else step(lexer) end
+  end
+  return false
+end

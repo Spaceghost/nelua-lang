@@ -1,0 +1,54 @@
+name: Nelua Tree-sitter grammar
+on:
+  pull_request:
+    paths:
+      - tools/tree-sitter-nelua/**
+      - .github/workflows/tree-sitter-nelua.yml
+      - '**/*.nelua'
+  push:
+    branches: [master]
+    paths:
+      - tools/tree-sitter-nelua/**
+      - .github/workflows/tree-sitter-nelua.yml
+      - '**/*.nelua'
+permissions:
+  contents: read
+concurrency:
+  group: nelua-grammar-${{ github.head_ref || github.ref }}
+  cancel-in-progress: true
+jobs:
+  grammar:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: '22'
+      - name: Install pinned editor generator and owner compiler
+        run: |
+          npm install --prefix "$RUNNER_TEMP/nelua-tree-sitter" tree-sitter-cli@0.25.10
+          git clone --filter=blob:none https://github.com/Spaceghost/nelua-lang "$RUNNER_TEMP/nelua-fork"
+          git -C "$RUNNER_TEMP/nelua-fork" checkout --detach b0cbfdb86959b7e5d94943729016d8cc4c4cc115
+          make -C "$RUNNER_TEMP/nelua-fork" -j2
+      - name: Verify clean parser/scanner generation, corpus and scanner ABI
+        working-directory: tools/tree-sitter-nelua
+        run: |
+          set -euo pipefail
+          ts="$RUNNER_TEMP/nelua-tree-sitter/node_modules/.bin/tree-sitter"
+          "$RUNNER_TEMP/nelua-fork/nelua-lua" generate.lua --check "$RUNNER_TEMP/nelua-fork/nelua" "$ts"
+          "$ts" test | tee "$RUNNER_TEMP/nelua-corpus.txt"
+          cc -std=c11 -Wall -Wextra -Werror -pedantic -Isrc -fsanitize=address,undefined -fno-sanitize-recover=all src/scanner.c test/scanner_abi.c -o "$RUNNER_TEMP/scanner-abi"
+          "$RUNNER_TEMP/scanner-abi"
+      - name: Retain exact-head grammar evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: nelua-grammar-${{ github.event.pull_request.head.sha || github.sha }}
+          path: |
+            ${{ runner.temp }}/nelua-corpus.txt
+          if-no-files-found: warn
+          retention-days: 14
