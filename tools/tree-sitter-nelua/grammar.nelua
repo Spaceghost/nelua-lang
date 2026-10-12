@@ -1,0 +1,222 @@
+-- Maintained Tree-sitter grammar graph. Nelua generates this tool's C; the tool
+-- emits Tree-sitter's external JSON grammar schema. No JavaScript authoring DSL.
+-- Fixed storage bounds apply to this host build tool, not firmware memory.
+## cinclude '<stdio.h>'
+local function putchar(c: cint): cint <cimport,nodecl> end
+local function fputs(s: cstring, stream: pointer): cint <cimport,nodecl> end
+global stdout: pointer <cimport,nodecl>
+local Node: type = @record{kind: uint8, text: cstring, priority: int32, children: [32]uint32}
+local Definition: type = @record{name: cstring, node: uint32}
+local nodes: [2048]Node
+local definitions: [128]Definition
+local used: uint32 = 0
+local defined: uint32 = 0
+local kinds: [13]cstring = {'BLANK','SYMBOL','STRING','PATTERN','SEQ','CHOICE',
+  'REPEAT','REPEAT1','ALIAS','PREC_LEFT','PREC_RIGHT','TOKEN','FIELD'}
+local function add(kind: uint8, text: cstring, children: [32]uint32, priority: int32): uint32
+  assert(used < 2047); used = used + 1
+  nodes[used] = {kind=kind,text=text,children=children,priority=priority}
+  return used
+end
+local function blank(): uint32 return add(0,nilptr,{},0) end
+local function sym(s: cstring): uint32 return add(1,s,{},0) end
+local function literal(s: cstring): uint32 return add(2,s,{},0) end
+local function pattern(s: cstring): uint32 return add(3,s,{},0) end
+local function sequence(c: [32]uint32): uint32 return add(4,nilptr,c,0) end
+local function choice(c: [32]uint32): uint32 return add(5,nilptr,c,0) end
+local function repeated(c: uint32): uint32 return add(6,nilptr,{c},0) end
+local function repeated1(c: uint32): uint32 return add(7,nilptr,{c},0) end
+local function alias_named(s: cstring,c: uint32): uint32 return add(8,s,{c},0) end
+local function left(p: int32,c: uint32): uint32 return add(9,nilptr,{c},p) end
+local function right(p: int32,c: uint32): uint32 return add(10,nilptr,{c},p) end
+local function token(c: uint32): uint32 return add(11,nilptr,{c},0) end
+local function field(s: cstring,c: uint32): uint32 return add(12,s,{c},0) end
+local function define(s: cstring,c: uint32)
+  assert(defined < 128); definitions[defined] = {name=s,node=c}; defined = defined + 1
+end
+local function out(s: cstring) assert(fputs(s,stdout) >= 0) end
+local function character(c: cint) assert(putchar(c) >= 0) end
+local function text(s: cstring)
+  assert(s ~= nilptr); character(34)
+  local hex: cstring = '0123456789abcdef'
+  local bytes = (@*[0]uint8)(s)
+  local digits = (@*[0]uint8)(hex)
+  local i: uint32 = 0
+  while bytes[i] ~= 0 do
+    local c: uint8 = bytes[i]
+    if c == 34 or c == 92 then character(92); character(c)
+    elseif c < 32 then out('\\u00'); character(digits[c >> 4]); character(digits[c & 15])
+    else character(c) end
+    i = i + 1
+  end
+  character(34)
+end
+local function number(v: int32)
+  assert(v >= 0)
+  if v >= 10 then number(v // 10) end
+  character(48 + v % 10)
+end
+local function emit(id: uint32, depth: uint32)
+  assert(id > 0 and id <= used and depth <= 64)
+  local n: Node = nodes[id]
+  out('{"type":'); text(kinds[n.kind])
+  if n.kind == 1 or n.kind == 12 then out(',"name":'); text(n.text)
+  elseif n.kind == 2 or n.kind == 3 or n.kind == 8 then out(',"value":'); text(n.text)
+  elseif n.kind == 9 or n.kind == 10 then out(',"value":'); number(n.priority) end
+  if n.kind == 8 then out(',"named":true') end
+  if n.kind == 4 or n.kind == 5 then
+    out(',"members":[')
+    local i: uint32 = 0
+    while i < 32 and n.children[i] ~= 0 do
+      if i > 0 then character(44) end
+      emit(n.children[i],depth+1); i = i + 1
+    end
+    character(93)
+  elseif n.kind >= 6 then out(',"content":'); emit(n.children[0],depth+1) end
+  character(125)
+end
+
+-- Rules are appended below as typed graph construction, not emitted C bodies.
+define("source_file",sequence{choice{sym("shebang"),blank()},repeated(sym("_statement"))})
+define("shebang",pattern("#![^\\n]*"))
+define("_statement",choice{sym("variable_declaration"),sym("function_declaration"),sym("assignment_statement"),sym("call_statement"),sym("if_statement"),sym("switch_statement"),sym("for_statement"),sym("while_statement"),sym("repeat_statement"),sym("do_statement"),sym("defer_statement"),sym("return_statement"),sym("in_statement"),sym("break_statement"),sym("continue_statement"),sym("fallthrough_statement"),sym("goto_statement"),sym("label_statement"),sym("preprocessor"),literal(";")})
+define("block",repeated1(sym("_statement")))
+define("identifier",pattern("[a-zA-Z_\\u0080-\\uffff][a-zA-Z_0-9\\u0080-\\uffff]*"))
+define("_name",choice{sym("identifier"),alias_named("identifier",choice{literal("record"),literal("union"),literal("enum"),literal("array"),literal("pointer"),literal("variant")})})
+define("variable_declaration",sequence{choice{literal("local"),literal("global")},sequence{sym("parameter"),repeated(sequence{literal(","),sym("parameter")})},choice{sequence{literal("="),sequence{sym("_expression"),repeated(sequence{literal(","),sym("_expression")})}},blank()}})
+define("declaration_name",left(1,sequence{sym("_name"),repeated1(sequence{literal("."),sym("_name")})}))
+define("parameter",sequence{field("name",choice{sym("_name"),sym("declaration_name"),sym("preprocess_name")}),choice{sequence{literal(":"),sym("_type")},blank()},choice{sym("annotations"),blank()}})
+define("annotations",sequence{literal("<"),sequence{sym("annotation"),repeated(sequence{literal(","),sym("annotation")})},literal(">")})
+define("annotation",sequence{sym("_name"),choice{choice{sym("arguments"),sym("string"),sym("table_constructor"),sym("preprocess_expression")},blank()}})
+define("function_declaration",sequence{choice{choice{literal("local"),literal("global")},blank()},literal("function"),field("name",choice{sym("_name"),sym("declaration_name")}),choice{sequence{literal(":"),sym("_name")},blank()},sym("function_body")})
+define("function_body",sequence{literal("("),choice{sequence{choice{sym("parameter"),sym("vararg")},repeated(sequence{literal(","),choice{sym("parameter"),sym("vararg")}})},blank()},literal(")"),choice{sequence{literal(":"),choice{sym("_type"),sequence{literal("("),sequence{sym("_type"),repeated(sequence{literal(","),sym("_type")})},literal(")")}}},blank()},choice{sym("annotations"),blank()},choice{sym("block"),blank()},literal("end")})
+define("vararg",right(0,sequence{literal("..."),choice{sequence{literal(":"),sym("_name")},blank()}}))
+define("assignment_statement",sequence{sequence{choice{sym("_name"),sym("member_expression"),sym("index_expression"),sym("unary_expression"),sym("preprocess_expression")},repeated(sequence{literal(","),choice{sym("_name"),sym("member_expression"),sym("index_expression"),sym("unary_expression"),sym("preprocess_expression")}})},literal("="),sequence{sym("_expression"),repeated(sequence{literal(","),sym("_expression")})}})
+define("call_statement",sym("call_expression"))
+define("return_statement",right(0,sequence{literal("return"),choice{sequence{sym("_expression"),repeated(sequence{literal(","),sym("_expression")})},blank()}}))
+define("in_statement",sequence{literal("in"),sym("_expression")})
+define("break_statement",literal("break"))
+define("continue_statement",literal("continue"))
+define("fallthrough_statement",literal("fallthrough"))
+define("goto_statement",sequence{literal("goto"),sym("_name")})
+define("label_statement",sequence{literal("::"),sym("_name"),literal("::")})
+define("do_statement",sequence{literal("do"),choice{sym("block"),blank()},literal("end")})
+define("defer_statement",sequence{literal("defer"),choice{sym("block"),blank()},literal("end")})
+define("if_statement",sequence{literal("if"),sym("_expression"),literal("then"),choice{sym("block"),blank()},repeated(sequence{literal("elseif"),sym("_expression"),literal("then"),choice{sym("block"),blank()}}),choice{sequence{literal("else"),choice{sym("block"),blank()}},blank()},literal("end")})
+define("switch_statement",sequence{literal("switch"),sym("_expression"),choice{literal("do"),blank()},repeated1(sequence{literal("case"),sequence{sym("_expression"),repeated(sequence{literal(","),sym("_expression")})},literal("then"),choice{sym("block"),blank()}}),choice{sequence{literal("else"),choice{sym("block"),blank()}},blank()},literal("end")})
+define("while_statement",sequence{literal("while"),sym("_expression"),literal("do"),choice{sym("block"),blank()},literal("end")})
+define("repeat_statement",sequence{literal("repeat"),choice{sym("block"),blank()},literal("until"),sym("_expression")})
+define("for_statement",sequence{literal("for"),choice{sequence{sym("parameter"),literal("="),sym("_expression"),literal(","),choice{choice{literal("<"),literal("<="),literal(">"),literal(">="),literal("~="),literal("==")},blank()},sym("_expression"),choice{sequence{literal(","),sym("_expression")},blank()}},sequence{sequence{sym("parameter"),repeated(sequence{literal(","),sym("parameter")})},literal("in"),sequence{sym("_expression"),repeated(sequence{literal(","),sym("_expression")})}}},literal("do"),choice{sym("block"),blank()},literal("end")})
+define("_expression",choice{sym("number"),sym("string"),sym("long_string"),sym("boolean"),sym("nil"),sym("nilptr"),sym("_name"),sym("vararg"),sym("table_constructor"),sym("function_expression"),sym("parenthesized_expression"),sym("do_expression"),sym("type_expression"),sym("binary_expression"),sym("unary_expression"),sym("member_expression"),sym("index_expression"),sym("call_expression"),sym("preprocess_expression"),sym("preprocess_name")})
+define("boolean",choice{literal("true"),literal("false")})
+define("nil",literal("nil"))
+define("nilptr",literal("nilptr"))
+define("number",token(choice{pattern("0[xX][0-9a-fA-F]+(\\.[0-9a-fA-F]*)?([pP][+-]?[0-9]+)?[a-zA-Z_0-9]*"),pattern("0[bB][01]+(\\.[01]*)?([pP][+-]?[0-9]+)?[a-zA-Z_0-9]*"),pattern("[0-9]+(\\.[0-9]*)?([eE][+-]?[0-9]+)?[a-zA-Z_0-9]*"),pattern("\\.[0-9]+([eE][+-]?[0-9]+)?[a-zA-Z_0-9]*")}))
+define("string",token(choice{pattern("\"([^\"\\\\\\n]|\\\\(.|\\r?\\n))*\"[a-zA-Z_0-9]*"),pattern("'([^'\\\\\\n]|\\\\(.|\\r?\\n))*'[a-zA-Z_0-9]*")}))
+define("parenthesized_expression",sequence{literal("("),sym("_expression"),literal(")")})
+define("do_expression",sequence{literal("("),literal("do"),choice{sym("block"),blank()},literal("end"),literal(")")})
+define("function_expression",sequence{literal("function"),sym("function_body")})
+define("table_constructor",sequence{literal("{"),choice{sequence{sym("field"),repeated(sequence{choice{literal(","),literal(";")},sym("field")}),choice{choice{literal(","),literal(";")},blank()}},blank()},literal("}")})
+define("field",choice{sequence{literal("["),sym("_expression"),literal("]"),literal("="),sym("_expression")},sequence{sym("_name"),literal("="),sym("_expression")},sequence{literal("="),sym("_name")},sym("_expression")})
+define("member_expression",left(15,sequence{sym("_expression"),choice{literal("."),literal(":")},sym("_name")}))
+define("index_expression",left(15,sequence{sym("_expression"),literal("["),sym("_expression"),literal("]")}))
+define("call_expression",left(15,sequence{sym("_expression"),choice{literal("!"),blank()},choice{sym("arguments"),sym("string"),sym("long_string"),sym("table_constructor")}}))
+define("arguments",sequence{literal("("),choice{sequence{sym("_expression"),repeated(sequence{literal(","),sym("_expression")})},blank()},literal(")")})
+define("unary_expression",right(12,sequence{choice{literal("not"),literal("-"),literal("#"),literal("~"),literal("&"),literal("$")},sym("_expression")}))
+define("binary_expression",choice{left(1,sequence{field("left",sym("_expression")),field("operator",literal("or")),field("right",sym("_expression"))}),left(2,sequence{field("left",sym("_expression")),field("operator",literal("and")),field("right",sym("_expression"))}),left(3,sequence{field("left",sym("_expression")),field("operator",choice{literal("=="),literal("~="),literal("<"),literal("<="),literal(">"),literal(">=")}),field("right",sym("_expression"))}),left(4,sequence{field("left",sym("_expression")),field("operator",literal("|")),field("right",sym("_expression"))}),left(5,sequence{field("left",sym("_expression")),field("operator",literal("~")),field("right",sym("_expression"))}),left(6,sequence{field("left",sym("_expression")),field("operator",literal("&")),field("right",sym("_expression"))}),left(7,sequence{field("left",sym("_expression")),field("operator",choice{literal("<<"),literal(">>"),literal(">>>")}),field("right",sym("_expression"))}),right(8,sequence{field("left",sym("_expression")),field("operator",literal("..")),field("right",sym("_expression"))}),left(9,sequence{field("left",sym("_expression")),field("operator",choice{literal("+"),literal("-")}),field("right",sym("_expression"))}),left(10,sequence{field("left",sym("_expression")),field("operator",choice{literal("*"),literal("/"),literal("//"),literal("///"),literal("%"),literal("%%%")}),field("right",sym("_expression"))}),right(13,sequence{field("left",sym("_expression")),field("operator",literal("^")),field("right",sym("_expression"))})})
+define("type_expression",sequence{literal("@"),sym("_type")})
+define("_type",choice{sym("_name"),sym("declaration_name"),sym("pointer_type"),sym("optional_type"),sym("array_type"),sym("record_type"),sym("union_type"),sym("enum_type"),sym("function_type"),sym("generic_type"),sym("variant_type")})
+define("pointer_type",right(4,choice{sequence{literal("*"),sym("_type")},sequence{literal("pointer"),choice{sequence{literal("("),sym("_type"),literal(")")},blank()}}}))
+define("optional_type",right(4,sequence{literal("?"),sym("_type")}))
+define("array_type",right(4,choice{sequence{literal("["),choice{sym("_expression"),blank()},literal("]"),sym("_type")},sequence{literal("array"),literal("("),sym("_type"),choice{sequence{literal(","),sym("_expression")},blank()},literal(")")}}))
+define("record_type",sequence{literal("record"),literal("{"),choice{sequence{sym("type_field"),repeated(sequence{choice{literal(","),literal(";")},sym("type_field")}),choice{choice{literal(","),literal(";")},blank()}},blank()},literal("}")})
+define("union_type",sequence{literal("union"),literal("{"),choice{sequence{choice{sym("type_field"),sym("_type")},repeated(sequence{choice{literal(","),literal(";")},choice{sym("type_field"),sym("_type")}}),choice{choice{literal(","),literal(";")},blank()}},blank()},literal("}")})
+define("type_field",sequence{sym("_name"),literal(":"),sym("_type")})
+define("enum_type",sequence{literal("enum"),choice{sequence{literal("("),sym("_type"),literal(")")},blank()},literal("{"),sequence{sym("enum_field"),repeated(sequence{choice{literal(","),literal(";")},sym("enum_field")}),choice{choice{literal(","),literal(";")},blank()}},literal("}")})
+define("enum_field",sequence{sym("_name"),choice{sequence{literal("="),sym("_expression")},blank()}})
+define("function_type",right(0,sequence{literal("function"),literal("("),choice{sequence{choice{sym("type_field"),sym("_type"),sym("vararg")},repeated(sequence{literal(","),choice{sym("type_field"),sym("_type"),sym("vararg")}})},blank()},literal(")"),choice{sequence{literal(":"),choice{sym("_type"),sequence{literal("("),sequence{sym("_type"),repeated(sequence{literal(","),sym("_type")})},literal(")")}}},blank()}}))
+define("generic_type",left(3,sequence{choice{sym("_name"),sym("declaration_name")},literal("("),sequence{choice{sym("_type"),sym("_expression")},repeated(sequence{literal(","),choice{sym("_type"),sym("_expression")}})},literal(")")}))
+define("variant_type",left(1,choice{sequence{sym("_type"),literal("|"),sym("_type")},sequence{literal("variant"),literal("("),sequence{choice{sym("_type"),sym("_expression")},repeated(sequence{literal(","),choice{sym("_type"),sym("_expression")}})},literal(")")}}))
+define("preprocess_expression",sequence{literal("#["),sym("_expression"),literal("]#")})
+define("preprocess_name",sequence{literal("#|"),sym("_expression"),literal("|#")})
+out('{"name":"nelua","word":"identifier","rules":{')
+for i: uint32 = 0, < defined do
+  if i > 0 then character(44) end
+  text(definitions[i].name); character(58); emit(definitions[i].node,0)
+end
+character(125)
+out(",\"extras\":[")
+emit(pattern("\\s"),0)
+character(44); emit(sym("comment"),0)
+character(93)
+out(",\"externals\":[")
+emit(sym("long_string"),0)
+character(44); emit(sym("comment"),0)
+character(44); emit(sym("preprocessor"),0)
+character(93)
+out(',"conflicts":[')
+character(91)
+text("_name")
+character(44); text("record_type")
+character(93)
+character(44); character(91)
+text("_name")
+character(44); text("union_type")
+character(93)
+character(44); character(91)
+text("_name")
+character(44); text("enum_type")
+character(93)
+character(44); character(91)
+text("_name")
+character(44); text("array_type")
+character(93)
+character(44); character(91)
+text("_name")
+character(44); text("pointer_type")
+character(93)
+character(44); character(91)
+text("_name")
+character(44); text("variant_type")
+character(93)
+character(44); character(91)
+text("function_body")
+character(44); text("function_type")
+character(93)
+character(44); character(91)
+text("parameter")
+character(44); text("type_field")
+character(93)
+character(44); character(91)
+text("_expression")
+character(44); text("_type")
+character(93)
+character(44); character(91)
+text("_name")
+character(44); text("_type")
+character(93)
+character(44); character(91)
+text("parameter")
+character(44); text("_type")
+character(93)
+character(44); character(91)
+text("call_expression")
+character(44); text("_type")
+character(93)
+character(44); character(91)
+text("field")
+character(44); text("_expression")
+character(93)
+character(44); character(91)
+text("call_statement")
+character(44); text("_expression")
+character(93)
+character(44); character(91)
+text("parameter")
+character(44); text("_expression")
+character(93)
+character(44); character(91)
+text("function_declaration")
+character(44); text("_expression")
+character(93)
+out(']}\n')
