@@ -3,12 +3,14 @@ on:
   pull_request:
     paths:
       - tools/tree-sitter-nelua/**
+      - tools/textmate-nelua/**
       - .github/workflows/tree-sitter-nelua.yml
       - '**/*.nelua'
   push:
     branches: [master]
     paths:
       - tools/tree-sitter-nelua/**
+      - tools/textmate-nelua/**
       - .github/workflows/tree-sitter-nelua.yml
       - '**/*.nelua'
 permissions:
@@ -52,3 +54,9 @@ jobs:
             ${{ runner.temp }}/nelua-corpus.txt
           if-no-files-found: warn
           retention-days: 14
+      - name: Verify native Nelua TextMate scopes for Linguist preparation
+        working-directory: tools/textmate-nelua
+        run: |
+          "$RUNNER_TEMP/nelua-fork/nelua-lua" generate.lua --check
+          npm install --prefix "$RUNNER_TEMP/nelua-textmate" vscode-textmate@9.2.0 vscode-oniguruma@2.0.1
+          NELUA_TEXTMATE_MODULES="$RUNNER_TEMP/nelua-textmate" node test.cjs
