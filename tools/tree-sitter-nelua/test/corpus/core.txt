@@ -12,6 +12,30 @@ local amount: uint32 = 0xff_u32
     (number)))
 
 ==================
+Type constructor names are contextual identifiers
+==================
+global callback = @function(record: *uint8): uint32
+local enum: uint32 = 1
+---
+
+(source_file
+  (variable_declaration
+    (parameter
+      (identifier))
+    (type_expression
+      (function_type
+        (type_field
+          (identifier)
+          (pointer_type
+            (identifier)))
+        (identifier))))
+  (variable_declaration
+    (parameter
+      (identifier)
+      (identifier))
+    (number)))
+
+==================
 Long delimiters are exact and opaque
 ==================
 --[==[ comment with ]=] and [[ nested-looking bytes ]==]

@@ -4,11 +4,11 @@ nelua-repository=https://github.com/Spaceghost/nelua-lang
 nelua=b0cbfdb86959b7e5d94943729016d8cc4c4cc115
 scanner-flags=-c -C -r -P nogc -P noentrypoint --cc gcc --cflags=-Isrc
 normalization=compile-command-and-compile-hash-comments-only
-input grammar.js sha256=860f49563728080ad98462f6c54b8ee465ebd9dad54137ae6188a60f874afb15
+input grammar.js sha256=37863aabcddce99cc79f0d60f9143106ea20f750f29447ce56f2ed911f97d08a
 input src/scanner.nelua sha256=e1ab917396f0ca0f08d290c071a7df8346036b4e52c2b657bd7bc2041fa37a5b
 input generate.lua sha256=99d5e3c11976e31d28e69e59fe924e4de86658cbf8d5c3a60e29403a75cf8258
-output src/parser.c sha256=d2f4fba0b7157ad4cba7da933c559eb03efca707c089aa83daf9e5bb08afa825
-output src/grammar.json sha256=2fda7e1aa9c757010845e0a6b13d06ee4b28434fdd55df19ec8299999bc3be55
+output src/parser.c sha256=59f43fbd439a34e0edb26a3071ec9a9fe24a0d9d4b5564175cdcbf6527a65bb4
+output src/grammar.json sha256=697d08e05a1bfbbec32fe3d1dc6b4541f75b691c0562917ee4f7dceaa6c9aa9c
 output src/node-types.json sha256=dd84e83ad7b1fa0ae3b7af485a71b335a9377bdace14962909f6ae2e57e5fdeb
 output src/tree_sitter/parser.h sha256=180b893c8734778fd32f372dfbc27bd6ad1cd2221f26150b31256ff6716320d2
 output src/tree_sitter/alloc.h sha256=b29c1c9fb7cc82f58c84b376df1297d6e2737a1d655fd356db0859e3c29c2fea
