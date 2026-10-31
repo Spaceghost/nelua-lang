@@ -1,0 +1,13 @@
+-- C/OS-owned storage and entrypoint. SPDX-License-Identifier: MIT
+## pragmas.nogc = true
+## pragmas.noentrypoint = true
+## pragmas.nochecks = true -- All failure conditions below are explicit.
+## cfile 'host.c'
+## cinclude 'kernel.h'
+
+local function nelua_checked_add(a: uint32, b: uint32, out: *[0]uint32): boolean
+  <cexport, codename 'nelua_checked_add'>
+  if out == nilptr or b > 0xffffffff_u32 - a then return false end
+  out[0] = a + b
+  return true
+end

@@ -1,5 +1,8 @@
 # A C host with runtime-free Nelua callbacks
 
+For the complete recipe and a no-libc example, read the
+[runtime-free guide](../../docs/pages/runtime-free.md).
+
 The C host supplies `main`, borrowed input spans, and output storage. Nelua
 exports a JSON byte-span encoder and an int64 formatter. Neither callback owns
 heap memory, initializes a VM/GC, or depends on a panic/exit path. Explicit

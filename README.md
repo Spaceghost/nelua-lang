@@ -11,6 +11,10 @@ inspired by Lua, which compiles to C and native code.
 
 **Note:** The language is in alpha state and still evolving.
 
+**Embedding in C, C++ or an operating system?** The
+[runtime-free guide](docs/pages/runtime-free.md) covers host-owned memory,
+C-ABI exports, no Nelua startup/GC, and audited C-hosted and no-libc examples.
+
 ## Quick start
 
 - For basic information check the [Website](https://nelua.io/).

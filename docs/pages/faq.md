@@ -170,3 +170,11 @@ Nelua developers and users generally discuss in the [Discord server](https://dis
 If you want elaborated answers and to keep you discussion on topic,
 you should use GitHub's [Discussions](https://github.com/edubart/nelua-lang/discussions) page.
 There is also a [Reddit community ](https://www.reddit.com/r/nelua/), although is inactive at the moment.
+
+
+## Can Nelua code run without its runtime?
+
+Yes. Export typed C-ABI functions, let the host own storage and the entrypoint,
+and avoid implicit allocation and initialization. `nogc` alone does not prove
+this. The [runtime-free guide](/runtime-free/) explains the pragma semantics and
+provides audited C-hosted and fully freestanding examples.

@@ -18,6 +18,11 @@ Read this page after installing the Nelua compiler.
 Overview of Nelua's features,
 the **most useful page** for learning about the syntax and features.
 
+### [Runtime-free native code](/runtime-free/)
+
+Build C/C++-hosted callbacks or freestanding components with host-owned memory.
+Includes exact pragmas, initialization rules, symbol audits and runnable examples.
+
 ### [Libraries](/libraries/)
 
 List of built-in libraries in Nelua and their contents.

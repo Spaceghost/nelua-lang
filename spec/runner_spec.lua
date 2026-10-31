@@ -174,6 +174,10 @@ it("runtime-free callbacks in a C-owned program", function()
              'runtime-free C host: pass')
 end)
 
+it("freestanding leaf with a C-owned entrypoint", function()
+  expect.run({'--no-cache', '--release', 'examples/freestanding/kernel.nelua'}, '')
+end)
+
 it("static libraries", function()
   if ccinfo.is_gcc or ccinfo.is_clang then
     expect.run({'--static-lib', 'tests/libmylib_static.nelua'})
