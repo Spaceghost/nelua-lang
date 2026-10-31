@@ -6,6 +6,7 @@ local fs = require 'nelua.utils.fs'
 local configer = require 'nelua.configer'
 local version = require 'nelua.version'
 local ccompiler = require 'nelua.ccompiler'
+local lfs = require 'lfs'
 
 describe("runner", function()
   local ccinfo = ccompiler.get_cc_info()
@@ -167,6 +168,73 @@ end)
 
 it("bundled C libraries", function()
   expect.run({'tests/myclib_test.nelua'}, [[hello from C]])
+end)
+
+it("invalidates cached binaries when companion C sources change", function()
+  for _,nocheading in ipairs{false, true} do
+    local prefix = fs.tmpname()
+    local mainfile, helperfile, otherfile = prefix..'.nelua', prefix..' helper.c', prefix..' other.c'
+    local cachedir = prefix..' cache'
+    local config = configer.get()
+    local oldcachedir = config.cache_dir
+    config.cache_dir = cachedir
+    local _ <close> = setmetatable({}, {__close = function()
+      config.cache_dir = oldcachedir
+      for _,file in ipairs{prefix, mainfile, helperfile, otherfile} do fs.deletefile(file) end
+      if fs.isdir(cachedir) then
+        for file in lfs.dir(cachedir) do
+          if file ~= '.' and file ~= '..' then fs.deletefile(fs.join(cachedir, file)) end
+        end
+        lfs.rmdir(cachedir)
+      end
+    end})
+    local function helper(value)
+      return '#ifndef CACHE_VALUE\n#define CACHE_VALUE '..value..
+             '\n#endif\nint helper_one(void) { return CACHE_VALUE; }\n'
+    end
+    assert(fs.makefile(helperfile, helper(1)))
+    assert(fs.makefile(otherfile, 'int helper_two(void) { return 3; }\n'))
+    assert(fs.makefile(mainfile, string.format([[
+      ## pragmas.nocheading = %s
+      ## cfile %q; cfile %q
+      local function helper_one(): cint <cimport> end
+      local function helper_two(): cint <cimport> end
+      print(helper_one() + helper_two())
+    ]], tostring(nocheading), fs.basename(helperfile), fs.basename(otherfile))))
+    local args = {'--cache-dir', cachedir, mainfile}
+    expect.run(args, '4')
+    local mtime = fs.getmodtime(helperfile)
+    assert(fs.makefile(helperfile, helper(2))) -- same size, same timestamp
+    assert(lfs.touch(helperfile, mtime, mtime))
+    expect.run(args, '5')
+
+    local binfile = fs.join(cachedir, fs.basename(prefix))..
+                    ((ccinfo.is_windows or ccinfo.is_cygwin) and '.exe' or '')
+    -- Unchanged contents still reuse the binary, independently of timestamps.
+    assert(lfs.touch(binfile, 1, 1))
+    expect.run(args, '5')
+    expect.equal(fs.getmodtime(binfile), 1)
+    local cachefile = binfile..'.hash'
+    assert(fs.readfile(cachefile))
+    if ccinfo.is_gcc or ccinfo.is_clang then
+      local cachehash = fs.readfile(cachefile)
+      expect.run({'--strip-bin', '--cache-dir', cachedir, mainfile}, '5')
+      assert(fs.readfile(cachefile) ~= cachehash)
+      expect.run({'--cache-dir', cachedir, '--cflags=-DCACHE_VALUE=7', mainfile}, '10')
+      expect.run({'--cache-dir', cachedir, '--cflags=-DCACHE_VALUE=8', mainfile}, '11')
+    end
+
+    assert(fs.makefile(helperfile, 'invalid C source'))
+    expect.run_error(args, 'C compilation for')
+    assert(not fs.isfile(cachefile)) -- failed builds must not retain a valid stamp
+    assert(fs.makefile(helperfile, helper(2)))
+    expect.run(args, '5')
+    expect.run({'--no-cache', '--cache-dir', cachedir, mainfile}, '5')
+    assert(not fs.isfile(cachefile))
+    expect.run(args, '5')
+    fs.deletefile(helperfile)
+    expect.run_error(args, 'failed to read C source file')
+  end
 end)
 
 it("runtime-free callbacks in a C-owned program", function()
