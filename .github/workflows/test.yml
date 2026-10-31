@@ -36,20 +36,6 @@ jobs:
       if: ${{ matrix.os != 'windows-2025' }}
       run: nelua --verbose examples/helloworld.nelua
 
-  runtime-free:
-    runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        cc: [gcc, clang]
-    env:
-      CC: ${{ matrix.cc }}
-    steps:
-    - uses: actions/checkout@v4
-    - run: make CC=${{ matrix.cc }}
-    - run: python3 examples/c_host/check.py --sanitize
-    - run: python3 examples/freestanding/check.py --sanitize
-
   test-32bits:
     runs-on: ubuntu-latest
     env:

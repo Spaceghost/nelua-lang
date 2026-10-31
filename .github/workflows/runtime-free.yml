@@ -1,0 +1,48 @@
+name: Runtime-free native components
+on:
+  push:
+    paths:
+      - '.github/workflows/runtime-free.yml'
+      - 'examples/c_host/**'
+      - 'examples/freestanding/**'
+      - 'docs/pages/runtime-free.md'
+      - 'spec/**'
+      - 'lib/**'
+      - 'lualib/**'
+      - 'src/**'
+      - 'nelua'
+      - 'Makefile'
+  pull_request:
+    paths:
+      - '.github/workflows/runtime-free.yml'
+      - 'examples/c_host/**'
+      - 'examples/freestanding/**'
+      - 'docs/pages/runtime-free.md'
+      - 'spec/**'
+      - 'lib/**'
+      - 'lualib/**'
+      - 'src/**'
+      - 'nelua'
+      - 'Makefile'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        cc: [gcc, clang]
+    env:
+      CC: ${{ matrix.cc }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build compiler
+        run: make CC=${{ matrix.cc }}
+      - name: Compiler regressions
+        run: make test CC=${{ matrix.cc }}
+      - name: C-host symbols and sanitizers
+        run: python3 examples/c_host/check.py --sanitize
+      - name: Zero imports and no-CRT execution
+        run: python3 examples/freestanding/check.py --sanitize
