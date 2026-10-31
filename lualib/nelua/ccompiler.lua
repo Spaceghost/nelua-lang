@@ -417,6 +417,23 @@ function compiler.setup_env(cflags)
   end
 end
 
+local function get_binary_cache_hash(cfile, ccmd, compileopts)
+  local _, ccinfotext = compiler.get_cc_info()
+  local stripopts = table.concat({tostring(config.strip_bin), config.strip or '',
+    config.stripflags, table.concat(compileopts.stripflags or {}, ' ')}, '\n')
+  local hashes = {stringer.hash(ccinfotext), stringer.hash(ccmd), stringer.hash(stripopts)}
+  local function add_source(filename)
+    local contents, err = fs.readfile(filename, true)
+    except.assertraisef(contents, 'failed to read C source file: %s', err)
+    hashes[#hashes+1] = stringer.hash(contents)
+  end
+  add_source(cfile)
+  for _,filename in ipairs(compileopts.cfiles) do
+    add_source(filename)
+  end
+  return stringer.hash(table.concat(hashes, '\n'))
+end
+
 function compiler.compile_binary(cfile, outfile, compileopts)
   local cflags = get_compiler_cflags(compileopts)
   compiler.setup_env(cflags)
@@ -424,13 +441,20 @@ function compiler.compile_binary(cfile, outfile, compileopts)
   local binext, isexe = detect_output_extension(outfile, ccinfo)
   local binfile = outfile
   if not stringer.endswith(binfile, binext) then binfile = binfile .. binext end
-  -- if the file with that hash already exists skip recompiling it
+  -- we may use an intermediary file
+  local midfile = binfile
+  if config.static_lib then -- compile to an object first for static libraries
+    midfile = binfile:gsub('.[a-z]+$', '.o')
+  end
+  local cccmd = get_compile_args(cfile, midfile, cflags)
+  local cachefile = binfile..'.hash'
+  local cachehash
+  -- Include companion C sources and build options even without a C heading.
+  -- Content hashes also detect edits within the filesystem timestamp granularity.
   if not config.no_cache then
-    local cfile_mtime = fs.getmodtime(cfile)
-    local binfile_mtime = fs.getmodtime(binfile)
+    cachehash = get_binary_cache_hash(cfile, cccmd, compileopts)
     local binfile_size = fs.getsize(binfile)
-    if cfile_mtime and binfile_mtime and cfile_mtime <= binfile_mtime and
-       binfile_size and binfile_size > 0 then
+    if binfile_size and binfile_size > 0 and fs.readfile(cachefile) == cachehash then
       if config.verbose then console.info("using cached binary " .. binfile) end
       return binfile, isexe
     end
@@ -444,13 +468,8 @@ function compiler.compile_binary(cfile, outfile, compileopts)
     end
     except.assertraisef(ok, 'failed to create directory for output binary: %s', err)
   end
-  -- we may use an intermediary file
-  local midfile = binfile
-  if config.static_lib then -- compile to an object first for static libraries
-    midfile = binfile:gsub('.[a-z]+$', '.o')
-  end
-  -- generate compile command
-  local cccmd = get_compile_args(cfile, midfile, cflags)
+  -- A failed rebuild must not leave a valid stamp for a possibly changed binary.
+  fs.deletefile(cachefile)
   if config.verbose then console.info(cccmd) end
   -- compile the file
   if not executor.rexec(cccmd, nil, config.redirect_exec) then --luacov:disable
@@ -463,6 +482,10 @@ function compiler.compile_binary(cfile, outfile, compileopts)
   end
   if config.strip_bin and (config.shared_lib or isexe) and (not ccinfo.is_mirc or ccinfo.is_wasm) then
     compiler.strip_binary(binfile, compileopts)
+  end
+  if cachehash then
+    local ok, err = fs.makefile(cachefile, cachehash)
+    except.assertraisef(ok, 'failed to create binary cache stamp: %s', err)
   end
   return binfile, isexe
 end

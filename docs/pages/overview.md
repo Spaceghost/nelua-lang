@@ -2561,6 +2561,12 @@ end
 If we run the above example with `nelua -DFAST example.nelua`
 the C compiler will compile with the cflags `-Ofast` otherwise `-Og`.
 
+Cached binaries are reused when the generated C, compiler information, compile
+command, and contents of sources supplied with `cfile` match the previous build.
+This also applies when the generated C heading is disabled with `nocheading`.
+Changes to included C headers and linked libraries are not tracked; use
+`nelua --no-cache example.nelua` after editing those dependencies.
+
 ### Emitting raw C code
 
 Sometimes to do low level things in C, or to avoid Nelua's default semantics,
