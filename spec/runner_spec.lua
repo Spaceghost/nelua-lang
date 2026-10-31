@@ -169,6 +169,11 @@ it("bundled C libraries", function()
   expect.run({'tests/myclib_test.nelua'}, [[hello from C]])
 end)
 
+it("runtime-free callbacks in a C-owned program", function()
+  expect.run({'--no-cache', '--release', 'examples/c_host/kernel.nelua'},
+             'runtime-free C host: pass')
+end)
+
 it("static libraries", function()
   if ccinfo.is_gcc or ccinfo.is_clang then
     expect.run({'--static-lib', 'tests/libmylib_static.nelua'})
