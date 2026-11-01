@@ -112,6 +112,36 @@ it("const variable" , function()
   ]], "cannot assign a constant variable")
 end)
 
+it("assignment targets", function()
+  expect.analyze_error([[
+    local R = @record{x: integer}
+    local function get(): R return R{} end
+    get().x = 1
+  ]], "cannot assign to rvalue")
+  expect.analyze_error([[
+    local A = @[1]integer
+    local function get(): A return A{} end
+    get()[0] = 1
+  ]], "cannot assign to rvalue")
+  expect.analyze_ast([[
+    local R = @record{x: integer}
+    local r: R
+    local function get(p: *R): *R return p end
+    get(&r).x = 1
+  ]])
+  expect.analyze_ast([[
+    local A = @[1]integer
+    local a: A
+    local function get(p: *A): *A return p end
+    get(&a)[0] = 1
+  ]])
+  expect.analyze_ast([[
+    local function get(): table return {} end
+    get().x = 1
+    get()[1] = 2
+  ]], nil, 'lua')
+end)
+
 it("auto type" , function()
   expect.ast_type_equals("local a: auto = 1", "local a: integer = 1")
   expect.ast_type_equals("local a: auto <comptime> = 1", "local a: integer <comptime> = 1")
@@ -1306,6 +1336,54 @@ it("records metamethods", function()
     r[0] = x
     local len = #r
   ]])
+  expect.analyze_error([[
+    local R = @record{}
+    function R:__index(x: integer): integer return 0 end
+    local r: R
+    r[0] = 1
+  ]], "cannot assign to rvalue")
+  expect.analyze_error([[
+    local Cell = @record{x: integer}
+    local R = @record{}
+    function R:__index(x: integer): Cell return Cell{} end
+    local r: R
+    r[0].x = 1
+  ]], "cannot assign to rvalue")
+  expect.analyze_error([[
+    local Cell = @record{items: [1]integer}
+    local R = @record{}
+    function R:__index(x: integer): Cell return Cell{} end
+    local r: R
+    r[0].items[0] = 1
+  ]], "cannot assign to rvalue")
+  expect.analyze_error([[
+    local Cell = @record{x: integer}
+    local R = @record{cell: Cell}
+    function R:__index(x: integer): *Cell return &self.cell end
+    local r: R
+    r[0] = nilptr
+  ]], "cannot assign to rvalue")
+  expect.analyze_error([[
+    local Cell = @record{x: integer}
+    local View = @record{cell: *Cell}
+    local R = @record{cell: Cell}
+    function R:__index(x: integer): View return View{cell=&self.cell} end
+    local r: R
+    r[0].cell = &r.cell
+  ]], "cannot assign to rvalue")
+  expect.analyze_ast([[
+    local Cell = @record{x: integer}
+    local R = @record{cell: Cell}
+    function R:__index(x: integer): *Cell return &self.cell end
+    local r: R
+    r[0].x = 1
+  ]])
+  expect.analyze_ast([[
+    local R = @record{}
+    function R:__index(x: integer): table return {} end
+    local r: R
+    r[0].x = 1
+  ]], nil, 'lua')
   expect.analyze_error([[
     local R = @record{}
     global R.__call: integer = 1
