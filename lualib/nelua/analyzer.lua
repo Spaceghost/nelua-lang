@@ -1785,7 +1785,7 @@ local function visitor_FieldIndex(context, node)
   if objattr.const then
     attr.const = true
   end
-  if objattr.constptr or (objtype and objtype.is_constpointer) then
+  if objattr.constptr or (objattr.type and objattr.type.is_constpointer) then
     -- reached through a const pointer, thus read-only
     attr.const = true
     attr.constptr = true
@@ -1862,7 +1862,7 @@ function visitors.KeyIndex(context, node)
   if objattr.const then
     attr.const = true
   end
-  if objattr.constptr or (objtype and objtype.is_constpointer) then
+  if objattr.constptr or (objattr.type and objattr.type.is_constpointer) then
     -- reached through a const pointer, thus read-only
     attr.const = true
     attr.constptr = true
