@@ -621,7 +621,7 @@ function cbuiltins.nelua_eq_(context, ltype, rtype)
           defemitter:add('(a.', fieldname, ', b.', fieldname, ')')
         elseif fieldtype.is_array then
           defemitter:add_builtin('memcmp')
-          defemitter:add('(a.', fieldname, ', ', 'b.', fieldname, ', sizeof(', type, ')) == 0')
+          defemitter:add('(a.', fieldname, ', ', 'b.', fieldname, ', sizeof(a.', fieldname, ')) == 0')
         else
           defemitter:add('a.', fieldname, ' == ', 'b.', fieldname)
         end

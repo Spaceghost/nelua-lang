@@ -832,9 +832,10 @@ Variants of the same type compare with `==`: two variants are equal when both ar
 or when they hold the same type and the held values compare equal with `==`
 (records without `__eq` compare field by field, as everywhere else in the language).
 A bare value of a member type converts to the variant first, so `v == 3` and `v == 'hello'`
-work, and comparing variants of different variant types is a compile error.
-`tostring` gives `variant(int64, string): hello` or `variant(int64, string): empty`,
-and `visit` calls a function with the held value:
+work, while comparing with a variant of another variant type, or with a value of no member
+type, is a compile error (a `boolean` member only takes booleans, even though any value
+converts to a boolean elsewhere). `tostring` gives `variant(int64, string): hello` or
+`variant(int64, string): empty`, and `visit` calls a function with the held value:
 
 ```nelua
 require 'variant'
@@ -862,7 +863,10 @@ or a closure whose parameter every member converts to (anonymous functions canno
 `visit` returns the visitor's result, so all branches must agree on a common type, otherwise
 the compiler reports that it deduced the unsupported type `any`. Visiting an empty variant
 is a runtime error. `__tostring` is only defined when `pragmas.freestanding` is off, since it
-needs the string library; `==` and `visit` work in freestanding programs too. In the
+needs the string library, and it requires every member type to be convertible with `tostring`
+(a record without `__tostring` makes `tostring(v)` a compile error, whichever member is held);
+`==` and `visit` work in freestanding programs too. `__eq` is instantiated on first use, so
+declaring a variant never compiles a comparison of its members. In the
 preprocessor, `V.value.types` lists the member types in declaration order.
 {:.alert.alert-info}
 

@@ -64,6 +64,7 @@ require 'stringbuilder'
 
   -- Concept matching values of any member type, choosing the member exactly matching
   -- the value type first and otherwise the single member it can convert to.
+  -- A `boolean` member only matches boolean values, although any value converts to a boolean.
   local variantT_member_concept: type = #[concept(function(x)
     local xtype = x.type
     if xtype.is_variant and xtype == variantT then
@@ -74,7 +75,7 @@ require 'stringbuilder'
     end
     local matched
     for _,T in ipairs(Ts) do
-      if T:is_convertible_from_attr(x) then
+      if T:is_convertible_from_attr(x) and not (T.is_boolean and not xtype.is_boolean) then
         if matched then
           return false, string.format("ambiguous conversion from '%s' to '%s': convertible to '%s' and '%s'",
             xtype, variantT, matched, T)
@@ -148,9 +149,9 @@ require 'stringbuilder'
   Compares two variants, they are equal when both are empty,
   or when they hold the same type and the held values compare equal with `==`.
   Values of a member type convert to the variant first, so `v == 3` works.
-  Comparing with a variant of another type is a compile error.
+  Comparing with a variant of another type or with a value of no member type is a compile error.
   ]]
-  function variantT.__eq(a: variantT, b: variantT): boolean
+  function variantT.__eq(a: variantT, b: variantT): boolean <polymorphic>
     if a.tag ~= b.tag then return false end
     ## for i=1,#Ts do
     if a.tag == #[i]# then
@@ -178,7 +179,8 @@ require 'stringbuilder'
   ## if not pragmas.freestanding then
   --[[
   Converts the variant to a new string in the form `variant(A, B): <held value>`,
-  or `variant(A, B): empty` when empty. The held value is converted with `tostring`.
+  or `variant(A, B): empty` when empty. The held value is converted with `tostring`,
+  so every member type must be convertible to a string, otherwise it is a compile error.
   ]]
   function variantT:__tostring(): string <polymorphic>
     local sb: stringbuilder

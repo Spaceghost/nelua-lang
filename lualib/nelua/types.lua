@@ -2228,6 +2228,7 @@ function UnionType:update_fields()
       align = size
     else
       self.is_empty = nil
+      size = align_forward(size, align) -- C pads the union to its alignment
     end
     self.size = size
     self.bitsize = size * 8

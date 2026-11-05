@@ -51,9 +51,15 @@ it("variant", function()
     end
     b = 's'
     print(a:visit(describe), b:visit(describe))
+    local B = @variant(integer, boolean)
+    local t: B = true
+    local n: B = 1
+    print(t == true, t == false, t == 1, n == 1, n == true, 0 == n, t, n)
   ]], "true\tfalse\tfalse\ttrue\ttrue\ttrue\n" ..
       "variant(int64, string): 1\tvariant(int64, string): empty\n" ..
-      "int\tstr")
+      "int\tstr\n" ..
+      "true\tfalse\tfalse\ttrue\tfalse\tfalse\t" ..
+      "variant(int64, boolean): true\tvariant(int64, boolean): 1")
   expect.run_error_c([[
     require 'variant'
     local e: integer|string

@@ -1542,6 +1542,28 @@ end)
 it("string comparisons", function()
   expect.generate_c("local a,b = 'a','b'; local x = a == b", "nelua_eq_string(a, b)")
   expect.generate_c("local a,b = 'a','b'; local x = a ~= b", "!nelua_eq_string(a, b)")
+  -- array fields compare by the field size, not the record size
+  expect.generate_c([[
+    local R = @record{x: integer, arr: [2]int8}
+    local a, b: R
+    local x = a == b
+  ]], "return a.x == b.x && memcmp(a.arr, b.arr, sizeof(a.arr)) == 0;")
+  expect.run_c([[
+    local R = @record{arr: [2]int8, x: integer}
+    local U = @union{a: integer, b: [10]int8}
+    local S = @record{u: U, c: int8}
+    local a: R = {arr = {1, 2}, x = 3}
+    local b: R = {arr = {1, 2}, x = 3}
+    assert(a == b)
+    b.arr[1] = 9
+    assert(a ~= b)
+    assert(#U == 16 and #S == 24)
+    local s: S = {c = 1}
+    local t: S = {c = 1}
+    assert(s == t)
+    t.u.b[9] = 1
+    assert(s ~= t)
+  ]])
   expect.run_c([[
     assert('a' == 'a')
     assert(not ('a' ~= 'a'))
