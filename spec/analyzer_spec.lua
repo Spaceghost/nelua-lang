@@ -1763,6 +1763,14 @@ it("closures", function()
       return g(1) + h(1)
     end
   ]])
+  expect.analyze_ast([[ -- the capture waits for the type of x to resolve
+    local function f(): integer
+      local x
+      local function g(): integer return x end
+      x = 1
+      return g()
+    end
+  ]])
   expect.analyze_ast([[ -- byref without captures is a plain function
     local function f(n: integer)
       local function g(x: integer): integer <byref> return x end
