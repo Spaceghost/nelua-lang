@@ -134,6 +134,18 @@ local function build_configs(conf)
     end
   end
 
+  if conf.target and #conf.target > 0 then
+    -- cross compiling: the target flag must reach every C compiler invocation,
+    -- including the one probing the target's type sizes, so it is folded into cflags
+    local cc = conf.cc or ''
+    if cc:find('clang', 1, true) or cc:find('zig', 1, true) then
+      conf.cflags = string.format('-target %s%s', conf.target, #conf.cflags > 0 and ' '..conf.cflags or '')
+    else
+      except.raisef("option '--target' requires a clang compatible C compiler (clang or zig cc), "..
+        "but '--cc' is '%s': pass a cross compiler through '--cc' instead", cc)
+    end
+  end
+
   if conf.pragma then
     local pragmas = {}
     for _,code in ipairs(conf.pragma) do
@@ -212,6 +224,7 @@ local function create_parser()
     :count("*"):convert(convert_add_path)
   argparser:option('--cc', "C compiler to use", defconfig.cc)
   argparser:option('--cflags', "Additional flags to pass to the C compiler", defconfig.cflags)
+  argparser:option('--target', "Target triple to cross compile for (requires a clang compatible --cc, e.g. clang or zig cc)", defconfig.target)
   argparser:option('--ldflags', "Additional flags to pass when linking", defconfig.ldflags)
   argparser:option('--stripflags', "Additional flags to pass when striping", defconfig.stripflags)
   argparser:option('--cache-dir', "Compilation cache directory", defconfig.cache_dir)

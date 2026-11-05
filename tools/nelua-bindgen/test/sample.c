@@ -1,0 +1,19 @@
+#include "sample.h"
+#include <string.h>
+#include <stdio.h>
+#include <stdarg.h>
+#include <stdlib.h>
+struct sample_opaque { int fd; };
+int sample_counter = 7;
+int sample_add(int a, int b) { return a + b; }
+size_t sample_strlen(const char *s) { return strlen(s); }
+const char *sample_name(void) { return SAMPLE_NAME; }
+void sample_fill(sample_point *out, int32_t x, int32_t y) { out->x = x; out->y = y; }
+int32_t sample_area(const struct sample_rect *r) { return (r->max.x - r->min.x) * (r->max.y - r->min.y); }
+double sample_sum(const double *values, size_t count) { double s = 0; for (size_t i = 0; i < count; i++) s += values[i]; return s; }
+int sample_each(const sample_node *head, sample_callback cb, void *ctx) {
+  int n = 0; for (const sample_node *it = head; it; it = it->next) { sample_point p = { it->value, n }; n += cb(ctx, &p); } return n; }
+struct sample_opaque *sample_open(const char *path, int end) { struct sample_opaque *h = malloc(sizeof *h); h->fd = (int)strlen(path) + end; return h; }
+void sample_close(struct sample_opaque *h) { free(h); }
+int sample_printf(const char *fmt, ...) { va_list ap; va_start(ap, fmt); int n = vprintf(fmt, ap); va_end(ap); return n; }
+void sample_copy(uint8_t dst[16], const uint8_t *src) { memcpy(dst, src, 16); }

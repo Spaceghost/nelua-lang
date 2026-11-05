@@ -4181,3 +4181,17 @@ global C.ATOMIC_FLAG_INIT: C.atomic_flag
 Initializes a new atomic flag.
 
 ---
+
+## Generating bindings
+
+Hand-written `<cimport>` declarations drift from the headers they mirror.
+`tools/nelua-bindgen/nelua-bindgen.py` generates them from the headers with
+libclang, mapping `const T*` to `*const T`, array parameters to `*[0]T`,
+struct tags to `ctypedef` records and literal macros to `<comptime>` constants:
+
+```sh
+tools/nelua-bindgen/nelua-bindgen.py zlib.h --include-as '<zlib.h>' -o zlib.nelua
+```
+
+See [tools/nelua-bindgen/README.md](https://github.com/Spaceghost/nelua-lang/tree/master/tools/nelua-bindgen)
+for the full mapping table and the `--target`, `--match` and `--prefix` options.
