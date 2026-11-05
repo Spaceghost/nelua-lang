@@ -2702,6 +2702,53 @@ it("enums", function()
   ]], "2")
 end)
 
+it("const pointers", function()
+  expect.generate_c([[
+    local a: integer = 1
+    local p: *const integer = &a
+    local s: *const cchar = 'hi'
+    local v: *const void = p
+    local R = @record{x: integer}
+    local r: R
+    local pr: *const R = &r
+    local pa: *const [0]integer = &(@[2]integer){1,2}
+    local function f(x: *const integer <const>): integer return $x end
+  ]], {
+    "typedef const int64_t* nlint64_cptr;",
+    "const char* s",
+    "const void* v",
+    "typedef const R* R_cptr;",
+    "typedef const int64_t* nlint64_arr0_cptr;",
+    "const nlint64_cptr x",
+  })
+  expect.run_c([[
+    local a: integer = 7
+    local p: *const integer = &a
+    assert($p == 7)
+    a = 8
+    assert($p == 8)
+    local R = @record{x: integer}
+    local r: R = {x=3}
+    local q: *const R = &r
+    assert(q.x == 3)
+    local function f(x: *const integer): integer return $x end
+    assert(f(&a) == 8)
+    assert(f(p) == 8)
+    local function g(x: *const R): integer return x.x end
+    assert(g(r) == 3)
+    assert(g(q) == 3)
+    local cs: *const cchar = 'hi'
+    assert(#cs == 2)
+    local str: string = cs
+    assert(str == 'hi')
+    local arr: [3]integer = {1,2,3}
+    local pa: *const [0]integer = &arr
+    assert(pa[2] == 3)
+    local pv: *const void = pa
+    assert(pv ~= nilptr)
+  ]])
+end)
+
 it("pointers", function()
   expect.generate_c("local p: pointer(float32)", "float*")
   expect.generate_c("do local p: pointer end", "void* p")

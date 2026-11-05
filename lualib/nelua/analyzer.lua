@@ -1080,6 +1080,7 @@ end
 function visitors.PointerType(context, node)
   local attr = node.attr
   local subtypenode = node[1]
+  local const = node[2] and true or nil
   if subtypenode then
     context:traverse_node(subtypenode)
     local subtype = subtypenode.attr.value
@@ -1087,7 +1088,7 @@ function visitors.PointerType(context, node)
       subtypenode:raisef("invalid type")
     end
     if not subtype.is_unpointable then
-      attr.value = types.PointerType(subtype)
+      attr.value = types.PointerType(subtype, const)
     else
       node:raisef("subtype '%s' is not addressable thus cannot have a pointer", subtype)
     end
@@ -1784,6 +1785,11 @@ local function visitor_FieldIndex(context, node)
   if objattr.const then
     attr.const = true
   end
+  if objattr.constptr or (objtype and objtype.is_constpointer) then
+    -- reached through a const pointer, thus read-only
+    attr.const = true
+    attr.constptr = true
+  end
   return ret
 end
 
@@ -1855,6 +1861,11 @@ function visitors.KeyIndex(context, node)
   end
   if objattr.const then
     attr.const = true
+  end
+  if objattr.constptr or (objtype and objtype.is_constpointer) then
+    -- reached through a const pointer, thus read-only
+    attr.const = true
+    attr.constptr = true
   end
   if attr.type then
     node.checked = true
@@ -3269,6 +3280,11 @@ function visitors.UnaryOp(context, node, opts)
     end
   elseif opname == 'deref' then
     attr.lvalue = true
+    if argtype and argtype.is_constpointer then
+      -- dereferencing a const pointer yields a read-only value
+      attr.const = true
+      attr.constptr = true
+    end
   end
   if type then
     attr.type = type

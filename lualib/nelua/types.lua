@@ -175,6 +175,7 @@ Type.shape = shaper.shape {
   is_nilable = shaper.optional_boolean,
   is_niltype = shaper.optional_boolean,
   is_pointer = shaper.optional_boolean,
+  is_constpointer = shaper.optional_boolean,
   is_polyfunction = shaper.optional_boolean,
   is_record = shaper.optional_boolean,
   is_union = shaper.optional_boolean,
@@ -440,7 +441,7 @@ Type.unary_operators.ref = function(ltype, lattr)
   local lval = lattr.value
   if lval == nil then
     if not ltype.is_unpointable then
-      return types.PointerType(ltype)
+      return types.PointerType(ltype, lattr.constptr)
     else
       return nil, nil, string.format('cannot reference not addressable type "%s"', ltype)
     end
@@ -2278,25 +2279,37 @@ PointerType.shape = shaper.fork_shape(Type.shape, {
   subtype = shaper.type,
 })
 
-function PointerType:_init(subtype)
+function PointerType:_init(subtype, const)
   self.subtype = subtype
+  if const then -- pointer to a read-only value (C `const T*`)
+    self.is_constpointer = true
+  end
+  local suffix = const and '_cptr' or '_ptr'
   if subtype.is_void then -- generic pointer
     self.nodecl = true
-    self.nickname = 'pointer'
-    self.codename = 'nlpointer'
     self.is_generic_pointer = true
+    if const then
+      self.codename = 'nlcpointer'
+    else
+      self.nickname = 'pointer'
+      self.codename = 'nlpointer'
+    end
   elseif subtype.is_cchar then -- cstring
     self.nodecl = true
-    self.nickname = 'cstring'
-    self.codename = 'nlcstring'
     self.is_cstring = true
     self.is_stringy = true
+    if const then
+      self.codename = 'nlccstring'
+    else
+      self.nickname = 'cstring'
+      self.codename = 'nlcstring'
+    end
   elseif subtype.is_array and subtype.subtype.is_cchar then -- array cstring
-    self.codename = subtype.codename .. '_ptr'
+    self.codename = subtype.codename .. suffix
     self.is_acstring = true
     self.is_stringy = true
   else
-    self.codename = subtype.codename .. '_ptr'
+    self.codename = subtype.codename .. suffix
   end
   if subtype.is_array then
     local subsubtype = subtype.subtype
@@ -2325,6 +2338,11 @@ function PointerType:get_convertible_from_attr(attr, explicit, fromcall)
     if selfsubtype == type or
       (selfsubtype.is_unbounded_array and type.is_array and selfsubtype.subtype == type.subtype) then
       -- implicit automatic reference for records and arrays
+      if attr.constptr and not self.is_constpointer then
+        return false, string.format(
+          'cannot automatic reference read-only value of type "%s" to non-const pointer type "%s"',
+          type, self)
+      end
       if not attr.lvalue then -- can only reference l-values
         if type.is_aggregate and (not explicit or
            (attr.calleetype == primtypes.type)) then
@@ -2357,6 +2375,11 @@ end
 -- Get the desired type when converting this type from another type.
 function PointerType:get_convertible_from_type(type, explicit, fromcall)
   if type.is_pointer then
+    if type.is_constpointer and not self.is_constpointer and not explicit then
+      return false, string.format(
+        "cannot convert const pointer type '%s' to non-const pointer type '%s' without an explicit cast",
+        type, self)
+    end
     if type.subtype == self.subtype then
       -- early check for the same type (optimization)
       return self
@@ -2428,7 +2451,8 @@ end
 
 -- Checks if this type equals to another type.
 function PointerType:is_equal(type)
-  return type.subtype == self.subtype and type.is_pointer
+  return type.subtype == self.subtype and type.is_pointer and
+         (not type.is_constpointer) == (not self.is_constpointer)
 end
 
 -- Checks if this type is pointing to the subtype.
@@ -2468,7 +2492,7 @@ end
 -- Return description for type as a string.
 function PointerType:typedesc()
   local ss = sstream()
-  ss:addmany(self.name, '(', self.subtype, ')')
+  ss:addmany(self.name, '(', self.is_constpointer and 'const ' or '', self.subtype, ')')
   return ss:tostring()
 end
 
