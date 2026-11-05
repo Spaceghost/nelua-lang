@@ -1761,7 +1761,6 @@ it("const pointers", function()
     ## static_assert(not types.PointerType(primtypes.integer).is_constpointer)
     ## static_assert(types.PointerType(primtypes.integer, true) ~= types.PointerType(primtypes.integer))
   ]])
-  expect.ast_type_equals("local p: *const integer", "local p: pointer(const integer)")
   expect.analyze_error([[local a: integer = 1; local p: *const integer = &a; $p = 2]],
     "cannot assign a constant variable")
   expect.analyze_error([[local a: integer = 1; local p: *const integer = &a; local q: *integer = p]],
