@@ -6,8 +6,16 @@ It can be written as `variant(A, B, C)` or with the shorthand `A|B|C`, after `re
 A default initialized variant is empty, values of a member type convert to it implicitly,
 and the held value is read back with `is`, `get` and `getptr`.
 
+Variants of the same type compare with `==`, convert to a string with `tostring`
+and dispatch on the held value with `visit`.
+
 Remarks: `get` is checked, it raises a runtime error when another type is held.
 ]]
+
+## if not pragmas.freestanding then
+require 'string'
+require 'stringbuilder'
+## end
 
 ## local function make_variantT(...)
   ## local Ts = {...}
@@ -51,6 +59,7 @@ Remarks: `get` is checked, it raises a runtime error when another type is held.
   local variantT = variantT.value
   variantT.is_variant = true
   variantT.subtypes = Ts
+  variantT.types = Ts -- member types in declaration order, for preprocessor users
   ]]
 
   -- Concept matching values of any member type, choosing the member exactly matching
@@ -134,6 +143,55 @@ Remarks: `get` is checked, it raises a runtime error when another type is held.
     end
     return &self.u.#|'v'..i|#
   end
+
+  --[[
+  Compares two variants, they are equal when both are empty,
+  or when they hold the same type and the held values compare equal with `==`.
+  Values of a member type convert to the variant first, so `v == 3` works.
+  Comparing with a variant of another type is a compile error.
+  ]]
+  function variantT.__eq(a: variantT, b: variantT): boolean
+    if a.tag ~= b.tag then return false end
+    ## for i=1,#Ts do
+    if a.tag == #[i]# then
+      return a.u.#|'v'..i|# == b.u.#|'v'..i|#
+    end
+    ## end
+    return true -- both empty
+  end
+
+  --[[
+  Calls `f` with the held value and returns its result, `f` is usually a polymorphic
+  function or a closure accepting every member type. The results of all branches must
+  agree on a common type. Raises a runtime error when the variant is empty.
+  ]]
+  function variantT:visit(f: auto)
+    ## for i=1,#Ts do
+    if self.tag == #[i]# then
+      return f(self.u.#|'v'..i|#)
+    end
+    ## end
+    error('attempt to visit an empty variant')
+  end
+
+  ## if not pragmas.freestanding then
+  --[[
+  Converts the variant to a new string in the form `variant(A, B): <held value>`,
+  or `variant(A, B): empty` when empty. The held value is converted with `tostring`.
+  ]]
+  function variantT:__tostring(): string <polymorphic>
+    local sb: stringbuilder
+    sb:write(#[nickname]#, ': ')
+    ## for i=1,#Ts do
+    if self.tag == #[i]# then
+      sb:write(self.u.#|'v'..i|#)
+      return sb:promote()
+    end
+    ## end
+    sb:write('empty')
+    return sb:promote()
+  end
+  ## end
 
   ## return variantT
 ## end
