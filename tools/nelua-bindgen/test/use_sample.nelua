@@ -1,0 +1,41 @@
+-- Smoke test for nelua-bindgen output: exercises the generated `sample.nelua`.
+## cfile 'sample.c'
+require 'sample'
+
+assert(SAMPLE_VERSION == 3 and SAMPLE_FLAG_A == 0x10 and SAMPLE_RATIO == 1.5 and SAMPLE_NAME == 'sample')
+assert(SAMPLE_ALIAS == 3)
+assert(sample_color.SAMPLE_BLUE == 2 and SAMPLE_ANON_TWO == 2)
+assert(sample_add(2, 3) == 5)
+assert(sample_strlen('hello') == 5)
+local name: *const cchar = sample_name()
+assert(#name == 6)
+local p: sample_point
+sample_fill(&p, 3, 4)
+assert(p.x == 3 and p.y == 4)
+local r: sample_rect = {min = {0, 0}, max = {4, 5}, label = 'r'}
+assert(sample_area(&r) == 20)
+assert(sample_area(r) == 20) -- auto reference to a const pointer parameter
+local vals: [3]float64 = {1, 2, 3}
+assert(sample_sum(&vals[0], 3) == 6)
+local n2: sample_node = {nilptr, 20}
+local n1: sample_node = {&n2, 10}
+local function cb(ctx: pointer, p: *const sample_point): cint
+  local acc: *int32 = (@*int32)(ctx)
+  $acc = $acc + p.x
+  return 1
+end
+local acc: int32 = 0
+assert(sample_each(&n1, cb, &acc) == 2 and acc == 30)
+local h = sample_open('abc', 1)
+assert(h ~= nilptr)
+sample_close(h)
+assert(sample_counter == 7)
+local v: sample_value
+v.i = 5
+assert(v.bytes[0] == 5)
+local src: [16]uint8 = {1,2,3}
+local dst: [16]uint8
+sample_copy(&dst, &src[0])
+assert(dst[2] == 3)
+assert(sample_printf('%d\n', 42_cint) == 3)
+print('bindgen ok')

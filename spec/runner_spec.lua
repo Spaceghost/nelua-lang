@@ -46,6 +46,10 @@ end)
 
 it("error on parsing an invalid program" , function()
   expect.run_error('--aninvalidflag', 'unknown option')
+  expect.run_error('--cc gcc --target x86_64-linux-gnu --config',
+    "option '--target' requires a clang compatible C compiler")
+  expect.run({'--cc','clang','--target','x86_64-unknown-linux-gnu','--config'},
+    'cflags = "-target x86_64-unknown-linux-gnu')
   expect.run_error('--lint --eval invalid')
   expect.run_error('--lint invalid', 'invalid: No such file or directory')
   --expect.run_error({'--eval', "f()"}, 'undefined')
