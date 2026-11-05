@@ -32,6 +32,28 @@ game leveraging the famous [SDL2](https://www.libsdl.org) library:
 nelua examples/snakesdl.nelua
 ```
 
+## Fork additions
+
+This fork (Spaceghost/nelua-lang) tracks upstream `a5845056` (2025-06-24) and adds,
+each with specs in `spec/` and docs under `docs/pages/`:
+
+- **Const pointers**: `*const T` maps to C `const T*`; reads through it are
+  read-only and dropping `const` needs an explicit cast ([overview](docs/pages/overview.md#const-pointers)).
+- **`pragmas.freestanding`**: compiler-enforced runtime-free profile, implies
+  `nogc` and `noentrypoint`, traps on abort and rejects heap, process, stdio
+  and `main` symbols at compile time ([runtime-free](docs/pages/runtime-free.md)).
+- **`--target <triple>`**: cross compile with clang or `zig cc`, the triple reaches
+  the type-size probe, the cache hash and the compile.
+- **`tools/nelua-bindgen`**: generates `<cimport>` bindings from C headers with libclang.
+- **Variants**: tagged unions as `variant(A, B)` or `A|B` through `require 'variant'`.
+- **Closures**: anonymous functions capture upvalues by value as closure records.
+- **Compact C profile** (`lualib/nelua/compactc.lua`), Tree-sitter and TextMate
+  grammars (`tools/`), and a binary cache that hashes imported C sources.
+
+Tests run with `make test`; this fork's gate runs it in a Debian container
+(`/work/nelua-dev` in the `nelibc-writ` Incus guest on bak) together with
+nelibc's smoke matrix against the freshly built compiler.
+
 ## About
 
 Nelua is a [systems programming language](https://en.wikipedia.org/wiki/System_programming_language)
