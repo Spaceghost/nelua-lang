@@ -3129,9 +3129,12 @@ local function find_closure_captures(context, node)
   local captures = {}
   for i,name in ipairs(names) do
     local symbol = scope.symbols[name]
+    if not symbol.type then
+      symbol:resolve_type() -- try to infer it now from the possible types seen so far
+    end
     local type = symbol.type
     if not type or type.is_auto then
-      node:raisef("cannot capture upvalue '%s' in closure: its type is not resolved yet", name)
+      return nil, true -- not resolved yet, the function must be analyzed again in a later pass
     end
     captures[i] = {name = name, type = type}
   end
@@ -3183,8 +3186,10 @@ function visitors.Function(context, node)
   if attr._symbol then
     symbol = attr
   else
-    local captures = find_closure_captures(context, node)
-    if captures then -- the function captures upvalues, it must become a closure record
+    local captures, unresolved = find_closure_captures(context, node)
+    if unresolved then
+      return -- leave the node unfinished so it is visited again once the captured types resolve
+    elseif captures then -- the function captures upvalues, it must become a closure record
       context:transform_and_traverse_node(node, make_closure_node(context, node, captures))
       return
     end
