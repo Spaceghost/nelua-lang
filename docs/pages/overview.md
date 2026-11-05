@@ -793,6 +793,45 @@ else to know what current field is valid for reading, otherwise
 you can read garbage data. Unions are directly translated to C unions.
 {:.alert.alert-info}
 
+### Variant
+
+A variant is a tagged union: it holds one value out of a fixed list of types
+and remembers which one it holds. Variants are provided by the `variant`
+library and can be written as `variant(A, B)` or with the shorthand `A|B`:
+
+```nelua
+require 'variant'
+
+local Point = @record{x: integer, y: integer}
+local Error = @record{code: integer, msg: string}
+
+local function divide(a: integer, b: integer): Point|Error
+  if b == 0 then
+    return (@Error){code = 1, msg = 'division by zero'} -- converts implicitly
+  end
+  return (@Point){x = a // b, y = a % b}
+end
+
+local r = divide(7, 2)
+if r:is(@Point) then
+  print(r:get(@Point).x) -- outputs: 3
+elseif r:is(@Error) then
+  print(r:get(@Error).msg)
+end
+
+local v: integer|string -- empty until assigned
+v = 'hello'
+assert(v:index() == 2) -- 1-based index of the held type, 0 when empty
+switch v:index() do
+case v.indexof(@integer) then print('integer')
+case v.indexof(@string) then print('string')
+end
+```
+
+`get` raises a runtime error when another type is held, `getptr` returns `nilptr` instead.
+A variant is a plain record with a `uint8` tag followed by a C union, so it works without the GC.
+{:.alert.alert-info}
+
 ### Pointer
 
 A pointer points to a region in memory of a specific type:

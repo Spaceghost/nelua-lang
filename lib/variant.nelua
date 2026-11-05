@@ -1,0 +1,148 @@
+--[[
+The variant library provides the variant generic, a tagged union (also known as sum type).
+
+A variant holds one value out of a fixed list of types and remembers which one it holds.
+It can be written as `variant(A, B, C)` or with the shorthand `A|B|C`, after `require 'variant'`.
+A default initialized variant is empty, values of a member type convert to it implicitly,
+and the held value is read back with `is`, `get` and `getptr`.
+
+Remarks: `get` is checked, it raises a runtime error when another type is held.
+]]
+
+## local function make_variantT(...)
+  ## local Ts = {...}
+  ##[[
+  static_assert(#Ts >= 1, 'variant requires at least one type')
+  static_assert(#Ts <= 255, 'variant supports at most 255 types')
+  local names = {}
+  for i,T in ipairs(Ts) do
+    static_assert(traits.is_type(T), "invalid type '%s' in variant", T)
+    static_assert(not T.is_comptime, "variant cannot hold values of compile time type '%s'", T)
+    static_assert(not T.is_void, "variant cannot hold values of type '%s'", T)
+    for j=1,i-1 do
+      static_assert(Ts[j] ~= T, "variant has duplicated type '%s'", T)
+    end
+    names[i] = tostring(T)
+  end
+  local nickname = 'variant('..table.concat(names, ', ')..')'
+  -- 1-based index of type `T` among the variant members, or nil
+  local function index_of(T)
+    for i,U in ipairs(Ts) do
+      if U == T then return i end
+    end
+  end
+  ]]
+
+  -- Variant record defined when instantiating the generic `variant`.
+  local variantT: type <nickname(#[nickname]#)> = @record{
+    tag: uint8,
+    u: union{
+      ## for i,T in ipairs(Ts) do
+        #|'v'..i|#: #[T]#,
+      ## end
+    }
+  }
+
+  ##[[
+  local variantT = variantT.value
+  variantT.is_variant = true
+  variantT.subtypes = Ts
+  ]]
+
+  -- Concept matching values of any member type, choosing the member exactly matching
+  -- the value type first and otherwise the single member it can convert to.
+  local variantT_member_concept: type = #[concept(function(x)
+    local xtype = x.type
+    if xtype.is_variant and xtype == variantT then
+      return false, 'already a variant'
+    end
+    if index_of(xtype) then
+      return true
+    end
+    local matched
+    for _,T in ipairs(Ts) do
+      if T:is_convertible_from_attr(x) then
+        if matched then
+          return false, string.format("ambiguous conversion from '%s' to '%s': convertible to '%s' and '%s'",
+            xtype, variantT, matched, T)
+        end
+        matched = T
+      end
+    end
+    if matched then
+      return matched
+    end
+    return false, string.format("no viable conversion from '%s' to '%s'", xtype, variantT)
+  end)]#
+
+  -- Initializes a variant holding `value`, used when implicitly converting member values.
+  function variantT.__convert(value: variantT_member_concept): variantT <inline>
+    local self: variantT
+    ## local i = index_of(value.type)
+    self.tag = #[i]#
+    self.u.#|'v'..i|# = value
+    return self
+  end
+
+  -- Sets the variant to hold `value`.
+  function variantT:set(value: variantT_member_concept) <inline>
+    ## local i = index_of(value.type)
+    self.tag = #[i]#
+    self.u.#|'v'..i|# = value
+  end
+
+  -- Clears the variant, making it empty.
+  function variantT:clear() <inline>
+    $self = (@variantT)()
+  end
+
+  -- Checks whether the variant is empty, that is, holds no value.
+  function variantT:empty(): boolean <inline,nosideeffect>
+    return self.tag == 0
+  end
+
+  -- Returns the 1-based index of the held type among the variant types, or 0 when empty.
+  function variantT:index(): usize <inline,nosideeffect>
+    return self.tag
+  end
+
+  -- Checks whether the variant holds a value of type `T`.
+  function variantT:is(T: type): boolean <inline,nosideeffect>
+    ## local i = index_of(T.value)
+    ## static_assert(i, "type '%s' is not a member of '%s'", T.value, variantT)
+    return self.tag == #[i]#
+  end
+
+  -- Returns the held value of type `T`, raises a runtime error when another type is held.
+  function variantT:get(T: type): #[T.value]# <inline>
+    ## local i = index_of(T.value)
+    ## static_assert(i, "type '%s' is not a member of '%s'", T.value, variantT)
+    check(self.tag == #[i]#, 'variant does not hold a value of the requested type')
+    return self.u.#|'v'..i|#
+  end
+
+  -- Returns a pointer to the held value of type `T`, or nilptr when another type is held.
+  function variantT:getptr(T: type): *#[T.value]# <inline,nosideeffect>
+    ## local i = index_of(T.value)
+    ## static_assert(i, "type '%s' is not a member of '%s'", T.value, variantT)
+    if self.tag ~= #[i]# then
+      return nilptr
+    end
+    return &self.u.#|'v'..i|#
+  end
+
+  -- Returns the index of type `T` among the variant types at compile time,
+  -- useful for dispatching with `switch v:index()`.
+  function variantT.indexof(T: type): usize <inline,nosideeffect>
+    ## local i = index_of(T.value)
+    ## static_assert(i, "type '%s' is not a member of '%s'", T.value, variantT)
+    return #[i]#
+  end
+
+  ## return variantT
+## end
+
+-- Generic used to instantiate variant types in the form of `variant(A, B, ...)` or `A|B|...`.
+global variant: type = #[generalize(make_variantT)]#
+
+return variant

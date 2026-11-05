@@ -1,0 +1,68 @@
+require 'variant'
+require 'string'
+
+do -- construction and queries
+  local v: variant(integer, string)
+  assert(v:empty() and v:index() == 0)
+  assert(not v:is(@integer) and not v:is(@string))
+  v = 10
+  assert(not v:empty() and v:index() == 1)
+  assert(v:is(@integer) and not v:is(@string))
+  assert(v:get(@integer) == 10)
+  v = 'hello'
+  assert(v:index() == 2 and v:is(@string))
+  assert(v:get(@string) == 'hello')
+  assert(v:getptr(@integer) == nilptr)
+  assert($v:getptr(@string) == 'hello')
+  v:set(20)
+  assert(v:get(@integer) == 20)
+  v:clear()
+  assert(v:empty())
+end
+
+do -- shorthand syntax and implicit conversions
+  local v: integer|string|boolean = true
+  assert(v:is(@boolean) and v:get(@boolean) == true)
+  local function describe(x: integer|string|boolean): string
+    switch x:index() do
+    case x.indexof(@integer) then return 'integer'
+    case x.indexof(@string) then return 'string'
+    case x.indexof(@boolean) then return 'boolean'
+    else return 'empty'
+    end
+  end
+  assert(describe(1) == 'integer')
+  assert(describe('s') == 'string')
+  assert(describe(false) == 'boolean')
+  local e: integer|string|boolean
+  assert(describe(e) == 'empty')
+end
+
+do -- records and mutation through pointers
+  local Point = @record{x: integer, y: integer}
+  local Error = @record{code: integer, msg: string}
+  local R = @variant(Point, Error)
+  local function divide(a: integer, b: integer): R
+    if b == 0 then
+      return (@Error){code = 1, msg = 'division by zero'}
+    end
+    return (@Point){x = a // b, y = a % b}
+  end
+  local r = divide(7, 2)
+  assert(r:is(@Point))
+  local p = r:get(@Point)
+  assert(p.x == 3 and p.y == 1)
+  r:getptr(@Point).x = 5
+  assert(r:get(@Point).x == 5)
+  r = divide(1, 0)
+  assert(r:is(@Error) and r:get(@Error).code == 1)
+  assert(r:get(@Error).msg == 'division by zero')
+  assert(#@R == #@Error + 8) -- tag plus padding plus the largest member
+end
+
+do -- narrowing conversions choose the single convertible member
+  local v: variant(float64, string) = 1
+  assert(v:is(@float64) and v:get(@float64) == 1.0)
+end
+
+print('variant ok')
