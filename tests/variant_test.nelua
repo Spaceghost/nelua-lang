@@ -103,6 +103,9 @@ do -- tostring
   assert(sb:promote() == 'variant(int64, string): hello')
 end
 
+local visits = 0
+local function counter(x: auto) visits = visits + 1 end -- visitor returning nothing
+
 do -- visit
   local V = @variant(integer, string, boolean)
   local function describe(x: auto): string
@@ -120,12 +123,10 @@ do -- visit
   assert(v:visit(describe) == 'string a')
   v = true
   assert(v:visit(describe) == 'boolean true')
-  local count = 0
-  local function counter(x: auto) count = count + 1 end -- visitor returning nothing
   v:visit(counter)
   v = 2
   v:visit(counter)
-  assert(count == 2)
+  assert(visits == 2)
   local N = @variant(integer, float64)
   local scale = 2.5
   local n: N = 2

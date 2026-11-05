@@ -1790,12 +1790,6 @@ it("variant types", function()
     local b: integer|boolean = 1
     local eq = a == b
   ]], "no viable conversion from 'variant(int64, boolean)' to 'variant(int64, string)'")
-  expect.analyze_error([[
-    require 'variant'
-    local a: integer|string = 1
-    local function ident(x: auto) return x end
-    local r = a:visit(ident)
-  ]], "deduced type 'any'")
 end)
 
 it("const pointers", function()

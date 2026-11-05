@@ -60,6 +60,12 @@ it("variant", function()
     local function one(x: auto): integer return 1 end
     print(e:visit(one))
   ]], "attempt to visit an empty variant")
+  expect.run_error_c([[
+    require 'variant'
+    local a: integer|string = 1
+    local function ident(x: auto) return x end -- branches disagree on the result type
+    local r = a:visit(ident)
+  ]], "deduced type 'any'")
 end)
 it("span", function()
   expect.run_c_from_file('tests/span_test.nelua')
