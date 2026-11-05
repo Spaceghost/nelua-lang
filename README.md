@@ -44,7 +44,9 @@ each with specs in `spec/` and docs under `docs/pages/`:
   and `main` symbols at compile time ([runtime-free](docs/pages/runtime-free.md)).
 - **`--target <triple>`**: cross compile with clang or `zig cc`, the triple reaches
   the type-size probe, the cache hash and the compile.
-- **`tools/nelua-bindgen`**: generates `<cimport>` bindings from C headers with libclang.
+- **`tools/nelua-bindgen`**: generates `<cimport>` bindings from C headers with libclang;
+  string and alias macros, `--exclude`, `--opaque`, `--enum-using` and a JSON `--config`
+  with `prepend`/`append` text ([tool README](tools/nelua-bindgen/README.md)).
 - **Variants**: tagged unions as `variant(A, B)` or `A|B` through `require 'variant'`.
 - **Closures**: anonymous functions capture upvalues by value as closure records.
 - **Static initializers**: top-scope variables initialized with `nilptr`, the

@@ -1,0 +1,12 @@
+{
+  "headers": ["sample.h"],
+  "output": "sample_config.nelua",
+  "exclude": ["^sample_printf$", "^SAMPLE_ANON_"],
+  "opaque": ["sample_node"],
+  "enum_using": true,
+  "prepend": "-- prepended by sample.json",
+  "append": [
+    "-- appended by sample.json",
+    "global SAMPLE_CONFIG_OK: boolean <comptime> = true"
+  ]
+}

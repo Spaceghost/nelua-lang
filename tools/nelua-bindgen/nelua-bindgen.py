@@ -3,11 +3,13 @@
 
 Usage:
   nelua-bindgen.py header.h [header2.h ...] [-I dir] [-D name[=value]] [--include-as '<zlib.h>']
-                   [--prefix NS] [--match REGEX] [--all] [--no-stubs] [-o out.nelua]
+                   [--prefix NS] [--match REGEX] [--exclude REGEX] [--opaque NAME] [--enum-using]
+                   [--all] [--no-stubs] [--config FILE] [-o out.nelua]
 
 Requires the libclang Python bindings (Debian/Ubuntu: `apt install python3-clang`).
 """
 import argparse
+import json
 import os
 import re
 import sys
@@ -57,6 +59,78 @@ PRIM_TYPEDEFS = {
 }
 
 
+C_SIMPLE_ESCAPES = {
+    'n': '\n', 't': '\t', 'r': '\r', 'a': '\a', 'b': '\b', 'f': '\f', 'v': '\v', 'e': '\x1b',
+    '\\': '\\', "'": "'", '"': '"', '?': '?',
+}
+HEX_DIGITS = '0123456789abcdefABCDEF'
+
+
+def decode_c_string(tok):
+    """Decode a plain C string literal token (`"..."`) to bytes; None when it is not one."""
+    if len(tok) < 2 or tok[0] != '"' or tok[-1] != '"':
+        return None
+    s, out, i = tok[1:-1], bytearray(), 0
+    while i < len(s):
+        ch = s[i]
+        if ch != '\\':
+            out += ch.encode('utf-8')
+            i += 1
+            continue
+        i += 1
+        if i >= len(s):
+            return None
+        ch = s[i]
+        if ch in C_SIMPLE_ESCAPES:
+            out += C_SIMPLE_ESCAPES[ch].encode('utf-8')
+            i += 1
+        elif ch in '01234567':
+            j = i
+            while j < len(s) and j < i + 3 and s[j] in '01234567':
+                j += 1
+            out.append(int(s[i:j], 8) & 0xff)
+            i = j
+        elif ch == 'x':
+            j = i + 1
+            while j < len(s) and s[j] in HEX_DIGITS:
+                j += 1
+            if j == i + 1:
+                return None
+            out.append(int(s[i + 1:j], 16) & 0xff)
+            i = j
+        elif ch in 'uU':
+            n = 4 if ch == 'u' else 8
+            digits = s[i + 1:i + 1 + n]
+            if len(digits) != n or any(d not in HEX_DIGITS for d in digits):
+                return None
+            out += chr(int(digits, 16)).encode('utf-8')
+            i += 1 + n
+        else:
+            return None
+    return bytes(out)
+
+
+def nelua_string(data):
+    """Spell bytes as a double quoted Nelua string literal (printable ASCII verbatim, the rest as \\xHH)."""
+    parts = []
+    for byte in data:
+        if byte == 0x22:
+            parts.append('\\"')
+        elif byte == 0x5c:
+            parts.append('\\\\')
+        elif byte == 0x0a:
+            parts.append('\\n')
+        elif byte == 0x09:
+            parts.append('\\t')
+        elif byte == 0x0d:
+            parts.append('\\r')
+        elif 0x20 <= byte < 0x7f:
+            parts.append(chr(byte))
+        else:
+            parts.append('\\x%02X' % byte)
+    return '"%s"' % ''.join(parts)
+
+
 def nelua_ident(name, used=None):
     """Make `name` a valid Nelua identifier, avoiding keywords (and `used` names)."""
     if not name:
@@ -83,7 +157,11 @@ class Generator:
         self.tag_names = {}      # (kind, C tag or typedef name) -> nelua name
         self.referenced = {}     # nelua name -> C declaration cursor, for stubs
         self.forwarded = set()   # nelua names emitted as forwarddecl
+        self.comptime = {}       # C macro/enumerator name -> nelua expression, for alias macros
+        self.deferred_macros = []  # alias macros whose target was not emitted yet
         self.skipped = []
+        self.excludes = [re.compile(x) for x in args.exclude]
+        self.opaque = set(args.opaque)
         self.prefix = (args.prefix + '.') if args.prefix else ''
         self.inputs = [os.path.abspath(h) for h in args.headers]
 
@@ -116,7 +194,12 @@ class Generator:
         return bool(self.args.include_file_regex and re.search(self.args.include_file_regex, path))
 
     def wanted(self, name):
-        return not self.args.match or re.search(self.args.match, name)
+        if self.args.match and not re.search(self.args.match, name):
+            return False
+        return not any(x.search(name) for x in self.excludes)
+
+    def is_opaque(self, decl, name):
+        return name in self.opaque or (decl.spelling and decl.spelling in self.opaque)
 
     def skip(self, cursor, why):
         self.skipped.append('%s (%s) skipped: %s' % (cursor.spelling or '<anonymous>', cursor.kind.name.lower(), why))
@@ -247,7 +330,7 @@ class Generator:
         if name is None:
             return
         kw = 'union' if decl.kind == CursorKind.UNION_DECL else 'record'
-        defined = decl.is_definition()
+        defined = decl.is_definition() and not self.is_opaque(decl, name)
         if not defined:
             if name in self.defined or name in self.forwarded:
                 return
@@ -267,6 +350,8 @@ class Generator:
         annots = self.annots(decl, ctypedef, 'cincomplete' if incomplete else '')
         body = '@%s{\n  %s\n}' % (kw, '\n  '.join(lines)) if lines else '@%s{}' % kw
         if name in self.forwarded:
+            if self.is_opaque(decl, name):
+                return
             self.emit('%s%s = %s' % (self.prefix, name, body))
         else:
             self.emit('global %s%s: type %s = %s' % (self.prefix, name, annots, body))
@@ -285,14 +370,19 @@ class Generator:
                     cname = nelua_ident(c.spelling)
                     self.emit('global %s%s: %s <comptime> = %d' % (self.prefix, cname, inttype, c.enum_value))
                     self.names_used.add(cname)
+                    self.comptime[c.spelling] = self.prefix + cname
             return
         if name in self.defined:
             return
         ctypedef = 'ctypedef' if typedef_name else "ctypedef'%s'" % decl.spelling
+        using = 'using' if self.args.enum_using else ''
         self.emit('global %s%s: type %s = @enum(%s){\n  %s\n}' % (
-            self.prefix, name, self.annots(decl, ctypedef), inttype, '\n  '.join(items)))
+            self.prefix, name, self.annots(decl, ctypedef, using), inttype, '\n  '.join(items)))
         self.defined[name] = 'enum'
         self.names_used.add(name)
+        for c in decl.get_children():
+            if c.kind == CursorKind.ENUM_CONSTANT_DECL:
+                self.comptime[c.spelling] = '%s%s.%s' % (self.prefix, name, nelua_ident(c.spelling))
 
     def emit_typedef(self, cursor):
         name = cursor.spelling
@@ -301,9 +391,17 @@ class Generator:
         under = cursor.underlying_typedef_type
         named = under.get_named_type() if under.kind == TypeKind.ELABORATED else under
         decl = named.get_declaration()
+        nname = nelua_ident(name)
+        if name in self.opaque and not (named.kind == TypeKind.RECORD and decl.kind != CursorKind.NO_DECL_FOUND):
+            if nname in self.forwarded or nname in self.defined:
+                return
+            self.forwarded.add(nname)
+            self.names_used.add(nname)
+            self.emit('global %s%s: type %s = @record{}' % (self.prefix, nname, self.annots(cursor, 'forwarddecl')))
+            return
         if named.kind == TypeKind.RECORD and decl.kind != CursorKind.NO_DECL_FOUND:
             tag = decl.spelling
-            if not tag or decl.is_anonymous() or tag == name:
+            if not tag or decl.is_anonymous() or tag == name or name in self.opaque:
                 self.emit_record(decl, nelua_ident(name))
                 return
             tagname = self.record_name(decl)
@@ -325,7 +423,6 @@ class Generator:
         except ValueError as e:
             self.skip(cursor, str(e))
             return
-        nname = nelua_ident(name)
         self.emit('global %s%s: type <cimport,cinclude\'%s\',nodecl> = @%s' % (self.prefix, nname, self.cinclude(cursor), tstr))
         self.defined[nname] = 'alias'
         self.names_used.add(nname)
@@ -372,12 +469,19 @@ class Generator:
     MACRO_INT = re.compile(r'^(?:\(\s*)?([+-]?(?:0[xX][0-9a-fA-F]+|0[bB][01]+|[0-9]+))([uUlL]*)(?:\s*\))?$')
     MACRO_FLOAT = re.compile(r'^(?:\(\s*)?([+-]?(?:[0-9]+\.[0-9]*|\.[0-9]+|[0-9]+)(?:[eE][+-]?[0-9]+)?)([fFlL]?)(?:\s*\))?$')
 
-    def emit_macro(self, cursor):
+    def emit_macro(self, cursor, deferred=False):
         name = cursor.spelling
         if not self.wanted(name) or name in self.names_used or name.startswith('_'):
             return
         toks = [t.spelling for t in cursor.get_tokens()]
         if len(toks) < 2 or toks[0] != name:
+            return
+        if deferred:
+            # second pass: alias of a macro or enumerator that was emitted after this macro
+            if len(toks) == 2 and toks[1] in self.comptime:
+                self.emit_alias_macro(name, toks[1])
+            else:
+                self.skip(cursor, 'macro body is not a literal: %s' % ' '.join(toks[1:])[:60])
             return
         if toks[1] == '(' and cursor.extent.start.column + len(name) == cursor.location.column + len(name) and \
                 any(t == ')' for t in toks) and self._is_function_like(cursor, toks):
@@ -400,25 +504,37 @@ class Generator:
                 ctype = 'clong'
             elif 'u' in suffix:
                 ctype = 'cuint'
-            self.emit('global %s%s: %s <comptime> = %s' % (self.prefix, nelua_ident(name), ctype, value))
-            self.names_used.add(name)
+            self.emit_comptime(name, ctype, value)
             return
         m = self.MACRO_FLOAT.match(body)
         if m:
             value, suffix = m.group(1), m.group(2).lower()
             ctype = 'float32' if suffix == 'f' else ('clongdouble' if suffix == 'l' else 'float64')
-            self.emit('global %s%s: %s <comptime> = %s' % (self.prefix, nelua_ident(name), ctype, value))
-            self.names_used.add(name)
+            self.emit_comptime(name, ctype, value)
             return
-        if len(toks) == 2 and toks[1].startswith('"'):
-            self.emit('global %s%s: string <comptime> = %s' % (self.prefix, nelua_ident(name), toks[1]))
-            self.names_used.add(name)
-            return
-        if len(toks) == 2 and toks[1] in self.names_used:
-            self.emit('global %s%s = %s%s' % (self.prefix, nelua_ident(name), self.prefix, nelua_ident(toks[1])))
-            self.names_used.add(name)
+        if all(t.startswith('"') for t in toks[1:]):
+            # one or more adjacent plain string literals: decode the C spelling, respell it for Nelua
+            pieces = [decode_c_string(t) for t in toks[1:]]
+            if all(p is not None for p in pieces):
+                self.emit_comptime(name, 'cstring', nelua_string(b''.join(pieces)))
+                return
+        if len(toks) == 2 and re.match(r'^[A-Za-z_][A-Za-z0-9_]*$', toks[1]):
+            if toks[1] in self.comptime:
+                self.emit_alias_macro(name, toks[1])
+            else:
+                self.deferred_macros.append(cursor)
             return
         self.skip(cursor, 'macro body is not a literal: %s' % ' '.join(toks[1:])[:60])
+
+    def emit_comptime(self, name, ctype, value):
+        self.emit('global %s%s: %s <comptime> = %s' % (self.prefix, nelua_ident(name), ctype, value))
+        self.names_used.add(name)
+        self.comptime[name] = self.prefix + nelua_ident(name)
+
+    def emit_alias_macro(self, name, target):
+        self.emit('global %s%s <comptime> = %s' % (self.prefix, nelua_ident(name), self.comptime[target]))
+        self.names_used.add(name)
+        self.comptime[name] = self.prefix + nelua_ident(name)
 
     @staticmethod
     def _is_function_like(cursor, toks):
@@ -472,7 +588,12 @@ class Generator:
         if self.args.prefix:
             self.emit('global %s = @record{}' % self.args.prefix)
         self.emit()
+        if self.args.prepend:
+            self.emit(self.args.prepend.rstrip('\n'))
+            self.emit()
         self.visit(tu.cursor)
+        for c in self.deferred_macros:
+            self.emit_macro(c, deferred=True)
         if not self.args.no_stubs:
             stubs = [(n, d) for n, d in self.referenced.items() if n not in self.defined and n not in self.forwarded]
             if stubs:
@@ -489,26 +610,85 @@ class Generator:
             self.emit('-- Not generated:')
             for s in self.skipped:
                 self.emit('--   ' + s)
+        if self.args.append:
+            self.emit()
+            self.emit(self.args.append.rstrip('\n'))
         return '\n'.join(self.out) + '\n'
+
+
+# Config file keys: value kind, and whether paths in them resolve relative to the config file.
+CONFIG_KEYS = {
+    'headers': ('pathlist', True), 'include_dirs': ('pathlist', True), 'defines': ('list', False),
+    'target': ('str', False), 'include_as': ('str', False), 'prefix': ('str', False), 'match': ('str', False),
+    'exclude': ('list', False), 'opaque': ('list', False), 'enum_using': ('bool', False), 'all': ('bool', False),
+    'include_file_regex': ('str', False), 'no_stubs': ('bool', False), 'prepend': ('text', False),
+    'append': ('text', False), 'output': ('str', True),
+}
+
+
+def load_config(path, args):
+    """Fill options not given on the command line from the JSON object in `path`."""
+    with open(path) as f:
+        cfg = json.load(f)
+    if not isinstance(cfg, dict):
+        raise SystemExit('nelua-bindgen: %s: config must be a JSON object' % path)
+    base = os.path.dirname(os.path.abspath(path))
+    for key, value in cfg.items():
+        if key not in CONFIG_KEYS:
+            raise SystemExit('nelua-bindgen: %s: unknown config key %r (known: %s)' % (path, key, ', '.join(sorted(CONFIG_KEYS))))
+        kind, relative = CONFIG_KEYS[key]
+        if kind in ('list', 'pathlist'):
+            if isinstance(value, str):
+                value = [value]
+            if not isinstance(value, list) or any(not isinstance(v, str) for v in value):
+                raise SystemExit('nelua-bindgen: %s: %r must be a string or a list of strings' % (path, key))
+        elif kind == 'text':
+            if isinstance(value, list):
+                value = '\n'.join(value)
+            if not isinstance(value, str):
+                raise SystemExit('nelua-bindgen: %s: %r must be a string or a list of lines' % (path, key))
+        elif kind == 'bool':
+            if not isinstance(value, bool):
+                raise SystemExit('nelua-bindgen: %s: %r must be true or false' % (path, key))
+        elif not isinstance(value, str):
+            raise SystemExit('nelua-bindgen: %s: %r must be a string' % (path, key))
+        if relative:
+            if kind == 'pathlist':
+                value = [v if os.path.isabs(v) else os.path.join(base, v) for v in value]
+            elif not os.path.isabs(value):
+                value = os.path.join(base, value)
+        current = getattr(args, key)
+        if current is None or current == [] or current is False:
+            setattr(args, key, value)
 
 
 def main(argv=None):
     ap = argparse.ArgumentParser(description='Generate Nelua bindings from C headers with libclang.')
-    ap.add_argument('headers', nargs='+', help='C header files to bind')
+    ap.add_argument('headers', nargs='*', help='C header files to bind')
     ap.add_argument('-I', dest='include_dirs', action='append', default=[], help='include search directory')
     ap.add_argument('-D', dest='defines', action='append', default=[], help='preprocessor define')
     ap.add_argument('--target', help='clang target triple used to parse the headers')
     ap.add_argument('--include-as', help="cinclude spec written into every binding, e.g. '<zlib.h>' (default: \"basename.h\")")
     ap.add_argument('--prefix', help='emit declarations as fields of this global record (e.g. C)')
     ap.add_argument('--match', help='only bind declarations whose name matches this regex')
+    ap.add_argument('--exclude', action='append', default=[], help='skip declarations whose name matches this regex (repeatable)')
+    ap.add_argument('--opaque', action='append', default=[], help='emit this record or typedef as an opaque forwarddecl record (repeatable)')
+    ap.add_argument('--enum-using', action='store_true', help='mark named enums <using> so enumerators are also bare globals')
     ap.add_argument('--all', action='store_true', help='also bind declarations from transitively included headers')
     ap.add_argument('--include-file-regex', help='also bind declarations from included files matching this regex')
     ap.add_argument('--no-stubs', action='store_true', help='do not emit opaque stubs for types from other headers')
+    ap.add_argument('--prepend', help='verbatim Nelua text written before the generated declarations')
+    ap.add_argument('--append', help='verbatim Nelua text written after the generated declarations')
+    ap.add_argument('--config', help='JSON file whose keys mirror these options; command-line options override it')
     ap.add_argument('--ignore-errors', action='store_true', help='generate even when clang reports errors')
     ap.add_argument('--libclang', help='path to libclang shared library')
     ap.add_argument('-o', '--output', help='output file (default: stdout)')
     ap.add_argument('clang_args', nargs='*', help='extra arguments after -- are passed to clang')
     args = ap.parse_args(argv)
+    if args.config:
+        load_config(args.config, args)
+    if not args.headers:
+        ap.error('no headers given (on the command line or as "headers" in --config)')
     if args.libclang:
         cindex.Config.set_library_file(args.libclang)
     code = Generator(args).run()

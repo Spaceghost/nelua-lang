@@ -25,18 +25,61 @@ What it maps:
 | anonymous `enum { A = 1 }` | `global A: cint <comptime> = 1` |
 | `R (*)(A, B)` | `function(A, B): R` |
 | `f(const char*, ...)` | `global function f(a1: *const cchar, ...: cvarargs)` |
-| `#define X 3` / `1.5` / `"s"` | `<comptime>` constants |
+| `#define X 3` / `1.5` | `global X: cint <comptime> = 3` / `float64` |
+| `#define S "a\n" "b"` | `global S: cstring <comptime> = "a\nb"` (C escapes decoded, respelled for Nelua) |
+| `#define A B` (B an emitted macro or enumerator) | `global A <comptime> = B` / `= E.B` |
 
 Bitfields, anonymous members and macros that are not literals are listed in a
 `-- Not generated:` trailer instead of being guessed. Records with omitted
 fields get `cincomplete` so Nelua never sizes them from partial information.
 Types referenced from other headers get opaque `cincomplete` stubs; bind those
-headers too, or pass `--all`, when you need their fields.
+headers too, or pass `--all`, when you need their fields. Function pointer
+fields and callback typedefs keep `*const T` for `const T*` parameters.
 
 Only declarations located in the headers given on the command line are bound.
-Use `--match REGEX` to narrow further and `--prefix C` to emit `C.name` fields
-instead of flat globals. Pass the target triple with `--target` when binding for
-a cross target, since struct layouts and `long` sizes follow the target.
+Pass the target triple with `--target` when binding for a cross target, since
+struct layouts and `long` sizes follow the target.
 
-`test/run.sh` regenerates `test/sample.nelua`, diffs it against the committed
-expectation, and compiles and runs `test/use_sample.nelua` against `sample.c`.
+## Options
+
+| Option | Config key | Effect |
+| --- | --- | --- |
+| `header.h ...` | `headers` | headers to bind (config paths are relative to the config file) |
+| `-I DIR` | `include_dirs` | include search directory (repeatable) |
+| `-D NAME[=VALUE]` | `defines` | preprocessor define (repeatable) |
+| `--target TRIPLE` | `target` | clang target triple used to parse |
+| `--include-as '<x.h>'` | `include_as` | `cinclude` spec written into every binding (default `"basename.h"`) |
+| `--prefix C` | `prefix` | emit `C.name` fields of a global record instead of flat globals |
+| `--match REGEX` | `match` | only bind declarations whose name matches |
+| `--exclude REGEX` | `exclude` | skip declarations whose name matches (repeatable) |
+| `--opaque NAME` | `opaque` | emit this record or typedef as `<forwarddecl> @record{}` even if its definition is visible (repeatable) |
+| `--enum-using` | `enum_using` | mark named enums `<using>` so enumerators are also bare globals, as nelua-decl does |
+| `--all` | `all` | also bind declarations from transitively included headers |
+| `--include-file-regex REGEX` | `include_file_regex` | also bind declarations from included files matching |
+| `--no-stubs` | `no_stubs` | do not emit opaque stubs for types from other headers |
+| `--prepend TEXT` | `prepend` | verbatim Nelua text written before the declarations (a string or list of lines) |
+| `--append TEXT` | `append` | verbatim Nelua text written after the declarations (a string or list of lines) |
+| `-o FILE` | `output` | output file (default: stdout) |
+| `--config FILE` | | JSON object with the keys above; command-line options override it |
+| `--ignore-errors`, `--libclang PATH` | | generate despite clang errors; pick the libclang library |
+
+Config example, `zlib.json` (`nelua-bindgen.py --config zlib.json`):
+
+```json
+{
+  "headers": ["zlib.h"],
+  "include_as": "<zlib.h>",
+  "match": "^(z_|Z_|gz|deflate|inflate)",
+  "exclude": ["^z_off64_t$"],
+  "opaque": ["z_stream_s"],
+  "enum_using": true,
+  "output": "zlib.nelua",
+  "append": ["global ZLIB_BOUND: boolean <comptime> = true"]
+}
+```
+
+`test/run.sh` regenerates `test/sample.nelua` (from the command line) and
+`test/sample_config.nelua` (from `test/sample.json`), diffs both against the
+committed expectations, checks that command-line flags override the config
+file, and compiles and runs `test/use_sample.nelua` and
+`test/use_sample_config.nelua` against `sample.c`.

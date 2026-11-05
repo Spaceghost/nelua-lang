@@ -4187,11 +4187,20 @@ Initializes a new atomic flag.
 Hand-written `<cimport>` declarations drift from the headers they mirror.
 `tools/nelua-bindgen/nelua-bindgen.py` generates them from the headers with
 libclang, mapping `const T*` to `*const T`, array parameters to `*[0]T`,
-struct tags to `ctypedef` records and literal macros to `<comptime>` constants:
+struct tags to `ctypedef` records, string and alias macros to `cstring` and
+aliased `<comptime>` constants, and function pointer fields to `function(...)`
+types that keep `*const T` parameters:
 
 ```sh
 tools/nelua-bindgen/nelua-bindgen.py zlib.h --include-as '<zlib.h>' -o zlib.nelua
+tools/nelua-bindgen/nelua-bindgen.py --config zlib.json   # same options as a JSON file
 ```
 
+`--exclude REGEX` skips declarations, `--opaque NAME` forces a record to an
+opaque `<forwarddecl>` record, and `--enum-using` marks named enums `<using>`
+so their enumerators are bare globals as well. A `--config FILE` JSON object
+mirrors every flag plus `prepend`/`append` text written around the generated
+declarations; command-line flags override the file.
+
 See [tools/nelua-bindgen/README.md](https://github.com/Spaceghost/nelua-lang/tree/master/tools/nelua-bindgen)
-for the full mapping table and the `--target`, `--match` and `--prefix` options.
+for the full mapping and option tables.

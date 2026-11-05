@@ -3,8 +3,10 @@
 global SAMPLE_VERSION: cint <comptime> = 3
 global SAMPLE_FLAG_A: cuint <comptime> = 0x10
 global SAMPLE_RATIO: float64 <comptime> = 1.5
-global SAMPLE_NAME: string <comptime> = "sample"
-global SAMPLE_ALIAS = SAMPLE_VERSION
+global SAMPLE_NAME: cstring <comptime> = "sample"
+global SAMPLE_ALIAS <comptime> = SAMPLE_VERSION
+global SAMPLE_GREETING: cstring <comptime> = "hi\n\"there\"AA\t\\"
+global SAMPLE_PATH: cstring <comptime> = "a/b"
 global sample_color: type <cimport,cinclude'"sample.h"',ctypedef'sample_color'> = @enum(cuint){
   SAMPLE_RED = 0,
   SAMPLE_GREEN = 1,
@@ -36,6 +38,12 @@ global sample_node: type <cimport,cinclude'"sample.h"',ctypedef'sample_node'> = 
   next: *sample_node,
   value: cint,
 }
+global sample_ops: type <cimport,cinclude'"sample.h"',ctypedef'sample_ops'> = @record{
+  compare: function(*const sample_point, *const sample_point): cint,
+  describe: function(*const sample_rect, cstring, csize),
+  names: *const *const cchar,
+}
+global sample_log_fn: type <cimport,cinclude'"sample.h"',nodecl> = @function(*const cchar, *const sample_ops)
 global sample_counter: cint <cimport,cinclude'"sample.h"'>
 global function sample_add(a: cint, b: cint): cint <cimport,cinclude'"sample.h"'> end
 global function sample_strlen(s: *const cchar): csize <cimport,cinclude'"sample.h"'> end
@@ -48,7 +56,12 @@ global function sample_open(path: *const cchar, end_: cint): *sample_opaque <cim
 global function sample_close(h: *sample_opaque) <cimport,cinclude'"sample.h"'> end
 global function sample_printf(fmt: *const cchar, ...: cvarargs): cint <cimport,cinclude'"sample.h"'> end
 global function sample_copy(dst: *[0]uint8, src: *const uint8) <cimport,cinclude'"sample.h"'> end
+global function sample_run(ops: *const sample_ops, log: sample_log_fn, a: *const sample_point, b: *const sample_point): cint <cimport,cinclude'"sample.h"'> end
+global SAMPLE_DEFAULT_COLOR <comptime> = sample_color.SAMPLE_GREEN
+global SAMPLE_ANON_ALIAS <comptime> = SAMPLE_ANON_ONE
 
 -- Not generated:
 --   SAMPLE_SQUARE (macro_definition) skipped: function-like macro
 --   SAMPLE_COMPUTED (macro_definition) skipped: macro body is not a literal: ( SAMPLE_VERSION + 1 )
+--   SAMPLE_WIDE (macro_definition) skipped: macro body is not a literal: L"wide"
+--   SAMPLE_MISSING_ALIAS (macro_definition) skipped: macro body is not a literal: SAMPLE_NOT_EMITTED

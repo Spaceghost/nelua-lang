@@ -17,3 +17,4 @@ struct sample_opaque *sample_open(const char *path, int end) { struct sample_opa
 void sample_close(struct sample_opaque *h) { free(h); }
 int sample_printf(const char *fmt, ...) { va_list ap; va_start(ap, fmt); int n = vprintf(fmt, ap); va_end(ap); return n; }
 void sample_copy(uint8_t dst[16], const uint8_t *src) { memcpy(dst, src, 16); }
+int sample_run(const sample_ops *ops, sample_log_fn log, const sample_point *a, const sample_point *b) { if (log) log("run", ops); return ops->compare(a, b); }

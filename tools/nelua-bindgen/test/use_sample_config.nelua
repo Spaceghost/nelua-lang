@@ -1,0 +1,15 @@
+-- Smoke test for the `--config sample.json` output: <using> enums, opaque records, prepend/append text.
+## cfile 'sample.c'
+require 'sample_config'
+
+assert(SAMPLE_RED == 0 and SAMPLE_BLUE == 2) -- enum_using: enumerators are bare globals too
+assert(SAMPLE_DEFAULT_COLOR == sample_color.SAMPLE_GREEN)
+assert(SAMPLE_CONFIG_OK) -- from "append"
+assert(SAMPLE_GREETING == 'hi\n"there"AA\t\\' and SAMPLE_PATH == 'a/b')
+local head: *const sample_node = nilptr -- sample_node is opaque here: only usable through pointers
+assert(sample_each(head, nilptr, nilptr) == 0)
+local a: sample_point = {5, 0}
+local b: sample_point = {2, 0}
+local ops: sample_ops = {compare = function(a: *const sample_point, b: *const sample_point): cint return a.x - b.x end}
+assert(sample_run(&ops, nilptr, &a, &b) == 3)
+print('bindgen config ok')
