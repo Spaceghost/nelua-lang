@@ -1340,6 +1340,9 @@ function visitors.FuncDef(context, node, emitter)
   if attr.cinclude then -- requires a including a C file?
     context:ensure_include(attr.cinclude)
   end
+  if attr.cimport or attr.cexport or attr.entrypoint then
+    context:check_freestanding_symbol(attr.codename, node)
+  end
   if attr.cimport and cdefs.builtins_headers[attr.codename] then -- importing a builtin?
     context:ensure_builtin(attr.codename) -- ensure the builtin is declared and defined
     return -- nothing more to do
@@ -1738,6 +1741,17 @@ function cgenerator.emit_entrypoint(context, ast)
     context.emitentrypoint(emitter) -- inject ast statements into the custom entry point
   else -- need to define `nelua_main`, it will be called from the entry point
     cgenerator.emit_nelua_main(context, ast, emitter)
+    if context.pragmas.noentrypoint and not context.hookmain and context:is_declared('nelua_main') then
+      -- top scope statements were emitted into `nelua_main`, but nothing will ever call it
+      local msg = "top scope statements are emitted into `nelua_main`, "..
+        "but nothing calls it under pragma 'noentrypoint': "..
+        "move them into an exported initialization function or import `nelua_main` and call it"
+      if context.pragmas.freestanding then
+        ast:raisef(msg)
+      else
+        ast:warnf(msg)
+      end
+    end
     -- if no custom entry point is set, then use `main` as the default entry point
     if not context.entrypoint and not context.pragmas.noentrypoint then
       emitter:add_indent_ln('int main(int argc, char** argv) {') emitter:inc_indent() -- begin block

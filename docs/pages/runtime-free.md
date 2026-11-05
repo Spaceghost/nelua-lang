@@ -54,10 +54,39 @@ remain the caller's contract; null checks cannot prove an arbitrary pointer vali
 | Setting | Effect | What it does not establish |
 | --- | --- | --- |
 | `pragmas.nogc` | Disables Nelua's garbage collector | An imported allocator or string builder can still allocate through the host heap |
-| `pragmas.noentrypoint` | Omits the default generated C `main` | Executable top-level code may still produce a `nelua_main` initialization function |
+| `pragmas.noentrypoint` | Omits the default generated C `main` | Executable top-level code may still produce a `nelua_main` initialization function (the compiler warns when nothing calls it) |
+| `pragmas.freestanding` | Implies `nogc` and `noentrypoint`, traps on abort, and rejects heap, process, stdio and `main` symbols at compile time | It checks emitted symbols only; raw C from `cemit`/`cfile` and the final link still need the `nm` audit |
 | `pragmas.nochecks` | Disables automatic runtime checks | It does not remove explicit `assert`, `error`, allocation or other library calls |
 | Variable `<noinit>` / `pragmas.noinit` | Suppresses default variable initialization | It does not disable a runtime; every value must be initialized before being read |
 | `pragmas.nocstaticassert` | Suppresses generated C static assertions | Static assertions have no executable startup cost; retain ABI checks by default |
+
+## The `freestanding` pragma
+
+`pragmas.freestanding` (or `-P freestanding`) turns the recipe above into a
+compiler-enforced profile. It implies `nogc` and `noentrypoint`, defaults
+`abort` to `'trap'` and `writestderr` to `'none'`, and fails the build when the
+generated C would reference heap, process or stdio services the host must own:
+`malloc`, `calloc`, `realloc`, `free`, `abort`, `exit`, `fwrite`, `fprintf`,
+`stderr`, `stdout`, `main` and friends, whether they come from a compiler
+builtin, an imported library such as `allocators.general`, or a `<cimport>` in
+your own code. It also fails when top scope statements would be emitted into a
+`nelua_main` that nothing calls (the same situation is a warning under plain
+`noentrypoint`).
+
+```lua
+## pragmas.freestanding = true
+
+local function nelua_checked_add(a: uint32, b: uint32, out: *[0]uint32): boolean
+  <cexport, codename 'nelua_checked_add'>
+  if out == nilptr or b > 0xffffffff_u32 - a then return false end
+  out[0] = a + b
+  return true
+end
+```
+
+The pragma checks symbols the compiler emits. It does not inspect raw C from
+`cemit`, `cinclude` or `cfile`, and it does not run the linker, so keep the
+`nm` audit for the final object.
 
 There is no `noruntime` pragma. Compiler Lua runs at build time; it is not a Lua
 VM embedded in the resulting application.

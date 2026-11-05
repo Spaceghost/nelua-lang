@@ -73,6 +73,19 @@ cdefs.builtins_headers = {
   quadmath_snprintf = '<quadmath.h>',
 }
 
+-- C symbols that a `freestanding` unit must not reference (heap, process and stdio services).
+cdefs.freestanding_forbidden_symbols = {
+  -- stdlib.h
+  malloc = true, calloc = true, realloc = true, free = true, aligned_alloc = true,
+  abort = true, exit = true, _Exit = true, atexit = true, quick_exit = true,
+  system = true, getenv = true,
+  -- stdio.h
+  fwrite = true, fputs = true, fprintf = true, printf = true, puts = true, fflush = true,
+  fopen = true, fclose = true, fread = true, stderr = true, stdout = true, stdin = true,
+  -- entry point
+  main = true,
+}
+
 local compilers_flags = {}
 cdefs.compilers_flags = compilers_flags
 

@@ -10,6 +10,7 @@ It contains many functions to assist generating C code.
 local VisitorContext = require 'nelua.visitorcontext'
 local class = require 'nelua.utils.class'
 local cdefs = require 'nelua.cdefs'
+local except = require 'nelua.utils.except'
 local cbuiltins = require 'nelua.cbuiltins'
 local traits = require 'nelua.utils.traits'
 local CEmitter = require 'nelua.cemitter'
@@ -66,9 +67,27 @@ function CContext:genuniquename(kind)
   return string.format('%s_%d', kind, count)
 end
 
+--[[
+Raises an error when C symbol `name` is referenced under pragma `freestanding`
+and it belongs to the heap, process or stdio services a host must provide.
+]]
+function CContext:check_freestanding_symbol(name, node)
+  if not (self.pragmas.freestanding or self.rootpragmas.freestanding) then return end
+  if not cdefs.freestanding_forbidden_symbols[name] then return end
+  local msg = string.format("C symbol '%s' is not allowed under pragma 'freestanding'", name)
+  if node then
+    node:raisef(msg)
+  else
+    except.raisef(msg)
+  end
+end
+
 function CContext:declname(attr)
   if attr.declname then
     return attr.declname
+  end
+  if attr.cimport then
+    self:check_freestanding_symbol(attr.codename)
   end
   local declname = attr.codename
   assert(attr._attr and attr.codename)
@@ -305,6 +324,7 @@ function CContext:ensure_builtin(name, ...)
   if select('#',...) == 0 and self.usedbuiltins[name] then
     return name
   end
+  self:check_freestanding_symbol(name)
   local func = self.builtins[name]
   assert(func, 'builtin not defined')
   local newname = func(self, ...)

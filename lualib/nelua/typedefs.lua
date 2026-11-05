@@ -255,6 +255,14 @@ typedefs.pragmas = {
   ]]
   noentrypoint = shaper.optional_boolean,
   --[[
+  Compiles a runtime-free unit for a host that owns the entry point, memory and platform services.
+  Implies `nogc` and `noentrypoint`, defaults `abort` to `'trap'` and `writestderr` to `'none'`,
+  and raises a compile error when the generated C would reference heap, process or stdio
+  services (`malloc`, `free`, `abort`, `exit`, `fwrite`, `stderr`, `main`, ...), or when top scope
+  statements would be emitted into a `nelua_main` that nothing calls.
+  ]]
+  freestanding = shaper.optional_boolean,
+  --[[
   Disables the garbage collector.
   When this is enabled you will need to manage and deallocate memory manually.
   ]]

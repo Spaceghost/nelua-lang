@@ -19,6 +19,21 @@ local VisitorContext = class()
 VisitorContext._context = true
 
 -- Initializes a visitor context using `visitors` table to visit nodes while traversing.
+--[[
+Metamethod applied to every pragmas table, so that setting a pragma
+can imply other pragmas (e.g. `freestanding` implies `nogc` and `noentrypoint`).
+]]
+local function pragmas_newindex(pragmas, key, value)
+  rawset(pragmas, key, value)
+  if key == 'freestanding' and value then
+    rawset(pragmas, 'nogc', true)
+    rawset(pragmas, 'noentrypoint', true)
+    if pragmas.abort == nil then rawset(pragmas, 'abort', 'trap') end
+    if pragmas.writestderr == nil then rawset(pragmas, 'writestderr', 'none') end
+  end
+end
+VisitorContext.pragmas_newindex = pragmas_newindex
+
 function VisitorContext:_init(visitors, rootscope)
   self.context = self
   self.visitors = visitors
@@ -27,7 +42,7 @@ function VisitorContext:_init(visitors, rootscope)
   self.reqscopes = {}
   self.scope = rootscope
   self.scopestack = {}
-  self.rootpragmas = {}
+  self.rootpragmas = setmetatable({}, {__newindex = pragmas_newindex})
   self.libpaths = {}
   -- pragmas
   self.pragmas = self.rootpragmas
@@ -90,7 +105,7 @@ function VisitorContext:push_forked_pragmas(pragmas)
   if mt then -- reuse the forked pragmas
     assert(mt.__index == oldpragmas, 'broken pragmas chain, is a pragma pop missing?')
   else -- forking a new pragmas
-    setmetatable(pragmas, {__index = oldpragmas})
+    setmetatable(pragmas, {__index = oldpragmas, __newindex = pragmas_newindex})
   end
   self:push_pragmas(pragmas)
 end

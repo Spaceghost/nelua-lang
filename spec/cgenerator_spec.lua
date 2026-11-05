@@ -2702,6 +2702,57 @@ it("enums", function()
   ]], "2")
 end)
 
+it("freestanding pragma", function()
+  expect.generate_c([[
+    ## pragmas.freestanding = true
+    ## static_assert(pragmas.nogc and pragmas.noentrypoint)
+    ## static_assert(pragmas.abort == 'trap' and pragmas.writestderr == 'none')
+    local function add(a: int64, b: int64): int64 <cexport, codename 'add'>
+      return a + b
+    end
+    local function at(p: *[0]int64, i: usize): int64 <cexport, codename 'at'>
+      return p[i]
+    end
+  ]], {"int64_t add(int64_t a, int64_t b)", "__builtin_trap();"})
+  do -- no entry point and no stdlib/stdio includes are emitted
+    local _, context = expect.analyze_ast([[
+      ## pragmas.freestanding = true
+      local function f(): int64 <cexport, codename 'f'> return 1 end
+    ]], nil, 'c')
+    local code = assert(require('nelua.cgenerator').generate(context))
+    assert(not code:find('int main(', 1, true), 'unexpected main')
+    assert(not code:find('nelua_main', 1, true), 'unexpected nelua_main')
+    assert(not code:find('<stdlib.h>', 1, true), 'unexpected stdlib.h')
+    assert(not code:find('<stdio.h>', 1, true), 'unexpected stdio.h')
+  end
+  expect.run_error_c([[
+    ## pragmas.freestanding = true
+    local function malloc(size: csize): pointer <cimport,cinclude'<stdlib.h>',nodecl> end
+    local function f(): pointer <cexport, codename 'f'> return malloc(1) end
+  ]], "C symbol 'malloc' is not allowed under pragma 'freestanding'")
+  expect.run_error_c([[
+    ## pragmas.freestanding = true
+    require 'allocators.general'
+    local function f(): pointer <cexport, codename 'f'> return general_allocator:alloc(1) end
+  ]], "not allowed under pragma 'freestanding'")
+  expect.run_error_c([[
+    ## pragmas.freestanding = true
+    ## pragmas.abort = 'abort'
+    local function f(a: int64): int64 <cexport, codename 'f'> assert(a > 0) return a end
+  ]], "C symbol 'abort' is not allowed under pragma 'freestanding'")
+  expect.run_error_c([[
+    ## pragmas.freestanding = true
+    local function main(): cint <cexport, codename 'main'> return 0 end
+  ]], "C symbol 'main' is not allowed under pragma 'freestanding'")
+  expect.run_error_c([[
+    ## pragmas.freestanding = true
+    local global_cb: function(): int64
+    local function cb(): int64 return 1 end
+    global_cb = cb
+    local function f(): int64 <cexport, codename 'f'> return global_cb() end
+  ]], "top scope statements are emitted into `nelua_main`, but nothing calls it")
+end)
+
 it("const pointers", function()
   expect.generate_c([[
     local a: integer = 1
