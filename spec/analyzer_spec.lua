@@ -1733,6 +1733,21 @@ it("automatic dereferencing", function()
   ]], 'no viable type conversion')
 end)
 
+it("closures", function()
+  expect.analyze_ast([[
+    local function f(n: integer)
+      local g = function(x: integer): integer return x + n end
+      return g(1)
+    end
+  ]])
+  expect.analyze_error([[
+    local function f(n: integer)
+      local function g(x: integer): integer return x + n end
+      return g(1)
+    end
+  ]], "only anonymous functions can capture upvalues")
+end)
+
 it("variant types", function()
   expect.analyze_error("local v: integer|string", "variant types require the 'variant' module")
   expect.analyze_error("local v: variant(integer, string)", "variant types require the 'variant' module")

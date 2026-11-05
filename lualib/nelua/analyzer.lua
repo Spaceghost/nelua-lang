@@ -698,7 +698,8 @@ function visitors.Id(context, node)
   symbol:link_node(node)
   if not symbol.staticstorage and symbol.scope ~= context.rootscope and context.generator ~= 'lua' and
      not symbol:is_directly_accesible_from_scope(context.scope) then
-    node:raisef("attempt to access upvalue '%s', but closures are not supported", name)
+    node:raisef("attempt to access upvalue '%s', but only anonymous functions can capture upvalues "..
+      "(use `local f = function(...) ... end`, which copies captured values)", name)
   end
   if symbol.deprecated then
     node:warnf("use of deprecated symbol '%s'", name)
@@ -3093,6 +3094,88 @@ function visitors.FuncDef(context, node, opts)
   end
 end
 
+--[[
+Finds the variables of enclosing functions that the function expression `node` references.
+Returns a sorted list of captures, or nil when the function can be a plain C function.
+]]
+local function find_closure_captures(context, node)
+  local scope = context.scope
+  if not scope:get_up_function_scope() then
+    return -- defined outside any function, upvalues are static there
+  end
+  local declared, used = {}, {}
+  for n in node:walk_nodes() do
+    if n.is_IdDecl then
+      local name = n[1]
+      if traits.is_string(name) then
+        declared[name] = true
+      end
+    elseif n.is_Id then
+      used[n[1]] = true
+    end
+  end
+  local names = {}
+  for name in pairs(used) do
+    if not declared[name] then
+      local symbol = scope.symbols[name]
+      if symbol and not symbol.staticstorage and symbol.scope ~= context.rootscope and
+         not symbol.comptime and not (symbol.type and symbol.type.is_comptime) then
+        names[#names+1] = name
+      end
+    end
+  end
+  if #names == 0 then return end
+  table.sort(names)
+  local captures = {}
+  for i,name in ipairs(names) do
+    local symbol = scope.symbols[name]
+    if not symbol.type then
+      symbol:resolve_type() -- try to infer it now from the possible types seen so far
+    end
+    local type = symbol.type
+    if not type or type.is_auto then
+      return nil, true -- not resolved yet, the function must be analyzed again in a later pass
+    end
+    captures[i] = {name = name, type = type}
+  end
+  return captures
+end
+
+--[[
+Rewrites the function expression `node` into a closure record:
+a record holding a copy of each captured variable plus a `__call` metamethod
+with the original body, evaluating to an instance of that record, that is
+`(do local C = @record{x: T} function C.__call(__closure: C, ...) local x = __closure.x ... end in (@C){x=x} end)`.
+]]
+local function make_closure_node(context, node, captures)
+  local argnodes, retnodes, annotnodes, blocknode = node[1], node[2], node[3], node[4]
+  local rectype = types.RecordType({}, node)
+  for _,c in ipairs(captures) do
+    rectype:add_field(c.name, c.type)
+  end
+  local tname = context.scope:generate_name('__closure')
+  local callargs = {aster.IdDecl{'__closure', aster.Id{tname}}}
+  local body = {}
+  for _,c in ipairs(captures) do
+    body[#body+1] = aster.VarDecl{'local', {aster.IdDecl{c.name}}, {aster.DotIndex{c.name, aster.Id{'__closure'}}}}
+  end
+  local inits = {}
+  for i,c in ipairs(captures) do
+    inits[i] = aster.Pair{c.name, aster.Id{c.name}}
+  end
+  local bodyblock = aster.Block(body)
+  local newnode = aster.DoExpr{aster.Block{
+    aster.VarDecl{'local', {aster.IdDecl{tname}}, {aster.value(rectype)}},
+    aster.FuncDef{false, aster.DotIndex{'__call', aster.Id{tname}}, callargs, retnodes, annotnodes, bodyblock},
+    aster.In{aster.Call{{aster.InitList(inits)}, aster.Type{aster.Id{tname}}}},
+  }}
+  newnode:recursive_update_location(node.src, node.pos, node.endpos)
+  -- the original arguments and body keep their own locations
+  for i=1,#argnodes do callargs[#callargs+1] = argnodes[i] end
+  for i=1,#blocknode do bodyblock[#bodyblock+1] = blocknode[i] end
+  return newnode
+end
+
 function visitors.Function(context, node)
   local argnodes, retnodes, annotnodes, blocknode =
         node[1], node[2], node[3], node[4]
@@ -3103,6 +3186,13 @@ function visitors.Function(context, node)
   if attr._symbol then
     symbol = attr
   else
+    local captures, unresolved = find_closure_captures(context, node)
+    if unresolved then
+      return -- leave the node unfinished so it is visited again once the captured types resolve
+    elseif captures then -- the function captures upvalues, it must become a closure record
+      context:transform_and_traverse_node(node, make_closure_node(context, node, captures))
+      return
+    end
     symbol = Symbol.promote_attr(attr, node)
     symbol.codename = context:choose_codename('anonfunc')
     symbol.scope = context.scope

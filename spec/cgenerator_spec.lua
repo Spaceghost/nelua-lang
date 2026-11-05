@@ -2759,6 +2759,51 @@ it("freestanding pragma", function()
   ]], "top scope statements are emitted into `nelua_main`, but nothing calls it")
 end)
 
+it("closures", function()
+  expect.run_c([[
+    require 'string'
+    local function make_adder(n: integer)
+      return function(x: integer): integer return x + n end
+    end
+    local add2 = make_adder(2)
+    local add10 = make_adder(10)
+    assert(add2(1) == 3 and add10(1) == 11)
+
+    local function counter_from(start: integer, step: integer)
+      local total = start
+      return function(): integer
+        total = total + step -- mutates the closure's own copy
+        return total
+      end
+    end
+    local c = counter_from(5, 2)
+    assert(c() == 7 and c() == 7) -- captured values are copied, not shared
+
+    local function shared(acc: *integer)
+      return function(v: integer) $acc = $acc + v end
+    end
+    local sum = 0
+    local addto = shared(&sum)
+    addto(3) addto(4)
+    assert(sum == 7)
+
+    local R = @record{name: string}
+    local function greeter(r: R, greeting: string)
+      return function(): string return greeting .. ' ' .. r.name end
+    end
+    assert(greeter({name='nelua'}, 'hi')() == 'hi nelua')
+
+    local function apply(f: auto, x: integer): integer return f(x) end
+    local k = 4
+    local function outer(): integer
+      local m = 3
+      return apply(function(x: integer): integer return x * m + k end, 2)
+    end
+    assert(outer() == 10)
+    print('closures ok')
+  ]], 'closures ok')
+end)
+
 it("const pointers", function()
   expect.generate_c([[
     local a: integer = 1

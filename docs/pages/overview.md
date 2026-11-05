@@ -1194,8 +1194,8 @@ print(f()) -- outputs: hello from g
 The function will be visible only in inner scopes.
 {:.alert.alert-info}
 
-Unlike Lua a nested function cannot be a closure, that is,
-it cannot use variables declared in upper scopes unless the top most scope.
+A named nested function cannot use variables declared in upper function scopes,
+only anonymous functions can capture them, see [closures](#closures).
 {:.alert.alert-warning}
 
 ### Top scope closures
@@ -1220,6 +1220,41 @@ top scope variables are always accessible in the program's static storage memory
 to create lightweight closures without
 needing to hold an upvalue reference or to use a garbage collector.
 Therefore they are very lightweight and do not incur costs like a closure nested in a function would.
+{:.alert.alert-info}
+
+### Closures
+
+An anonymous function can capture local variables of the enclosing functions.
+The compiler turns it into a *closure record*: a record holding a copy of each
+captured variable plus a `__call` metamethod with the function body, so the
+value is a plain record that works without the garbage collector:
+
+```nelua
+local function make_adder(n: integer)
+  return function(x: integer): integer return x + n end
+end
+local add2 = make_adder(2)
+print(add2(1)) -- outputs: 3
+```
+
+Captured variables are copied when the closure is created, so assigning to
+them inside the closure changes the closure's own copy only. To share state,
+capture a pointer:
+
+```nelua
+local function make_counter(count: *integer)
+  return function() $count = $count + 1 end
+end
+local total = 0
+local inc = make_counter(&total)
+inc() inc()
+print(total) -- outputs: 2
+```
+
+A closure is a record, not a function pointer, so its type is inferred with
+`auto` and it cannot be passed where a C function pointer is expected.
+Named nested functions (`local function g()`) do not capture, write
+`local g = function() ... end` instead.
 {:.alert.alert-info}
 
 ### Variable number of arguments
