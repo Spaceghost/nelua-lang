@@ -1979,6 +1979,9 @@ RecordType.shape = shaper.fork_shape(Type.shape, {
   subtype = shaper.type:is_optional(),
   K = shaper.type:is_optional(),
   V = shaper.type:is_optional(),
+  -- Used in the lib by the 'variant' generic to represent the member types.
+  is_variant = shaper.optional_boolean,
+  subtypes = shaper.array_of(shaper.type):is_optional(),
 })
 
 function RecordType:_init(fields, node)

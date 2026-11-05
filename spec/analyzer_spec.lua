@@ -1733,6 +1733,33 @@ it("automatic dereferencing", function()
   ]], 'no viable type conversion')
 end)
 
+it("variant types", function()
+  expect.analyze_error("local v: integer|string", "variant types require the 'variant' module")
+  expect.analyze_error("local v: variant(integer, string)", "variant types require the 'variant' module")
+  expect.analyze_ast([[
+    require 'variant'
+    local V = @variant(integer, string)
+    local W = @integer|string
+    ## static_assert(V.value == W.value)
+    ## static_assert(V.value.is_variant and #V.value.subtypes == 2)
+    local v: V = 1
+    local w: integer|string|boolean = 'a'
+  ]])
+  expect.analyze_error([[
+    require 'variant'
+    local v: integer|string = 1.5
+  ]], "no viable conversion from 'float64' to 'variant(int64, string)'")
+  expect.analyze_error([[
+    require 'variant'
+    local v: integer|string = 1
+    v:get(@boolean)
+  ]], "type 'boolean' is not a member of 'variant(int64, string)'")
+  expect.analyze_error([[
+    require 'variant'
+    local v: integer|integer
+  ]], "variant has duplicated type 'int64'")
+end)
+
 it("const pointers", function()
   expect.analyze_ast([[
     local a: integer = 1
@@ -2254,10 +2281,6 @@ it("union type", function()
   expect.analyze_error([[
     local u: union{b: boolean, i: integer} = {c = true}
   ]], "is not present in union")
-end)
-
-it("variant type", function()
-  expect.analyze_error("local Variant = @integer|number", "not implemented yet")
 end)
 
 it("optional type", function()

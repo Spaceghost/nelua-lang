@@ -953,8 +953,18 @@ function visitors.UnionType(context, node, opts)
   node.done = true
 end
 
-function visitors.VariantType(_, node)
-  node:raisef("variant type not implemented yet")
+function visitors.VariantType(context, node)
+  -- `A|B` and `variant(A, B)` are sugar for the `variant` generic from the standard library
+  if not context.scope.symbols['variant'] then
+    node:raisef("variant types require the 'variant' module, add `require 'variant'` to the top scope")
+  end
+  local argnodes = {}
+  for i=1,#node do
+    argnodes[i] = node[i]
+  end
+  local gnode = aster.GenericType{aster.Id{'variant'}, argnodes}
+  gnode.src, gnode.pos, gnode.endpos = node.src, node.pos, node.endpos
+  context:transform_and_traverse_node(node, gnode)
 end
 
 function visitors.OptionalType(_, node)
