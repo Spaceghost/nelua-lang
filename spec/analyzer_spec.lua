@@ -1740,12 +1740,66 @@ it("closures", function()
       return g(1)
     end
   ]])
-  expect.analyze_error([[
+  expect.analyze_ast([[
     local function f(n: integer)
       local function g(x: integer): integer return x + n end
       return g(1)
     end
-  ]], "only anonymous functions can capture upvalues")
+  ]])
+  expect.analyze_ast([[
+    local function f(n: integer)
+      local function g(x: integer): integer <byref> n = n + x return n end
+      local h = function(x: integer): integer <byref> n = n + x return n end
+      return g(1) + h(1)
+    end
+  ]])
+  expect.analyze_ast([[ -- byref without captures is a plain function
+    local function f(n: integer)
+      local function g(x: integer): integer <byref> return x end
+      return g(n)
+    end
+  ]])
+  expect.analyze_ast([[ -- non capturing nested functions remain static and can recurse
+    local function f(n: integer)
+      local function fact(x: integer): integer
+        if x <= 1 then return 1 end
+        return x * fact(x - 1)
+      end
+      return fact(n)
+    end
+  ]])
+  expect.analyze_error([[
+    local function f(n: integer)
+      local function g(x: integer): integer
+        if x <= 0 then return n end
+        return g(x - 1)
+      end
+      return g(1)
+    end
+  ]], "nested function 'g' captures upvalues and cannot reference itself")
+  expect.analyze_error([[
+    local function f(n: integer)
+      local function g(x: auto) return x + n end
+      return g(1)
+    end
+  ]], "anonymous functions cannot be polymorphic")
+  expect.analyze_error([[
+    local function f(n: integer)
+      local R = @record{}
+      function R.g(x: integer): integer return x + n end
+      return R.g(1)
+    end
+  ]], "attempt to access upvalue 'n'")
+  expect.analyze_error([[
+    local x = 1
+    local function f(): integer <byref> return x end
+  ]], "annotation 'byref' is only valid on functions nested inside another function")
+  expect.analyze_error([[
+    local function f(n: integer)
+      local g = function(x: integer): integer <byref, byref> return x + n end
+      return g(1)
+    end
+  ]], "annotation 'byref' is undefined for functions")
 end)
 
 it("variant types", function()

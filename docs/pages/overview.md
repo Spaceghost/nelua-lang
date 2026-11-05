@@ -1172,9 +1172,9 @@ end)
 print(y) -- outputs: 2
 ```
 
-Unlike Lua an anonymous function cannot be a closure, that is,
-it cannot use variables declared in upper scopes unless the top most scope.
-{:.alert.alert-warning}
+An anonymous function that uses variables of the enclosing functions
+becomes a [closure](#closures) record.
+{:.alert.alert-info}
 
 ### Nested functions
 
@@ -1194,9 +1194,11 @@ print(f()) -- outputs: hello from g
 The function will be visible only in inner scopes.
 {:.alert.alert-info}
 
-A named nested function cannot use variables declared in upper function scopes,
-only anonymous functions can capture them, see [closures](#closures).
-{:.alert.alert-warning}
+A named nested function that references variables of the enclosing functions
+becomes a [closure](#closures) record, exactly like `local g = function() ... end`,
+and so it can no longer call itself. A nested function that captures nothing
+stays a plain static function and may recurse.
+{:.alert.alert-info}
 
 ### Top scope closures
 
@@ -1251,10 +1253,44 @@ inc() inc()
 print(total) -- outputs: 2
 ```
 
+A named nested function captures the same way, `local function g() ... end`
+that references enclosing locals is rewritten to `local g = function() ... end`:
+
+```nelua
+local function f(n: integer): integer
+  local function g(x: integer): integer return x + n end
+  n = n + 100 -- g keeps its own copy of n
+  return g(1)
+end
+print(f(10)) -- outputs: 11
+```
+
+To share the enclosing variables instead of copying them annotate the
+function with `<byref>` (after the return types, where function annotations go).
+The closure record then holds a pointer to each captured variable, so
+assignments inside the closure are visible in the enclosing scope:
+
+```nelua
+local function sum(limit: integer): integer
+  local total = 0
+  local function add(v: integer) <byref> total = total + v end
+  for i=1,limit do add(i) end
+  return total
+end
+print(sum(4)) -- outputs: 10
+```
+
+A `<byref>` closure points into the enclosing stack frame, so it must not be
+returned, stored or otherwise used after the enclosing function returns.
+Inside a `<byref>` closure the shared variables are references, so a nested
+closure that captures them shares them too, even without `<byref>`.
+{:.alert.alert-warning}
+
 A closure is a record, not a function pointer, so its type is inferred with
 `auto` and it cannot be passed where a C function pointer is expected.
-Named nested functions (`local function g()`) do not capture, write
-`local g = function() ... end` instead.
+A capturing nested function cannot reference itself (the record would have to
+hold itself), the compiler reports an error in that case.
+Capturing nested functions cannot be polymorphic.
 {:.alert.alert-info}
 
 ### Variable number of arguments

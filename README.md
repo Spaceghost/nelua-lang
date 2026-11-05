@@ -46,7 +46,9 @@ each with specs in `spec/` and docs under `docs/pages/`:
   the type-size probe, the cache hash and the compile.
 - **`tools/nelua-bindgen`**: generates `<cimport>` bindings from C headers with libclang.
 - **Variants**: tagged unions as `variant(A, B)` or `A|B` through `require 'variant'`.
-- **Closures**: anonymous functions capture upvalues by value as closure records.
+- **Closures**: anonymous and local nested functions capture upvalues by value as
+  closure records; `<byref>` captures them by pointer so the closure can mutate the
+  enclosing locals ([overview](docs/pages/overview.md#closures)).
 - **Static initializers**: top-scope variables initialized with `nilptr`, the
   address of a static object (`&g`, `&arr[3]`, `&rec.field`), casts of those,
   or record/array literals built from them are emitted as C static initializers
