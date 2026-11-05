@@ -2283,10 +2283,6 @@ it("union type", function()
   ]], "is not present in union")
 end)
 
-it("variant type", function()
-  expect.analyze_error("local Variant = @integer|number", "not implemented yet")
-end)
-
 it("optional type", function()
   expect.analyze_error("local OptionalInt = @?integer", "not implemented yet")
 end)
