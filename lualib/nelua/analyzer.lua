@@ -3052,9 +3052,11 @@ local function make_closure_node(context, node, captures, byref)
     inits[i] = aster.Pair{c.name, valnode}
   end
   local bodyblock = aster.Block(body)
+  local callnode = aster.FuncDef{false, aster.DotIndex{'__call', aster.Id{tname}}, callargs, retnodes, annotnodes, bodyblock}
+  callnode.closurecall = true
   local newnode = aster.DoExpr{aster.Block{
     aster.VarDecl{'local', {aster.IdDecl{tname}}, {aster.value(rectype)}},
-    aster.FuncDef{false, aster.DotIndex{'__call', aster.Id{tname}}, callargs, retnodes, annotnodes, bodyblock},
+    callnode,
     aster.In{aster.Call{{aster.InitList(inits)}, aster.Type{aster.Id{tname}}}},
   }}
   newnode:recursive_update_location(node.src, node.pos, node.endpos)
@@ -3074,6 +3076,9 @@ function visitors.FuncDef(context, node, opts)
     -- a local function nested in another function that references upvalues
     -- becomes a closure, that is `local f = function(...) ... end`
     local byref = take_byref_annotation(annotnodes)
+    if byref and context.scope:get_up_function_scope().is_root then
+      node:raisef("annotation 'byref' is only valid on functions nested inside another function")
+    end
     local captures, unresolved = find_closure_captures(context, node, varnode[1])
     if captures or unresolved then
       local funcnode = aster.Function{argnodes, retnodes, annotnodes, blocknode}
@@ -3194,6 +3199,14 @@ function visitors.FuncDef(context, node, opts)
     -- traverse the function returns
     rettypes, hasautoret = visitor_function_returns(context, node, retnodes, ispolyparent)
 
+    if node.closurecall then -- the `__call` of a closure record
+      if ispolyparent then
+        node:raisef("closures cannot be polymorphic")
+      elseif hasautoret then
+        node:raisef("closures cannot have 'auto' returns")
+      end
+    end
+
     -- set the function type
     if not type and rettypes and (ispolyparent or not hasautoret) then
       type = resolve_function_type(node, symbol, varnode, varsym, decl,
@@ -3250,10 +3263,10 @@ function visitors.Function(context, node)
     symbol = attr
   else
     if take_byref_annotation(annotnodes) then
-      if not context.scope:get_up_function_scope() then
-        node:raisef("annotation 'byref' is only valid on functions nested inside another function")
-      end
       node.closurebyref = true
+    end
+    if node.closurebyref and context.scope:get_up_function_scope().is_root then
+      node:raisef("annotation 'byref' is only valid on functions nested inside another function")
     end
     local captures, unresolved = find_closure_captures(context, node)
     if unresolved then

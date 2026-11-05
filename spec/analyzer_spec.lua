@@ -709,10 +709,20 @@ it("closures", function()
       end
     end
   ]])
-  expect.analyze_error([[
+  expect.analyze_ast([[ -- block locals are captured like inside a function
     do
       local x: integer = 1
       local function foo()
+        print(x)
+      end
+      local bar = function() print(x) end
+    end
+  ]])
+  expect.analyze_error([[
+    do
+      local x: integer = 1
+      local R = @record{}
+      function R.foo()
         print(x)
       end
     end
@@ -1782,7 +1792,19 @@ it("closures", function()
       local function g(x: auto) return x + n end
       return g(1)
     end
-  ]], "anonymous functions cannot be polymorphic")
+  ]], "closures cannot be polymorphic")
+  expect.analyze_error([[
+    local function f(n: integer)
+      local g = function(x: auto) return x + n end
+      return g(1)
+    end
+  ]], "closures cannot be polymorphic")
+  expect.analyze_error([[
+    local function f(n: integer)
+      local g = function(x: integer): auto return x + n end
+      return g(1)
+    end
+  ]], "closures cannot have 'auto' returns")
   expect.analyze_error([[
     local function f(n: integer)
       local R = @record{}
