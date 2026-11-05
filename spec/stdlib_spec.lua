@@ -33,6 +33,33 @@ it("allocators", function()
 end)
 it("variant", function()
   expect.run_c_from_file('tests/variant_test.nelua')
+  expect.run_c([[
+    require 'variant'
+    require 'string'
+    local V = @variant(integer, string)
+    local a: V = 1
+    local b: V = 1
+    local e: V
+    print(a == b, a == 'x', a == e, e == e, a == 1, 1 == a)
+    print(a, e)
+    local function describe(x: auto): string
+      ## if x.type.is_integral then
+        return 'int'
+      ## else
+        return 'str'
+      ## end
+    end
+    b = 's'
+    print(a:visit(describe), b:visit(describe))
+  ]], "true\tfalse\tfalse\ttrue\ttrue\ttrue\n" ..
+      "variant(int64, string): 1\tvariant(int64, string): empty\n" ..
+      "int\tstr")
+  expect.run_error_c([[
+    require 'variant'
+    local e: integer|string
+    local function one(x: auto): integer return 1 end
+    print(e:visit(one))
+  ]], "attempt to visit an empty variant")
 end)
 it("span", function()
   expect.run_c_from_file('tests/span_test.nelua')

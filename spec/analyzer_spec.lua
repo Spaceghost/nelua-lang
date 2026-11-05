@@ -1773,6 +1773,29 @@ it("variant types", function()
     require 'variant'
     local v: integer|integer
   ]], "variant has duplicated type 'int64'")
+  expect.analyze_ast([[
+    require 'variant'
+    local V = @variant(integer, string)
+    ## static_assert(#V.value.types == 2 and V.value.types[1] == primtypes.integer)
+    ## static_assert(V.value.types[2] == primtypes.string)
+    local a: V = 1
+    local b: V = 's'
+    local eq: boolean = a == b
+    local ne: boolean = a ~= 2
+    local se: boolean = 's' == b
+  ]])
+  expect.analyze_error([[
+    require 'variant'
+    local a: integer|string = 1
+    local b: integer|boolean = 1
+    local eq = a == b
+  ]], "no viable conversion from 'variant(int64, boolean)' to 'variant(int64, string)'")
+  expect.analyze_error([[
+    require 'variant'
+    local a: integer|string = 1
+    local function ident(x: auto) return x end
+    local r = a:visit(ident)
+  ]], "deduced type 'any'")
 end)
 
 it("const pointers", function()

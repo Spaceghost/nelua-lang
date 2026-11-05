@@ -45,7 +45,8 @@ each with specs in `spec/` and docs under `docs/pages/`:
 - **`--target <triple>`**: cross compile with clang or `zig cc`, the triple reaches
   the type-size probe, the cache hash and the compile.
 - **`tools/nelua-bindgen`**: generates `<cimport>` bindings from C headers with libclang.
-- **Variants**: tagged unions as `variant(A, B)` or `A|B` through `require 'variant'`.
+- **Variants**: tagged unions as `variant(A, B)` or `A|B` through `require 'variant'`,
+  with `==` (also against bare member values), `tostring` and `visit` ([overview](docs/pages/overview.md#variant)).
 - **Closures**: anonymous functions capture upvalues by value as closure records.
 - **Static initializers**: top-scope variables initialized with `nilptr`, the
   address of a static object (`&g`, `&arr[3]`, `&rec.field`), casts of those,

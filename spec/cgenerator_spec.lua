@@ -2759,6 +2759,30 @@ it("freestanding pragma", function()
   ]], "top scope statements are emitted into `nelua_main`, but nothing calls it")
 end)
 
+it("variant under freestanding", function()
+  -- `__tostring` needs the string library, so it is left out and the rest still works
+  local _, context = expect.analyze_ast([[
+    ## pragmas.freestanding = true
+    ## pragmas.abort = 'trap'
+    require 'variant'
+    local V = @variant(int64, boolean)
+    ## static_assert(V.value.metafields.__eq and V.value.metafields.visit)
+    ## static_assert(not V.value.metafields.__tostring)
+    local function seven(v: auto): int64 return 7 end
+    local function same(a: int64, b: int64): boolean <cexport, codename 'same'>
+      local x: V = a
+      local y: V = b
+      return x == y and x:visit(seven) == 7 -- visiting an empty variant traps
+    end
+  ]], nil, 'c')
+  local code = assert(require('nelua.cgenerator').generate(context))
+  assert(code:find('bool same(int64_t a, int64_t b)', 1, true), 'missing same')
+  assert(code:find('__builtin_trap();', 1, true), 'missing trap')
+  assert(not code:find('<stdlib.h>', 1, true), 'unexpected stdlib.h')
+  assert(not code:find('<stdio.h>', 1, true), 'unexpected stdio.h')
+  assert(not code:find('int main(', 1, true), 'unexpected main')
+end)
+
 it("static initializers at top scope", function()
   -- constant initializers become C static initializers instead of statements in `nelua_main`
   expect.generate_c([[
