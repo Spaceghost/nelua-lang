@@ -89,6 +89,7 @@ typevisitors[types.PointerType] = function(context, type)
   if context.ctypedefs[type.codename] then return end
   local decemitter = CEmitter(context)
   local subtype = type.subtype
+  local cqual = type.is_constpointer and 'const ' or ''
   if type.is_unbounded_pointer then
     subtype = subtype.subtype
   end
@@ -100,11 +101,11 @@ typevisitors[types.PointerType] = function(context, type)
     decemitter:add_ln('typedef ', kindname, ' ', subcodename, ' ', subcodename, ';')
     table.insert(context.latedecls, subtype)
     context.ctypedefs[subcodename] = true
-    decemitter:add_ln('typedef ', subcodename, '* ', type.codename, ';')
+    decemitter:add_ln('typedef ', cqual, subcodename, '* ', type.codename, ';')
   elseif context.ctypedefs[subcodename] then
-    decemitter:add_ln('typedef ', subcodename, '* ', type.codename, ';')
+    decemitter:add_ln('typedef ', cqual, subcodename, '* ', type.codename, ';')
   else
-    decemitter:add_ln('typedef ', subtype, '* ', type.codename, ';')
+    decemitter:add_ln('typedef ', cqual, subtype, '* ', type.codename, ';')
   end
   table.insert(context.declarations, decemitter:generate())
 end

@@ -1733,6 +1733,64 @@ it("automatic dereferencing", function()
   ]], 'no viable type conversion')
 end)
 
+it("const pointers", function()
+  expect.analyze_ast([[
+    local a: integer = 1
+    local p: *const integer = &a
+    local q: *integer = &a
+    p = q
+    local v: integer = $p
+    local r: *const void = p
+    local s: *const void = q
+    local t: *integer = (@*integer)(p)
+    local u: pointer = (@pointer)(p)
+    local cs: *const cchar = 'hi'
+    local R = @record{x: integer}
+    local rec: R = {x=1}
+    local pr: *const R = &rec
+    local x: integer = pr.x
+    local pa: *const [0]integer = &(@[4]integer){1,2,3,4}
+    local y: integer = pa[1]
+    local function f(x: *const integer): integer return $x end
+    f(&a)
+    f(p)
+    local function g(r: *const R): integer return r.x end
+    g(rec)
+    g(pr)
+    ## static_assert(types.PointerType(primtypes.integer, true).is_constpointer)
+    ## static_assert(not types.PointerType(primtypes.integer).is_constpointer)
+    ## static_assert(types.PointerType(primtypes.integer, true) ~= types.PointerType(primtypes.integer))
+  ]])
+  expect.analyze_error([[local a: integer = 1; local p: *const integer = &a; $p = 2]],
+    "cannot assign a constant variable")
+  expect.analyze_error([[local a: integer = 1; local p: *const integer = &a; local q: *integer = p]],
+    "cannot convert const pointer type 'pointer(const int64)' to non-const pointer type 'pointer(int64)'")
+  expect.analyze_error([[local a: integer = 1; local p: *const integer = &a; local q: pointer = p]],
+    "cannot convert const pointer")
+  expect.analyze_error([[local a: integer = 1; local p: *const integer = &a; local q: *integer = &$p]],
+    "cannot convert const pointer")
+  expect.analyze_error([[local R = @record{x: integer}; local r: R; local p: *const R = &r; p.x = 1]],
+    "cannot assign a constant variable")
+  expect.analyze_error([[local R = @record{x: integer}; local r: R; local p: *const R = &r; local q: *integer = &p.x]],
+    "cannot convert const pointer")
+  expect.analyze_error([[
+    local R = @record{x: integer}
+    function R:set() self.x = 1 end
+    local r: R; local p: *const R = &r; p:set()
+  ]], "cannot convert const pointer")
+  expect.analyze_error([[
+    local R = @record{x: integer}
+    function R:set() self.x = 1 end
+    local r: R; local p: *const R = &r; ($p):set()
+  ]], "cannot automatic reference read-only value")
+  expect.analyze_error([[local a: [4]integer; local p: *const [4]integer = &a; p[1] = 2]],
+    "cannot assign a constant variable")
+  expect.analyze_error([[local a: integer = 1; local p: *const integer = &a; local function f(x: *integer) end; f(p)]],
+    "cannot convert const pointer")
+  expect.analyze_error([[local a: integer = 1; local p: *const integer = &a; local function f(x: pointer) end; f(p)]],
+    "cannot convert const pointer")
+end)
+
 it("pointers to complex types", function()
   expect.analyze_ast([=[local p: pointer(record{x:isize}); p.x = 0]=])
   expect.analyze_ast([=[local p: pointer(array(isize, 10)); p[0] = 0]=])

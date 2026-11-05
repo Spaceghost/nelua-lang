@@ -170,7 +170,7 @@ functypearg     <-- typeddecl / typeexpr
 typearg         <-- typeexpr / `(` expr @`)` / expr
 
 -- Type expression operators
-typeopptr : PointerType   <== `*`
+typeopptr : PointerType   <== `*` ('const' WORDSKIP $true)?
 typeopopt : OptionalType  <== `?`
 typeoparr : ArrayType     <== `[` expr? @`]`
 typeopvar : VariantType   <== typevaris

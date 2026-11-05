@@ -20,7 +20,9 @@ cdefs.primitive_typenames = {
   nlfloat128    = '__float128',
   nlboolean     = {'bool', '<stdbool.h>'},
   nlcstring     = 'char*',
+  nlccstring    = 'const char*',
   nlpointer     = 'void*',
+  nlcpointer    = 'const void*',
   nlnilptr      = 'void*',
   nlvoid        = 'void',
   -- C types

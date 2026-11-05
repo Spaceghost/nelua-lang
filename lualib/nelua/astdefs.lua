@@ -184,6 +184,7 @@ aster.register('ArrayType', {
 -- Pointer type.
 aster.register('PointerType', {
   shaper.Node + shaper.falsy, -- subtype type expr
+  shaper.boolean + shaper.falsy, -- whether the pointee is const
 })
 
 -- Optional type.

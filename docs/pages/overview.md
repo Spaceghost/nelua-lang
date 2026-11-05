@@ -803,6 +803,28 @@ local p: pointer -- a generic pointer to anything, initialized to nilptr
 local i: *integer -- pointer to an integer
 ```
 
+#### Const pointers
+
+A pointer can point to a read-only value, translated to C `const T*`:
+
+```nelua
+local a: integer = 1
+local p: *const integer = &a -- pointer to a read-only integer
+local v = $p -- reading is allowed
+-- $p = 2 -- compile error: cannot assign a constant variable
+-- local q: *integer = p -- compile error: discards const without an explicit cast
+local q: *integer = (@*integer)(p) -- explicit casts are allowed
+local s: *const cchar = 'hi' -- C `const char*`
+local function f(x: *const integer) end
+f(&a) -- a non-const pointer converts implicitly to a const pointer
+```
+
+Fields and elements reached through a const pointer are read-only,
+and referencing them yields const pointers.
+Note that `*const T` constrains the pointed value, while the `<const>`
+annotation on a variable constrains the variable itself.
+{:.alert.alert-info}
+
 Pointers are directly translated to C raw pointers.
 Unlike C, pointer arithmetic is disallowed.
 To do pointer arithmetic you must explicitly cast to and from integers.
