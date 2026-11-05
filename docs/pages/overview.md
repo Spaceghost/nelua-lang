@@ -821,11 +821,7 @@ end
 
 local v: integer|string -- empty until assigned
 v = 'hello'
-assert(v:index() == 2) -- 1-based index of the held type, 0 when empty
-switch v:index() do
-case v.indexof(@integer) then print('integer')
-case v.indexof(@string) then print('string')
-end
+assert(v:index() == 2) -- 1-based index of the held type in declaration order, 0 when empty
 ```
 
 `get` raises a runtime error when another type is held, `getptr` returns `nilptr` instead.

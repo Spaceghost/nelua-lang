@@ -24,18 +24,18 @@ do -- shorthand syntax and implicit conversions
   local v: integer|string|boolean = true
   assert(v:is(@boolean) and v:get(@boolean) == true)
   local function describe(x: integer|string|boolean): string
-    switch x:index() do
-    case x.indexof(@integer) then return 'integer'
-    case x.indexof(@string) then return 'string'
-    case x.indexof(@boolean) then return 'boolean'
-    else return 'empty'
-    end
+    if x:is(@integer) then return 'integer'
+    elseif x:is(@string) then return 'string'
+    elseif x:is(@boolean) then return 'boolean'
+    else return 'empty' end
   end
   assert(describe(1) == 'integer')
   assert(describe('s') == 'string')
   assert(describe(false) == 'boolean')
   local e: integer|string|boolean
   assert(describe(e) == 'empty')
+  switch v:index() do -- 1-based index in declaration order
+  case 3 then assert(v:get(@boolean)) else error('wrong index') end
 end
 
 do -- records and mutation through pointers

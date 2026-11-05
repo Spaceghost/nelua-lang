@@ -135,14 +135,6 @@ Remarks: `get` is checked, it raises a runtime error when another type is held.
     return &self.u.#|'v'..i|#
   end
 
-  -- Returns the index of type `T` among the variant types at compile time,
-  -- useful for dispatching with `switch v:index()`.
-  function variantT.indexof(T: type): usize <inline,nosideeffect>
-    ## local i = index_of(T.value)
-    ## static_assert(i, "type '%s' is not a member of '%s'", T.value, variantT)
-    return #[i]#
-  end
-
   ## return variantT
 ## end
 
