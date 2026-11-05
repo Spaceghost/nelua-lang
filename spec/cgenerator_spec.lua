@@ -2711,8 +2711,8 @@ it("freestanding pragma", function()
     local function add(a: int64, b: int64): int64 <cexport, codename 'add'>
       return a + b
     end
-    local function at(p: *[0]int64, i: usize): int64 <cexport, codename 'at'>
-      return p[i]
+    local function at(p: *[4]int64, i: usize): int64 <cexport, codename 'at'>
+      return p[i] -- bounds checked, so the panic path must trap instead of calling abort()
     end
   ]], {"int64_t add(int64_t a, int64_t b)", "__builtin_trap();"})
   do -- no entry point and no stdlib/stdio includes are emitted
