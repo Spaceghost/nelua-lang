@@ -196,8 +196,17 @@ class Generator:
             return self.type_str(t.get_canonical(), depth)
         raise ValueError('unsupported C type kind %s (%s)' % (kind.name, t.spelling))
 
+    def param_type_str(self, t):
+        """Parameter types: C decays `T a[N]` to `T*`, which Nelua spells `*[0]T`."""
+        named = t.get_named_type() if t.kind == TypeKind.ELABORATED else t
+        if named.kind in (TypeKind.CONSTANTARRAY, TypeKind.INCOMPLETEARRAY):
+            elem = named.element_type
+            const = 'const ' if elem.is_const_qualified() else ''
+            return '*%s[0]%s' % (const, self.type_str(elem))
+        return self.type_str(t)
+
     def func_type_str(self, t):
-        args = [self.type_str(a) for a in t.argument_types()] if t.kind == TypeKind.FUNCTIONPROTO else []
+        args = [self.param_type_str(a) for a in t.argument_types()] if t.kind == TypeKind.FUNCTIONPROTO else []
         if t.kind == TypeKind.FUNCTIONPROTO and t.is_function_variadic():
             args.append('cvarargs')
         ret = self.type_str(t.get_result())
@@ -332,7 +341,7 @@ class Generator:
             pname = nelua_ident(p.spelling or 'a%d' % (i + 1), used)
             used.add(pname)
             try:
-                params.append('%s: %s' % (pname, self.type_str(p.type)))
+                params.append('%s: %s' % (pname, self.param_type_str(p.type)))
             except ValueError as e:
                 self.skip(cursor, str(e))
                 return
