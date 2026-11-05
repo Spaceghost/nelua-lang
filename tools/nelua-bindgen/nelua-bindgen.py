@@ -254,7 +254,8 @@ class Generator:
             # forward declaration: define opaque now, completed later if the definition shows up
             self.forwarded.add(name)
             self.names_used.add(name)
-            self.emit('global %s%s: type %s = @%s{}' % (self.prefix, name, self.annots(decl, 'forwarddecl'), kw))
+            ctypedef = '' if typedef_name else "ctypedef'%s'" % decl.spelling
+            self.emit('global %s%s: type %s = @%s{}' % (self.prefix, name, self.annots(decl, ctypedef, 'forwarddecl'), kw))
             return
         if name in self.defined:
             return
@@ -481,7 +482,8 @@ class Generator:
                     kw = 'union' if d.kind == CursorKind.UNION_DECL else 'record'
                     if d.kind == CursorKind.ENUM_DECL:
                         continue
-                    self.emit('global %s%s: type %s = @%s{}' % (self.prefix, n, self.annots(d, 'cincomplete'), kw))
+                    ctypedef = "ctypedef'%s'" % d.spelling if d.kind != CursorKind.TYPEDEF_DECL and d.spelling else ''
+                    self.emit('global %s%s: type %s = @%s{}' % (self.prefix, n, self.annots(d, ctypedef, 'cincomplete'), kw))
         if self.skipped:
             self.emit()
             self.emit('-- Not generated:')
