@@ -1545,7 +1545,7 @@ it("string comparisons", function()
   -- array fields compare by the field size, not the record size
   expect.generate_c([[
     local R = @record{x: integer, arr: [2]int8}
-    local a, b: R
+    local a: R, b: R
     local x = a == b
   ]], "return a.x == b.x && memcmp(a.arr, b.arr, sizeof(a.arr)) == 0;")
   expect.run_c([[
