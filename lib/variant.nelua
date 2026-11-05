@@ -33,14 +33,18 @@ Remarks: `get` is checked, it raises a runtime error when another type is held.
   end
   ]]
 
+  ##[[
+  -- union of the member types, with fields `v1`, `v2`, ... in member order
+  local variantU = types.UnionType({})
+  for i,T in ipairs(Ts) do
+    variantU:add_field('v'..i, T)
+  end
+  ]]
+
   -- Variant record defined when instantiating the generic `variant`.
   local variantT: type <nickname(#[nickname]#)> = @record{
     tag: uint8,
-    u: union{
-      ## for i,T in ipairs(Ts) do
-        #|'v'..i|#: #[T]#,
-      ## end
-    }
+    u: #[variantU]#
   }
 
   ##[[
