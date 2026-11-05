@@ -318,6 +318,62 @@ local function can_use_initializer(node)
   return true
 end
 
+local is_cstatic_initializer
+
+-- Checks whether `node` denotes an object with static storage whose address is a C constant.
+local function is_cstatic_address(node)
+  if node.is_Paren then
+    return is_cstatic_address(node[1])
+  elseif node.is_Id then
+    local attr = node.attr
+    return attr.staticstorage == true and attr.lvalue == true and not attr.comptime and
+           attr.type and not attr.type.is_function
+  elseif node.is_KeyIndex then -- `arr[const]` on a static array
+    local objnode = node[2]
+    local objtype = objnode.attr.type
+    return node[1].attr.comptime == true and objtype and objtype.is_array and is_cstatic_address(objnode)
+  elseif node.is_DotIndex then -- `rec.field` on a static record (not through a pointer)
+    local objnode = node[2]
+    local objtype = objnode.attr.type
+    return objtype and objtype.is_record and is_cstatic_address(objnode)
+  end
+  return false
+end
+
+-- Checks whether `node` can be emitted as a C static initializer
+-- (a constant expression that needs no code in `nelua_main`).
+function is_cstatic_initializer(node)
+  if not traits.is_astnode(node) then return false end
+  local attr = node.attr
+  if attr.comptime then return true end
+  if attr.sideeffect then return false end
+  if node.is_Nilptr then
+    return true
+  elseif node.is_Paren then
+    return is_cstatic_initializer(node[1])
+  elseif node.is_UnaryOp then
+    return node[1] == 'ref' and is_cstatic_address(node[2])
+  elseif node.is_Call then -- a type cast of a static initializer to a pointer or scalar
+    local calleetype = attr.calleetype
+    if not (calleetype and calleetype.is_type) then return false end
+    local argnode = node[1][1]
+    local type = attr.type
+    return argnode ~= nil and #node[1] == 1 and type and (type.is_pointer or type.is_scalar) and
+           is_cstatic_initializer(argnode)
+  elseif node.is_InitList then
+    local type = attr.type
+    if not (type and type.is_aggregate) then return false end
+    if type.is_composite and not can_use_initializer(node) then return false end
+    for i=1,#node do
+      local childnode = node[i]
+      if childnode.is_Pair then childnode = childnode[2] end
+      if not is_cstatic_initializer(childnode) then return false end
+    end
+    return true
+  end
+  return false
+end
+
 function visitors.InitList(_, node, emitter, untypedinit)
   local attr = node.attr
   local childnodes, type = node, attr.type
@@ -1217,7 +1273,11 @@ function visitors.VarDecl(context, node, emitter)
       local declared, defined
       if varattr.staticstorage then -- declare variables in the top scope
         local decemitter = CEmitter(context)
-        local custominit = (valnode and vartype:is_initializable_from_attr(valnode.attr)) or varattr.ctopinit
+        local custominit = (valnode and (vartype:is_initializable_from_attr(valnode.attr) or
+                            (is_cstatic_initializer(valnode) and
+                             (vartype == valnode.attr.type or
+                              (vartype.is_pointer and valnode.attr.type.is_nilptr))))) or
+                           varattr.ctopinit
         declared = true
         defined = custominit or (not valnode and not lastcallindex)
         varnode.attr.ignoreconst = not defined

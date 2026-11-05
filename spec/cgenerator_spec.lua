@@ -2759,6 +2759,52 @@ it("freestanding pragma", function()
   ]], "top scope statements are emitted into `nelua_main`, but nothing calls it")
 end)
 
+it("static initializers at top scope", function()
+  -- constant initializers become C static initializers instead of statements in `nelua_main`
+  expect.generate_c([[
+    local R: type = @record{x: integer, p: pointer, q: *[0]cchar}
+    local buf: [4]cchar
+    local r: R = {x = 1, p = nilptr}
+    local pr: *R = &r
+    local pc: *[0]cchar = (@*[0]cchar)(&buf[1])
+    local np: *[0]cchar = nilptr
+    local tab: [2]*[0]cchar = {(@*[0]cchar)(&buf[0]), nilptr}
+    local px: *int64 = &r.x
+    local rr: R = {x = 2, p = &r, q = (@*[0]cchar)(&buf[0])}
+  ]], {
+    "static R r = {.x = 1, .p = (void*)NULL};",
+    "static R_ptr pr = (&r);",
+    "static nlcchar_arr0_ptr pc = ((nlcchar_arr0_ptr)(&buf.v[1]));",
+    "static nlcchar_arr0_ptr np = ((nlcchar_arr0_ptr)NULL);",
+    "static nlcchar_arr0_ptr_arr2 tab = {.v = {((nlcchar_arr0_ptr)(&buf.v[0])), ((nlcchar_arr0_ptr)NULL)}};",
+    "static nlint64_ptr px = (&r.x);",
+    "static R rr = {.x = 2, .p = (void*)(&r), .q = ((nlcchar_arr0_ptr)(&buf.v[0]))};",
+  })
+  do -- nothing is left for `nelua_main` under `noentrypoint`
+    local _, context = expect.analyze_ast([[
+      ## pragmas.noentrypoint = true
+      local R: type = @record{x: integer, next: *R}
+      local a: R = {x = 1, next = nilptr}
+      local head: *R = &a
+      local function f(): *R <cexport, codename 'f'> return head end
+    ]], nil, 'c')
+    local code = assert(require('nelua.cgenerator').generate(context))
+    assert(not code:find('nelua_main', 1, true), 'unexpected nelua_main')
+    assert(code:find('static R_ptr head = (&a);', 1, true), 'missing static initializer')
+  end
+  -- runtime values still initialize in `nelua_main`
+  expect.generate_c([[
+    local function f(): integer return 1 end
+    local v: integer = f()
+    local x: integer = 3
+    local px: *integer = &x
+    local pv: integer = $px
+  ]], {
+    "v = f();",
+    "pv = (*(int64_t*)nelua_assert_deref(px));",
+  })
+end)
+
 it("closures", function()
   expect.run_c([[
     require 'string'
@@ -3086,7 +3132,7 @@ it("implicit casting for unbounded arrays", function()
 end)
 
 it("nilptr", function()
-  expect.generate_c("local p: pointer = nilptr", "void* p;")
+  expect.generate_c("local p: pointer = nilptr", "static void* p = (void*)NULL;")
   expect.generate_c("do local p: pointer = nilptr end", "void* p = (void*)NULL;")
   expect.run_c([[
     local p: pointer = nilptr

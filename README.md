@@ -47,6 +47,10 @@ each with specs in `spec/` and docs under `docs/pages/`:
 - **`tools/nelua-bindgen`**: generates `<cimport>` bindings from C headers with libclang.
 - **Variants**: tagged unions as `variant(A, B)` or `A|B` through `require 'variant'`.
 - **Closures**: anonymous functions capture upvalues by value as closure records.
+- **Static initializers**: top-scope variables initialized with `nilptr`, the
+  address of a static object (`&g`, `&arr[3]`, `&rec.field`), casts of those,
+  or record/array literals built from them are emitted as C static initializers
+  instead of statements in `nelua_main`, so they hold under `noentrypoint` too.
 - **Compact C profile** (`lualib/nelua/compactc.lua`), Tree-sitter and TextMate
   grammars (`tools/`), and a binary cache that hashes imported C sources.
 
