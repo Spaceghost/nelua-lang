@@ -129,3 +129,19 @@ nelua examples/snakesdl.nelua
 <a href="/tutorial/" class="btn btn-outline-primary btn-lg float-right">Tutorial >></a>
 
 {% endraw %}
+
+## Editor support
+
+Two editor grammars live in the repository and follow the fork syntax:
+
+* `tools/tree-sitter-nelua`: a Tree-sitter grammar authored in Nelua
+  (`grammar.nelua`) with corpus tests and highlight queries. It covers const
+  pointers (`*const T`, `*const [0]cchar`, `*const *const T`), variant type
+  expressions (`A|B`, `A|B|C`, `variant(A, B)`) and anonymous `function`
+  expressions. The checked-in `src/parser.c` is still generated from an older
+  pin and must be regenerated with Tree-sitter CLI 0.25.10 before it parses
+  the fork syntax; see the tool README.
+* `tools/textmate-nelua`: a TextMate grammar (`source.nelua`) for GitHub,
+  VS Code and other TextMate consumers. `const` after `*` is a storage
+  modifier and `|` inside a type annotation or `@` type expression is the
+  variant operator; type contexts are a line heuristic, not compiler parsing.

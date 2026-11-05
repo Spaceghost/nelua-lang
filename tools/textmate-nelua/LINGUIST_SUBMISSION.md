@@ -11,6 +11,14 @@ without repair and exercises real vscode-textmate 9.2.0 / Oniguruma 2.0.1 tokens
 The JavaScript probe is only the foreign TextMate engine adapter. Tree-sitter's
 native scanner separately remains Nelua with compiler-produced C.
 
+Fork syntax: `const` after `*` is `storage.modifier.const.nelua`, and `|` is
+`keyword.operator.type.variant.nelua` inside a type context. A type context is a
+line heuristic (`meta.type.annotation.nelua` after a `name:` declaration or
+`):` return type, `meta.type.expression.nelua` after `@`), ending at `=`, `,`,
+`;`, `<`, a closing bracket or the end of the line, with parentheses and braces
+balanced inside. A `|` after a method call on the same line inherits that scope;
+no claim of compiler-exact type detection is made.
+
 For a Linguist submission:
 
 1. Link this maintained, MIT-licensed grammar and representative public Nelua

@@ -47,6 +47,9 @@ each with specs in `spec/` and docs under `docs/pages/`:
 - **`tools/nelua-bindgen`**: generates `<cimport>` bindings from C headers with libclang.
 - **Variants**: tagged unions as `variant(A, B)` or `A|B` through `require 'variant'`.
 - **Closures**: anonymous functions capture upvalues by value as closure records.
+- **Editor grammars**: `tools/tree-sitter-nelua` and `tools/textmate-nelua` know
+  `*const T`, `A|B` variants and anonymous `function` expressions
+  ([installing](docs/pages/installing.md#editor-support)); Tree-sitter parser regeneration is pending.
 - **Static initializers**: top-scope variables initialized with `nilptr`, the
   address of a static object (`&g`, `&arr[3]`, `&rec.field`), casts of those,
   or record/array literals built from them are emitted as C static initializers
