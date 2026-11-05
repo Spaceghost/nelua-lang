@@ -2761,6 +2761,7 @@ end)
 
 it("closures", function()
   expect.run_c([[
+    require 'string'
     local function make_adder(n: integer)
       return function(x: integer): integer return x + n end
     end
