@@ -166,12 +166,13 @@ require 'stringbuilder'
   agree on a common type. Raises a runtime error when the variant is empty.
   ]]
   function variantT:visit(f: auto)
-    ## for i=1,#Ts do
+    check(self.tag ~= 0, 'attempt to visit an empty variant')
+    ## for i=1,#Ts-1 do
     if self.tag == #[i]# then
       return f(self.u.#|'v'..i|#)
     end
     ## end
-    error('attempt to visit an empty variant')
+    return f(self.u.#|'v'..#Ts|#)
   end
 
   ## if not pragmas.freestanding then
