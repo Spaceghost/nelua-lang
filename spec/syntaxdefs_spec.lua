@@ -482,6 +482,26 @@ describe("statement", function()
           n.Block{n.Return{ n.Id{'z'} }}
       }})
     end)
+    it("if local", function()
+      expect_ast("if local x = e then end",
+        n.Block{
+          n.If{{
+            n.IfLocal{n.IdDecl{'x'}, n.Id{'e'}}, n.Block{}
+      }}})
+      expect_ast("if local x: integer = f()? then return x elseif local y = g then return y elseif c then return z else return w end",
+        n.Block{
+          n.If{{
+            n.IfLocal{n.IdDecl{'x', n.Id{'integer'}}, n.Try{n.Call{{}, n.Id{'f'}}}}, n.Block{n.Return{ n.Id{'x'} }},
+            n.IfLocal{n.IdDecl{'y'}, n.Id{'g'}}, n.Block{n.Return{ n.Id{'y'} }},
+            n.Id{'c'}, n.Block{n.Return{ n.Id{'z'} }},
+          },
+          n.Block{n.Return{ n.Id{'w'} }}
+      }})
+      expect_ast_error("if local x then end", 'Expected_=')
+      expect_ast_error("if local x = then end", 'Expected_expr')
+      expect_ast_error("if local then end", 'Expected_iddecl')
+      expect_ast_error("while local x = e do end", 'Expected_expr')
+    end)
   end)
 
   describe("switch", function()
@@ -1130,6 +1150,60 @@ describe("operators following precedence rules for", function()
                               n.BinaryOp{n.Id{"k"}, "pow",
                                 n.UnaryOp{"len", n.Id{"l"}
     }}}}}}}}}}}}}})
+  end)
+  it("`orelse`", function()
+    -- `orelse` binds tighter than comparison and looser than `|`
+    expect_ast("return a orelse b",
+      n.Block{
+        n.Return{
+          n.BinaryOp{n.Id{"a"}, "orelse", n.Id{"b"}}
+        }
+    })
+    expect_ast("return a orelse b orelse c",
+      n.Block{
+        n.Return{
+          n.BinaryOp{n.BinaryOp{n.Id{"a"}, "orelse", n.Id{"b"}}, "orelse", n.Id{"c"}}
+        }
+    })
+    expect_ast("return a == b orelse c",
+      n.Block{
+        n.Return{
+          n.BinaryOp{n.Id{"a"}, "eq", n.BinaryOp{n.Id{"b"}, "orelse", n.Id{"c"}}}
+        }
+    })
+    expect_ast("return a orelse b == c",
+      n.Block{
+        n.Return{
+          n.BinaryOp{n.BinaryOp{n.Id{"a"}, "orelse", n.Id{"b"}}, "eq", n.Id{"c"}}
+        }
+    })
+    expect_ast("return a | b orelse c | d",
+      n.Block{
+        n.Return{
+          n.BinaryOp{n.BinaryOp{n.Id{"a"}, "bor", n.Id{"b"}}, "orelse", n.BinaryOp{n.Id{"c"}, "bor", n.Id{"d"}}}
+        }
+    })
+    expect_ast("return a or b orelse c and d",
+      n.Block{
+        n.Return{
+          n.BinaryOp{n.Id{"a"}, "or",
+            n.BinaryOp{n.BinaryOp{n.Id{"b"}, "orelse", n.Id{"c"}}, "and", n.Id{"d"}}}
+        }
+    })
+    expect_ast("return a orelse b + 1",
+      n.Block{
+        n.Return{
+          n.BinaryOp{n.Id{"a"}, "orelse", n.BinaryOp{n.Id{"b"}, "add", n.Number{"1"}}}
+        }
+    })
+    expect_ast("return x? orelse f()",
+      n.Block{
+        n.Return{
+          n.BinaryOp{n.Try{n.Id{"x"}}, "orelse", n.Call{{}, n.Id{"f"}}}
+        }
+    })
+    expect_ast_error("return a orelse", 'Expected_exprbor')
+    expect_ast_error("local orelse = 1", 'Expected_suffixeddecls')
   end)
   it("lua associative rules", function()
     expect_ast("return a + b + c",

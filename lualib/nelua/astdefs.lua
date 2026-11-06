@@ -249,6 +249,7 @@ aster.register('UnaryOp', {
 aster.register('BinaryOp', {
   shaper.Node, --- left expr
   shaper.one_of{"or", "and",
+                "orelse",
                 "eq", "ne", "le", "lt", "ge", "gt",
                 "bor", "bxor", "band", "shl", "shr", "asr",
                 "concat",
@@ -273,6 +274,12 @@ aster.register('In', {
   shaper.Node, -- final expr
 }, {
   is_breakflow = true,
+})
+
+-- If local condition (e.g. `if local x = e then`), binds the value of an optional.
+aster.register('IfLocal', {
+  shaper.IdDecl, -- declared variable
+  shaper.Node, -- optional expr
 })
 
 -- If statement.

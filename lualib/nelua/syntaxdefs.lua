@@ -39,7 +39,9 @@ Defer           <== `defer` Block @`end`
 While           <== `while` @expr @`do` Block @`end`
 Repeat          <== `repeat` Block @`until` @expr
 If              <== `if` ifs (`else` Block)? @`end`
-ifs             <-| @expr @`then` Block (`elseif` @expr @`then` Block)*
+ifs             <-| @ifcond @`then` Block (`elseif` @ifcond @`then` Block)*
+ifcond          <-- IfLocal / expr
+IfLocal         <== `local` @iddecl @`=` @expr
 Switch          <== `switch` @expr `do`? @cases (`else` Block)? @`end`
 cases           <-| (`case` @exprs @`then` Block)+
 for             <-- `for` (ForNum / ForIn)
@@ -117,7 +119,8 @@ vars            <-| var (`,` @var)*
 -- Expression operators
 opor      : BinaryOp  <== `or`->'or' @exprand
 opand     : BinaryOp  <== `and`->'and' @exprcmp
-opcmp     : BinaryOp  <== cmp @exprbor
+opcmp     : BinaryOp  <== cmp @exprorelse
+oporelse  : BinaryOp  <== `orelse`->'orelse' @exprbor
 opbor     : BinaryOp  <== `|`->'bor' @exprbxor
 opbxor    : BinaryOp  <== `~`->'bxor' @exprband
 opband    : BinaryOp  <== `&`->'band' @exprbshift
@@ -135,7 +138,8 @@ deref     : UnaryOp   <== `$`->'deref' @exprunary
 expr            <-- expror
 expror          <-- (exprand opor*)~>foldleft
 exprand         <-- (exprcmp opand*)~>foldleft
-exprcmp         <-- (exprbor opcmp*)~>foldleft
+exprcmp         <-- (exprorelse opcmp*)~>foldleft
+exprorelse      <-- (exprbor oporelse*)~>foldleft
 exprbor         <-- (exprbxor opbor*)~>foldleft
 exprbxor        <-- (exprband opbxor*)~>foldleft
 exprband        <-- (exprbshift opband*)~>foldleft
@@ -263,8 +267,10 @@ local errors = {
 ["Expected_cases"]          = "expected `case` keyword in `switch` statement",
 ["Expected_Annotation"]     = "expected an annotation expression",
 ["Expected_expr"]           = "expected an expression",
+["Expected_ifcond"]         = "expected an expression or `local` declaration in `if` condition",
 ["Expected_exprand"]        = "expected an expression after operator",
 ["Expected_exprcmp"]        = "expected an expression after operator",
+["Expected_exprorelse"]     = "expected an expression after operator",
 ["Expected_exprbor"]        = "expected an expression after operator",
 ["Expected_exprbxor"]       = "expected an expression after operator",
 ["Expected_exprband"]       = "expected an expression after operator",
