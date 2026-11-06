@@ -1214,9 +1214,9 @@ end)
 print(y) -- outputs: 2
 ```
 
-Unlike Lua an anonymous function cannot be a closure, that is,
-it cannot use variables declared in upper scopes unless the top most scope.
-{:.alert.alert-warning}
+An anonymous function that uses variables of the enclosing functions
+becomes a [closure](#closures) record.
+{:.alert.alert-info}
 
 ### Nested functions
 
@@ -1236,9 +1236,11 @@ print(f()) -- outputs: hello from g
 The function will be visible only in inner scopes.
 {:.alert.alert-info}
 
-A named nested function cannot use variables declared in upper function scopes,
-only anonymous functions can capture them, see [closures](#closures).
-{:.alert.alert-warning}
+A named nested function that references variables of the enclosing functions
+becomes a [closure](#closures) record, exactly like `local g = function() ... end`,
+and so it can no longer call itself. A nested function that captures nothing
+stays a plain static function and may recurse.
+{:.alert.alert-info}
 
 ### Top scope closures
 
@@ -1279,9 +1281,11 @@ local add2 = make_adder(2)
 print(add2(1)) -- outputs: 3
 ```
 
-Captured variables are copied when the closure is created, so assigning to
-them inside the closure changes the closure's own copy only. To share state,
-capture a pointer:
+Captured variables are copied when the closure is created, and `__call`
+receives the closure record by value, so assigning to a captured variable
+inside the closure changes a copy that is discarded when the call returns:
+the write is not visible outside and it does not persist across calls of
+the same closure. To share state, capture a pointer:
 
 ```nelua
 local function make_counter(count: *integer)
@@ -1293,10 +1297,63 @@ inc() inc()
 print(total) -- outputs: 2
 ```
 
+A named nested function captures the same way, `local function g() ... end`
+that references enclosing locals is rewritten to `local g = function() ... end`:
+
+```nelua
+local function f(n: integer): integer
+  local function g(x: integer): integer return x + n end
+  n = n + 100 -- g keeps its own copy of n
+  return g(1)
+end
+print(f(10)) -- outputs: 11
+```
+
+To share the enclosing variables instead of copying them annotate the
+function with `<byref>` (after the return types, where function annotations go).
+The closure record then holds a pointer to each captured variable, so
+assignments inside the closure are visible in the enclosing scope:
+
+```nelua
+local function sum(limit: integer): integer
+  local total = 0
+  local function add(v: integer) <byref> total = total + v end
+  for i=1,limit do add(i) end
+  return total
+end
+print(sum(4)) -- outputs: 10
+```
+
+A `<byref>` closure points into the enclosing stack frame, so it must not be
+returned, stored or otherwise used after the enclosing function returns.
+Inside a `<byref>` closure the shared variables are references, so a nested
+closure that captures them shares them too, even without `<byref>`.
+{:.alert.alert-warning}
+
+A captured `<const>` variable stays read-only inside the closure, with or
+without `<byref>`, assigning to it is a compile error.
+
+Locals of a `do` block in the top scope are not in static storage, so a
+`local function` (or anonymous function) inside such a block captures them
+by value, exactly like inside a function, and `<byref>` works there too:
+
+```nelua
+do
+  local x = 1
+  local function g() <byref> x = x + 1 end
+  g()
+  print(x) -- outputs: 2
+end
+```
+
+Directly in the top scope every local is static, functions there are
+[top scope closures](#top-scope-closures) and `<byref>` is an error.
+
 A closure is a record, not a function pointer, so its type is inferred with
 `auto` and it cannot be passed where a C function pointer is expected.
-Named nested functions (`local function g()`) do not capture, write
-`local g = function() ... end` instead.
+A capturing nested function cannot reference itself (the record would have to
+hold itself), the compiler reports an error in that case.
+Capturing nested functions cannot be polymorphic.
 {:.alert.alert-info}
 
 ### Variable number of arguments

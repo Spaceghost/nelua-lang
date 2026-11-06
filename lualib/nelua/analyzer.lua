@@ -698,8 +698,8 @@ function visitors.Id(context, node)
   symbol:link_node(node)
   if not symbol.staticstorage and symbol.scope ~= context.rootscope and context.generator ~= 'lua' and
      not symbol:is_directly_accesible_from_scope(context.scope) then
-    node:raisef("attempt to access upvalue '%s', but only anonymous functions can capture upvalues "..
-      "(use `local f = function(...) ... end`, which copies captured values)", name)
+    node:raisef("attempt to access upvalue '%s', only anonymous functions and local nested functions "..
+      "can capture upvalues (captures are copied unless the function is annotated with <byref>)", name)
   end
   if symbol.deprecated then
     node:warnf("use of deprecated symbol '%s'", name)
@@ -2936,10 +2936,224 @@ local function resolve_function_type(node, symbol, varnode, varsym, decl, argatt
   return type
 end
 
+--[[
+Removes a `<byref>` annotation from `annotnodes`, returning true when one was present.
+The annotation is consumed by the closure rewrite and never reaches the C generator.
+]]
+local function take_byref_annotation(annotnodes)
+  if not annotnodes then return false end
+  for i=#annotnodes,1,-1 do
+    local annotnode = annotnodes[i]
+    if annotnode[1] == 'byref' then
+      table.remove(annotnodes, i)
+      return true
+    end
+  end
+  return false
+end
+
+--[[
+Checks whether the function `node` references the name `selfname` in its arguments or body,
+ignoring references shadowed by an inner declaration of the same name
+(a parameter, a local variable, a for variable or a nested named function).
+]]
+local function function_references_name(node, selfname)
+  local function walk(n, shadowed)
+    if n.is_Id then
+      return n[1] == selfname and not shadowed[selfname]
+    elseif n.is_IdDecl then
+      if n[1] == selfname then shadowed[selfname] = true end
+      return false
+    end
+    local first = 1
+    if n.is_FuncDef then -- the name is declared in the enclosing block, the rest in a new scope
+      local namenode = n[2]
+      if namenode.is_IdDecl and namenode[1] == selfname then shadowed[selfname] = true end
+      first = 3
+    end
+    if n.is_Block or n.is_function or n.is_ForNum or n.is_ForIn then
+      shadowed = setmetatable({}, {__index = shadowed})
+    end
+    local order
+    if n.is_VarDecl then -- the values are evaluated before the names are declared
+      order = {3, 2}
+    end
+    for j=first,#n do
+      local i = order and order[j - first + 1] or j
+      local child = n[i]
+      if type(child) == 'table' then
+        if child._astnode then
+          if walk(child, shadowed) then return true end
+        else -- list of nodes
+          for _,sub in ipairs(child) do
+            if type(sub) == 'table' and sub._astnode and walk(sub, shadowed) then return true end
+          end
+        end
+      end
+    end
+    return false
+  end
+  local shadowed = {}
+  local argnodes, blocknode = node.is_FuncDef and node[3] or node[1], node.is_FuncDef and node[6] or node[4]
+  for _,argnode in ipairs(argnodes) do
+    if walk(argnode, shadowed) then return true end
+  end
+  return walk(blocknode, shadowed)
+end
+
+--[[
+Finds the variables of enclosing functions that the function `node` references.
+Returns a sorted list of captures, or nil when the function can be a plain C function.
+When the function is named `selfname` and it captures upvalues,
+a reference to itself raises an error, because the closure record cannot hold itself.
+]]
+local function find_closure_captures(context, node, selfname)
+  local scope = context.scope
+  if not scope:get_up_function_scope() then
+    return -- defined outside any function, upvalues are static there
+  end
+  local declared, used = {}, {}
+  for n in node:walk_nodes() do
+    if n.is_IdDecl then
+      local name = n[1]
+      if traits.is_string(name) then
+        declared[name] = true
+      end
+    elseif n.is_Id then
+      used[n[1]] = true
+    end
+  end
+  local names = {}
+  for name in pairs(used) do
+    if not declared[name] then
+      local symbol = scope.symbols[name]
+      if symbol and not symbol.staticstorage and symbol.scope ~= context.rootscope and
+         not symbol.comptime and not (symbol.type and symbol.type.is_comptime) then
+        names[#names+1] = name
+      end
+    end
+  end
+  if #names == 0 then return end
+  if selfname and function_references_name(node, selfname) then
+    node:raisef("nested function '%s' captures upvalues and cannot reference itself, "..
+      "recursion is only supported for nested functions that capture nothing", selfname)
+  end
+  table.sort(names)
+  local captures = {}
+  for i,name in ipairs(names) do
+    local symbol = scope.symbols[name]
+    if not symbol.type then
+      symbol:resolve_type() -- try to infer it now from the possible types seen so far
+    end
+    local type = symbol.type
+    if not type or type.is_auto then
+      return nil, true -- not resolved yet, the function must be analyzed again in a later pass
+    end
+    local declnode = symbol.node
+    if declnode and declnode.is_IdDecl and declnode[3] then
+      -- annotations (like `<const>`) of an inferred declaration are applied once its type is known,
+      -- wait for them, the capture must know whether the variable is read-only
+      for _,annotnode in ipairs(declnode[3]) do
+        if annotnode.is_Annotation and symbol[annotnode[1]] == nil then
+          return nil, true
+        end
+      end
+    end
+    captures[i] = {name = name, type = type, const = symbol.const or nil}
+  end
+  return captures
+end
+
+--[[
+Rewrites the function expression `node` into a closure record:
+a record holding a copy of each captured variable plus a `__call` metamethod
+with the original body, evaluating to an instance of that record, that is
+`(do local C = @record{x: T} function C.__call(__closure: C, ...) local x = __closure.x ... end in (@C){x=x} end)`.
+
+When `byref` is set the record holds a pointer to each captured variable instead,
+`x` inside the body is rewritten to `$__x_ref` with `local __x_ref = __closure.x`,
+and the record is initialized with `{x=&x}`, so the closure shares the enclosing variables.
+
+A `<const>` captured variable stays read-only inside the closure:
+its copy is declared `<const>`, or its pointer is a const pointer when `byref` is set.
+]]
+local function make_closure_node(context, node, captures, byref)
+  local argnodes, retnodes, annotnodes, blocknode = node[1], node[2], node[3], node[4]
+  local rectype = types.RecordType({}, node)
+  for _,c in ipairs(captures) do
+    rectype:add_field(c.name, byref and types.PointerType(c.type, c.const) or c.type)
+  end
+  local tname = context.scope:generate_name('__closure')
+  local callargs = {aster.IdDecl{'__closure', aster.Id{tname}}}
+  local body = {}
+  if byref then
+    local refnames = {}
+    for _,c in ipairs(captures) do
+      local refname = '__'..c.name..'_ref'
+      refnames[c.name] = refname
+      body[#body+1] = aster.VarDecl{'local', {aster.IdDecl{refname}}, {aster.DotIndex{c.name, aster.Id{'__closure'}}}}
+    end
+    for n, parent, index in blocknode:walk_nodes() do
+      if n.is_Id and refnames[n[1]] then
+        local derefnode = aster.UnaryOp{'deref', aster.Id{refnames[n[1]]}}
+        derefnode:recursive_update_location(n.src, n.pos, n.endpos)
+        parent[index] = derefnode
+      end
+    end
+  else
+    for _,c in ipairs(captures) do
+      local annots = c.const and {aster.Annotation{'const', false}} or false
+      body[#body+1] = aster.VarDecl{'local', {aster.IdDecl{c.name, false, annots}}, {aster.DotIndex{c.name, aster.Id{'__closure'}}}}
+    end
+  end
+  local inits = {}
+  for i,c in ipairs(captures) do
+    local valnode = aster.Id{c.name}
+    if byref then
+      valnode = aster.UnaryOp{'ref', valnode}
+    end
+    inits[i] = aster.Pair{c.name, valnode}
+  end
+  local bodyblock = aster.Block(body)
+  local callnode = aster.FuncDef{false, aster.DotIndex{'__call', aster.Id{tname}}, callargs, retnodes, annotnodes, bodyblock}
+  callnode.closurecall = true
+  local newnode = aster.DoExpr{aster.Block{
+    aster.VarDecl{'local', {aster.IdDecl{tname}}, {aster.value(rectype)}},
+    callnode,
+    aster.In{aster.Call{{aster.InitList(inits)}, aster.Type{aster.Id{tname}}}},
+  }}
+  newnode:recursive_update_location(node.src, node.pos, node.endpos)
+  -- the original arguments and body keep their own locations
+  for i=1,#argnodes do callargs[#callargs+1] = argnodes[i] end
+  for i=1,#blocknode do bodyblock[#bodyblock+1] = blocknode[i] end
+  return newnode
+end
+
 function visitors.FuncDef(context, node, opts)
   local polysymbol = opts and opts.polysymbol
   local declscope, varnode, argnodes, retnodes, annotnodes, blocknode =
         node[1], node[2], node[3], node[4], node[5], node[6]
+
+  if declscope == 'local' and varnode.is_IdDecl and not polysymbol and
+     context.scope:get_up_function_scope() then
+    -- a local function nested in another function that references upvalues
+    -- becomes a closure, that is `local f = function(...) ... end`
+    local byref = take_byref_annotation(annotnodes)
+    if byref and context.scope.is_topscope then
+      -- every local visible here is in static storage, there is nothing to share by pointer
+      node:raisef("annotation 'byref' is only valid on functions nested inside another function or block")
+    end
+    local captures, unresolved = find_closure_captures(context, node, varnode[1])
+    if captures or unresolved then
+      local funcnode = aster.Function{argnodes, retnodes, annotnodes, blocknode}
+      funcnode:copy_origin(node)
+      funcnode.closurebyref = byref or nil
+      local newnode = aster.VarDecl{'local', {varnode}, {funcnode}}
+      newnode:copy_origin(node)
+      context:transform_and_traverse_node(node, newnode)
+      return
+    end
+  end
 
   local type = node.attr.ftype
   context:push_forked_state{infuncdef = node, inpolydef = polysymbol}
@@ -3049,6 +3263,14 @@ function visitors.FuncDef(context, node, opts)
     -- traverse the function returns
     rettypes, hasautoret = visitor_function_returns(context, node, retnodes, ispolyparent)
 
+    if node.closurecall then -- the `__call` of a closure record
+      if ispolyparent then
+        node:raisef("closures cannot be polymorphic")
+      elseif hasautoret then
+        node:raisef("closures cannot have 'auto' returns")
+      end
+    end
+
     -- set the function type
     if not type and rettypes and (ispolyparent or not hasautoret) then
       type = resolve_function_type(node, symbol, varnode, varsym, decl,
@@ -3094,88 +3316,6 @@ function visitors.FuncDef(context, node, opts)
   end
 end
 
---[[
-Finds the variables of enclosing functions that the function expression `node` references.
-Returns a sorted list of captures, or nil when the function can be a plain C function.
-]]
-local function find_closure_captures(context, node)
-  local scope = context.scope
-  if not scope:get_up_function_scope() then
-    return -- defined outside any function, upvalues are static there
-  end
-  local declared, used = {}, {}
-  for n in node:walk_nodes() do
-    if n.is_IdDecl then
-      local name = n[1]
-      if traits.is_string(name) then
-        declared[name] = true
-      end
-    elseif n.is_Id then
-      used[n[1]] = true
-    end
-  end
-  local names = {}
-  for name in pairs(used) do
-    if not declared[name] then
-      local symbol = scope.symbols[name]
-      if symbol and not symbol.staticstorage and symbol.scope ~= context.rootscope and
-         not symbol.comptime and not (symbol.type and symbol.type.is_comptime) then
-        names[#names+1] = name
-      end
-    end
-  end
-  if #names == 0 then return end
-  table.sort(names)
-  local captures = {}
-  for i,name in ipairs(names) do
-    local symbol = scope.symbols[name]
-    if not symbol.type then
-      symbol:resolve_type() -- try to infer it now from the possible types seen so far
-    end
-    local type = symbol.type
-    if not type or type.is_auto then
-      return nil, true -- not resolved yet, the function must be analyzed again in a later pass
-    end
-    captures[i] = {name = name, type = type}
-  end
-  return captures
-end
-
---[[
-Rewrites the function expression `node` into a closure record:
-a record holding a copy of each captured variable plus a `__call` metamethod
-with the original body, evaluating to an instance of that record, that is
-`(do local C = @record{x: T} function C.__call(__closure: C, ...) local x = __closure.x ... end in (@C){x=x} end)`.
-]]
-local function make_closure_node(context, node, captures)
-  local argnodes, retnodes, annotnodes, blocknode = node[1], node[2], node[3], node[4]
-  local rectype = types.RecordType({}, node)
-  for _,c in ipairs(captures) do
-    rectype:add_field(c.name, c.type)
-  end
-  local tname = context.scope:generate_name('__closure')
-  local callargs = {aster.IdDecl{'__closure', aster.Id{tname}}}
-  local body = {}
-  for _,c in ipairs(captures) do
-    body[#body+1] = aster.VarDecl{'local', {aster.IdDecl{c.name}}, {aster.DotIndex{c.name, aster.Id{'__closure'}}}}
-  end
-  local inits = {}
-  for i,c in ipairs(captures) do
-    inits[i] = aster.Pair{c.name, aster.Id{c.name}}
-  end
-  local bodyblock = aster.Block(body)
-  local newnode = aster.DoExpr{aster.Block{
-    aster.VarDecl{'local', {aster.IdDecl{tname}}, {aster.value(rectype)}},
-    aster.FuncDef{false, aster.DotIndex{'__call', aster.Id{tname}}, callargs, retnodes, annotnodes, bodyblock},
-    aster.In{aster.Call{{aster.InitList(inits)}, aster.Type{aster.Id{tname}}}},
-  }}
-  newnode:recursive_update_location(node.src, node.pos, node.endpos)
-  -- the original arguments and body keep their own locations
-  for i=1,#argnodes do callargs[#callargs+1] = argnodes[i] end
-  for i=1,#blocknode do bodyblock[#bodyblock+1] = blocknode[i] end
-  return newnode
-end
-
 function visitors.Function(context, node)
   local argnodes, retnodes, annotnodes, blocknode =
         node[1], node[2], node[3], node[4]
@@ -3186,11 +3326,17 @@ function visitors.Function(context, node)
   if attr._symbol then
     symbol = attr
   else
+    if take_byref_annotation(annotnodes) then
+      node.closurebyref = true
+    end
+    if node.closurebyref and context.scope.is_topscope then
+      node:raisef("annotation 'byref' is only valid on functions nested inside another function or block")
+    end
     local captures, unresolved = find_closure_captures(context, node)
     if unresolved then
       return -- leave the node unfinished so it is visited again once the captured types resolve
     elseif captures then -- the function captures upvalues, it must become a closure record
-      context:transform_and_traverse_node(node, make_closure_node(context, node, captures))
+      context:transform_and_traverse_node(node, make_closure_node(context, node, captures, node.closurebyref))
       return
     end
     symbol = Symbol.promote_attr(attr, node)

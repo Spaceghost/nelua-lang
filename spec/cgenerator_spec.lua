@@ -2896,6 +2896,144 @@ it("closures", function()
   ]], 'closures ok')
 end)
 
+it("named nested closures", function()
+  expect.run_c([[
+    local function apply(f: auto, x: integer): integer return f(x) end
+
+    local function f(n: integer): integer
+      local function g(x: integer): integer return x + n end -- captures n by value
+      n = n + 100 -- g keeps its own copy
+      return g(1) + apply(g, 2)
+    end
+    assert(f(10) == 23)
+
+    local function count_to(limit: integer): integer
+      local hits = 0
+      local function hit(step: integer) hits = hits + step end -- copies hits
+      hit(5)
+      return hits
+    end
+    assert(count_to(3) == 0)
+
+    local function nested(a: integer): integer
+      local b = a * 2
+      local function outer(c: integer): integer
+        local function inner(d: integer): integer -- two levels deep, captures a and b through outer
+          return a + b + c + d
+        end
+        return inner(c) + apply(inner, 1)
+      end
+      return outer(3)
+    end
+    assert(nested(1) == (1+2+3+3) + (1+2+3+1))
+
+    local function fact(n: integer): integer
+      local function rec(x: integer): integer -- captures nothing, stays static and recurses
+        if x <= 1 then return 1 end
+        return x * rec(x - 1)
+      end
+      return rec(n)
+    end
+    assert(fact(5) == 120)
+    print('named closures ok')
+  ]], 'named closures ok')
+end)
+
+it("byref closures", function()
+  expect.run_c([[
+    local function apply(f: auto, x: integer): integer return f(x) end
+
+    local function counter(): integer
+      local total = 0
+      local function add(v: integer) <byref> total = total + v end
+      add(3) add(4)
+      apply(function(v: integer): integer <byref> total = total * v return total end, 10)
+      return total
+    end
+    assert(counter() == 70)
+
+    local R = @record{x: integer, y: integer}
+    local function swap_fields(): integer
+      local r: R = {x = 1, y = 2}
+      local arr: [3]integer = {1, 2, 3}
+      local function mutate() <byref>
+        r.x, r.y = r.y, r.x
+        arr[0] = 10
+        local p = &r
+        p.x = p.x * 10
+      end
+      mutate()
+      return r.x * 100 + r.y * 10 + arr[0]
+    end
+    assert(swap_fields() == 2000 + 10 + 10)
+
+    local function twolevels(): integer
+      local n = 1
+      local function outer() <byref>
+        local function inner() <byref> n = n + 10 end -- shares n through outer
+        inner() inner()
+        local copy = function(): integer n = n + 1000 return n end -- copies the reference, so it still shares n
+        assert(copy() == 1021)
+        n = n + 100
+      end
+      outer()
+      return n
+    end
+    assert(twolevels() == 1121)
+
+    local function mixed(a: integer): integer
+      local b = 1
+      local function bump() <byref> b = b + a end -- b by pointer, a too
+      bump() bump()
+      return b
+    end
+    assert(mixed(5) == 11)
+
+    local function readonly(n: integer <const>): integer
+      local x <const> = 10
+      local function g(): integer <byref> return x + n end -- const captures are shared read-only
+      return g()
+    end
+    assert(readonly(5) == 15)
+
+    local function inlined(): integer
+      local v = 1
+      local function bump() <byref, inline> v = v + 1 end
+      bump() bump()
+      return v
+    end
+    assert(inlined() == 3)
+
+    do -- a block at the top scope keeps its locals on the stack, byref shares them
+      local x = 1
+      local function g() <byref> x = x + 1 end
+      g()
+      assert(x == 2)
+      print(x)
+    end
+    print('byref closures ok')
+  ]], '2\nbyref closures ok')
+end)
+
+it("closure call receives the record by value", function()
+  expect.run_c([[
+    local function f(): integer
+      local c = 0
+      local function inc(): integer c = c + 1 return c end
+      inc()
+      return inc() -- the copy written by the first call is gone
+    end
+    assert(f() == 1)
+
+    local function shadow(n: integer): integer
+      local function g(x: integer): integer local g = 10 return x + n + g end
+      return g(1)
+    end
+    assert(shadow(1) == 12)
+    print('closure copies ok')
+  ]], 'closure copies ok')
+end)
+
 it("const pointers", function()
   expect.generate_c([[
     local a: integer = 1

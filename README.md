@@ -49,7 +49,9 @@ each with specs in `spec/` and docs under `docs/pages/`:
   with `prepend`/`append` text ([tool README](tools/nelua-bindgen/README.md)).
 - **Variants**: tagged unions as `variant(A, B)` or `A|B` through `require 'variant'`,
   with `==` (also against bare member values), `tostring` and `visit` ([overview](docs/pages/overview.md#variant)).
-- **Closures**: anonymous functions capture upvalues by value as closure records.
+- **Closures**: anonymous and local nested functions capture upvalues by value as
+  closure records; `<byref>` captures them by pointer so the closure can mutate the
+  enclosing locals ([overview](docs/pages/overview.md#closures)).
 - **Editor grammars**: `tools/tree-sitter-nelua` and `tools/textmate-nelua` know
   `*const T`, `A|B` variants and anonymous `function` expressions
   ([installing](docs/pages/installing.md#editor-support)); the Tree-sitter parser is regenerated from the `1ad3d5ce` pin.
