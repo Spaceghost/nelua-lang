@@ -11,8 +11,8 @@ local nodes: [2048]Node
 local definitions: [128]Definition
 local used: uint32 = 0
 local defined: uint32 = 0
-local kinds: [13]cstring = {'BLANK','SYMBOL','STRING','PATTERN','SEQ','CHOICE',
-  'REPEAT','REPEAT1','ALIAS','PREC_LEFT','PREC_RIGHT','TOKEN','FIELD'}
+local kinds: [14]cstring = {'BLANK','SYMBOL','STRING','PATTERN','SEQ','CHOICE',
+  'REPEAT','REPEAT1','ALIAS','PREC_LEFT','PREC_RIGHT','TOKEN','FIELD','PREC_DYNAMIC'}
 local function add(kind: uint8, text: cstring, children: [32]uint32, priority: int32): uint32
   assert(used < 2047); used = used + 1
   nodes[used] = {kind=kind,text=text,children=children,priority=priority}
@@ -31,6 +31,7 @@ local function left(p: int32,c: uint32): uint32 return add(9,nilptr,{c},p) end
 local function right(p: int32,c: uint32): uint32 return add(10,nilptr,{c},p) end
 local function token(c: uint32): uint32 return add(11,nilptr,{c},0) end
 local function field(s: cstring,c: uint32): uint32 return add(12,s,{c},0) end
+local function dynamic(p: int32,c: uint32): uint32 return add(13,nilptr,{c},p) end
 local function define(s: cstring,c: uint32)
   assert(defined < 128); definitions[defined] = {name=s,node=c}; defined = defined + 1
 end
@@ -62,7 +63,7 @@ local function emit(id: uint32, depth: uint32)
   out('{"type":'); text(kinds[n.kind])
   if n.kind == 1 or n.kind == 12 then out(',"name":'); text(n.text)
   elseif n.kind == 2 or n.kind == 3 or n.kind == 8 then out(',"value":'); text(n.text)
-  elseif n.kind == 9 or n.kind == 10 then out(',"value":'); number(n.priority) end
+  elseif n.kind == 9 or n.kind == 10 or n.kind == 13 then out(',"value":'); number(n.priority) end
   if n.kind == 8 then out(',"named":true') end
   if n.kind == 4 or n.kind == 5 then
     out(',"members":[')
@@ -82,7 +83,7 @@ define("shebang",pattern("#![^\\n]*"))
 define("_statement",choice{sym("variable_declaration"),sym("function_declaration"),sym("assignment_statement"),sym("call_statement"),sym("if_statement"),sym("switch_statement"),sym("for_statement"),sym("while_statement"),sym("repeat_statement"),sym("do_statement"),sym("defer_statement"),sym("return_statement"),sym("in_statement"),sym("break_statement"),sym("continue_statement"),sym("fallthrough_statement"),sym("goto_statement"),sym("label_statement"),sym("preprocessor"),literal(";")})
 define("block",repeated1(sym("_statement")))
 define("identifier",pattern("[a-zA-Z_\\u0080-\\uffff][a-zA-Z_0-9\\u0080-\\uffff]*"))
-define("_name",choice{sym("identifier"),alias_named("identifier",choice{literal("record"),literal("union"),literal("enum"),literal("array"),literal("pointer"),literal("variant")})})
+define("_name",choice{sym("identifier"),alias_named("identifier",choice{literal("record"),literal("union"),literal("enum"),literal("array"),literal("pointer"),literal("variant"),literal("const")})})
 define("variable_declaration",sequence{choice{literal("local"),literal("global")},sequence{sym("parameter"),repeated(sequence{literal(","),sym("parameter")})},choice{sequence{literal("="),sequence{sym("_expression"),repeated(sequence{literal(","),sym("_expression")})}},blank()}})
 define("declaration_name",left(1,sequence{sym("_name"),repeated1(sequence{literal("."),sym("_name")})}))
 define("parameter",sequence{field("name",choice{sym("_name"),sym("declaration_name"),sym("preprocess_name")}),choice{sequence{literal(":"),sym("_type")},blank()},choice{sym("annotations"),blank()}})
@@ -126,7 +127,7 @@ define("unary_expression",right(12,sequence{choice{literal("not"),literal("-"),l
 define("binary_expression",choice{left(1,sequence{field("left",sym("_expression")),field("operator",literal("or")),field("right",sym("_expression"))}),left(2,sequence{field("left",sym("_expression")),field("operator",literal("and")),field("right",sym("_expression"))}),left(3,sequence{field("left",sym("_expression")),field("operator",choice{literal("=="),literal("~="),literal("<"),literal("<="),literal(">"),literal(">=")}),field("right",sym("_expression"))}),left(4,sequence{field("left",sym("_expression")),field("operator",literal("|")),field("right",sym("_expression"))}),left(5,sequence{field("left",sym("_expression")),field("operator",literal("~")),field("right",sym("_expression"))}),left(6,sequence{field("left",sym("_expression")),field("operator",literal("&")),field("right",sym("_expression"))}),left(7,sequence{field("left",sym("_expression")),field("operator",choice{literal("<<"),literal(">>"),literal(">>>")}),field("right",sym("_expression"))}),right(8,sequence{field("left",sym("_expression")),field("operator",literal("..")),field("right",sym("_expression"))}),left(9,sequence{field("left",sym("_expression")),field("operator",choice{literal("+"),literal("-")}),field("right",sym("_expression"))}),left(10,sequence{field("left",sym("_expression")),field("operator",choice{literal("*"),literal("/"),literal("//"),literal("///"),literal("%"),literal("%%%")}),field("right",sym("_expression"))}),right(13,sequence{field("left",sym("_expression")),field("operator",literal("^")),field("right",sym("_expression"))})})
 define("type_expression",sequence{literal("@"),sym("_type")})
 define("_type",choice{sym("_name"),sym("declaration_name"),sym("pointer_type"),sym("optional_type"),sym("array_type"),sym("record_type"),sym("union_type"),sym("enum_type"),sym("function_type"),sym("generic_type"),sym("variant_type")})
-define("pointer_type",right(4,choice{sequence{literal("*"),sym("_type")},sequence{literal("pointer"),choice{sequence{literal("("),sym("_type"),literal(")")},blank()}}}))
+define("pointer_type",right(4,choice{sequence{literal("*"),choice{literal("const"),blank()},sym("_type")},sequence{literal("pointer"),choice{sequence{literal("("),sym("_type"),literal(")")},blank()}}}))
 define("optional_type",right(4,sequence{literal("?"),sym("_type")}))
 define("array_type",right(4,choice{sequence{literal("["),choice{sym("_expression"),blank()},literal("]"),sym("_type")},sequence{literal("array"),literal("("),sym("_type"),choice{sequence{literal(","),sym("_expression")},blank()},literal(")")}}))
 define("record_type",sequence{literal("record"),literal("{"),choice{sequence{sym("type_field"),repeated(sequence{choice{literal(","),literal(";")},sym("type_field")}),choice{choice{literal(","),literal(";")},blank()}},blank()},literal("}")})
@@ -136,7 +137,7 @@ define("enum_type",sequence{literal("enum"),choice{sequence{literal("("),sym("_t
 define("enum_field",sequence{sym("_name"),choice{sequence{literal("="),sym("_expression")},blank()}})
 define("function_type",right(0,sequence{literal("function"),literal("("),choice{sequence{choice{sym("type_field"),sym("_type"),sym("vararg")},repeated(sequence{literal(","),choice{sym("type_field"),sym("_type"),sym("vararg")}})},blank()},literal(")"),choice{sequence{literal(":"),choice{sym("_type"),sequence{literal("("),sequence{sym("_type"),repeated(sequence{literal(","),sym("_type")})},literal(")")}}},blank()}}))
 define("generic_type",left(3,sequence{choice{sym("_name"),sym("declaration_name")},literal("("),sequence{choice{sym("_type"),sym("_expression")},repeated(sequence{literal(","),choice{sym("_type"),sym("_expression")}})},literal(")")}))
-define("variant_type",left(1,choice{sequence{sym("_type"),literal("|"),sym("_type")},sequence{literal("variant"),literal("("),sequence{choice{sym("_type"),sym("_expression")},repeated(sequence{literal(","),choice{sym("_type"),sym("_expression")}})},literal(")")}}))
+define("variant_type",left(1,choice{dynamic(1,sequence{sym("_type"),literal("|"),sym("_type")}),sequence{literal("variant"),literal("("),sequence{choice{sym("_type"),sym("_expression")},repeated(sequence{literal(","),choice{sym("_type"),sym("_expression")}})},literal(")")}}))
 define("preprocess_expression",sequence{literal("#["),sym("_expression"),literal("]#")})
 define("preprocess_name",sequence{literal("#|"),sym("_expression"),literal("|#")})
 out('{"name":"nelua","word":"identifier","rules":{')

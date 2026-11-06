@@ -16,3 +16,6 @@
 ["local" "global" "function" "end" "if" "then" "elseif" "else" "switch" "case" "for" "in" "do" "while" "repeat" "until" "defer" "return" "goto"] @keyword
 [(break_statement) (continue_statement) (fallthrough_statement)] @keyword
 ["record" "union" "enum" "array" "pointer" "variant"] @type.builtin
+(pointer_type "const" @keyword.modifier)
+(variant_type "|" @operator)
+(function_expression "function" @keyword.function)

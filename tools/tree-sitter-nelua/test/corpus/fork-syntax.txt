@@ -1,0 +1,152 @@
+==================
+Const pointer types
+==================
+local name: *const cchar = 'hi'
+local bytes: *const [0]cchar = nilptr
+local pp: *const *const uint8 = nilptr
+local const: uint8 <const> = 1
+---
+
+(source_file
+  (variable_declaration
+    (parameter
+      (identifier)
+      (pointer_type
+        (identifier)))
+    (string))
+  (variable_declaration
+    (parameter
+      (identifier)
+      (pointer_type
+        (array_type
+          (number)
+          (identifier))))
+    (nilptr))
+  (variable_declaration
+    (parameter
+      (identifier)
+      (pointer_type
+        (pointer_type
+          (identifier))))
+    (nilptr))
+  (variable_declaration
+    (parameter
+      (identifier)
+      (identifier)
+      (annotations
+        (annotation
+          (identifier))))
+    (number)))
+
+==================
+Variant type expressions
+==================
+local v: integer|string = 1
+local w: integer|string|boolean = 'a'
+local function pick(x: *const integer|string): boolean|string end
+---
+
+(source_file
+  (variable_declaration
+    (parameter
+      (identifier)
+      (variant_type
+        (identifier)
+        (identifier)))
+    (number))
+  (variable_declaration
+    (parameter
+      (identifier)
+      (variant_type
+        (variant_type
+          (identifier)
+          (identifier))
+        (identifier)))
+    (string))
+  (function_declaration
+    (identifier)
+    (function_body
+      (parameter
+        (identifier)
+        (variant_type
+          (pointer_type
+            (identifier))
+          (identifier)))
+      (variant_type
+        (identifier)
+        (identifier)))))
+
+==================
+Anonymous function expressions
+==================
+local add = function(a: integer, b: integer): integer return a + b end
+each(function() end)
+---
+
+(source_file
+  (variable_declaration
+    (parameter
+      (identifier))
+    (function_expression
+      (function_body
+        (parameter
+          (identifier)
+          (identifier))
+        (parameter
+          (identifier)
+          (identifier))
+        (identifier)
+        (block
+          (return_statement
+            (binary_expression
+              (identifier)
+              (identifier)))))))
+  (call_statement
+    (call_expression
+      (identifier)
+      (arguments
+        (function_expression
+          (function_body))))))
+
+==================
+Const stays a name in expressions; variants nest in type arguments
+==================
+local y = x * const
+local F = @function(integer|string): void
+local V = @variant(integer|string, boolean)
+local q: *const function(integer): void = nilptr
+---
+
+(source_file
+  (variable_declaration
+    (parameter
+      (identifier))
+    (binary_expression
+      (identifier)
+      (identifier)))
+  (variable_declaration
+    (parameter
+      (identifier))
+    (type_expression
+      (function_type
+        (variant_type
+          (identifier)
+          (identifier))
+        (identifier))))
+  (variable_declaration
+    (parameter
+      (identifier))
+    (type_expression
+      (variant_type
+        (variant_type
+          (identifier)
+          (identifier))
+        (identifier))))
+  (variable_declaration
+    (parameter
+      (identifier)
+      (pointer_type
+        (function_type
+          (identifier)
+          (identifier))))
+    (nilptr)))

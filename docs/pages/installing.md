@@ -129,3 +129,24 @@ nelua examples/snakesdl.nelua
 <a href="/tutorial/" class="btn btn-outline-primary btn-lg float-right">Tutorial >></a>
 
 {% endraw %}
+
+## Editor support
+
+Two editor grammars live in the repository and follow the fork syntax:
+
+* `tools/tree-sitter-nelua`: a Tree-sitter grammar authored in Nelua
+  (`grammar.nelua`) with corpus tests and highlight queries. It covers const
+  pointers (`*const T`, `*const [0]cchar`, `*const *const T`), variant type
+  expressions (`A|B`, `A|B|C`, `variant(A, B)`) and anonymous `function`
+  expressions. The checked-in `src/parser.c` is generated from the compiler
+  pin named in the tool README with Tree-sitter CLI 0.25.10 and parses the
+  fork syntax; the corpus under `test/corpus` exercises it.
+* `tools/textmate-nelua`: a TextMate grammar (`source.nelua`) for GitHub,
+  VS Code and other TextMate consumers. `const` after `*` is a storage
+  modifier and `|` inside a type context is the variant operator. A type
+  context is a line heuristic, not compiler parsing: it opens after any
+  `name:` (a declaration, a `):` return type, but also a method call such as
+  `obj:method(...)`) or after `@`, and closes at `=`, `,`, `;`, `<`, a closing
+  bracket, a statement keyword such as `end` or `return`, or the end of the
+  line; brackets inside stay balanced and keep the type rules, and strings or
+  comments inside keep their own scope.

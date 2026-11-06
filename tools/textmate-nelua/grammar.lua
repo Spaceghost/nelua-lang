@@ -4,7 +4,7 @@ return {
   patterns={
     {include='#comments'}, {include='#preprocessor'}, {include='#strings'},
     {include='#annotations'}, {include='#functions'}, {include='#numbers'},
-    {include='#types'}, {include='#keywords'}, {include='#operators'},
+    {include='#typecontexts'}, {include='#types'}, {include='#keywords'}, {include='#operators'},
   },
   repository={
     comments={patterns={
@@ -38,8 +38,38 @@ return {
     numbers={patterns={
       {name='constant.numeric.nelua',match='(?<![A-Za-z_0-9])(?:0[xX][0-9a-fA-F]+(?:\\.[0-9a-fA-F]*)?(?:[pP][+-]?[0-9]+)?|0[bB][01]+(?:\\.[01]*)?(?:[pP][+-]?[0-9]+)?|(?:[0-9]+(?:\\.[0-9]*)?|\\.[0-9]+)(?:[eE][+-]?[0-9]+)?)(?:_[A-Za-z_0-9]+)?'},
     }},
+    -- Type contexts are a line heuristic: a `:` after a name (a declaration or
+    -- return type, but also a method call such as `obj:method(...)`) or a `@`
+    -- type expression, up to `=`, `,`, `;`, `<`, a closing bracket, a statement
+    -- keyword (`end`, `return`, `do`, ...) or end of line. Parentheses, brackets
+    -- and braces inside stay balanced and keep the type rules, so `|` nested in
+    -- `variant(...)` or `function(...)` is still the variant operator; comments,
+    -- preprocessor code and strings (`t:insert[[...]]`) keep their own scope.
+    typecontexts={patterns={
+      {name='meta.type.annotation.nelua',
+        begin='(?<=[\\p{L}\\p{N}_\\)\\]])\\s*(:)(?!:)(?=\\s*[\\p{L}_*?\\[@(#])',
+        ['end']='(?=[=,;)\\]}<]|\\s*\\b(?:end|return|do|then|else|elseif|local|global|if|for|while|repeat|until|in|defer|break|continue|goto)\\b|$)',
+        beginCaptures={['1']={name='punctuation.separator.type.nelua'}},
+        patterns={{include='#typecontents'}}},
+      {name='meta.type.expression.nelua',
+        begin='(@)\\s*(?:(record|union|enum|array|pointer|variant)\\b)?',
+        ['end']='(?=[=,;)\\]}<]|\\s*\\b(?:end|return|do|then|else|elseif|local|global|if|for|while|repeat|until|in|defer|break|continue|goto)\\b|$)',
+        beginCaptures={['1']={name='keyword.operator.nelua'},['2']={name='storage.type.nelua'}},
+        patterns={{include='#typecontents'}}},
+    }},
+    typecontents={patterns={
+      {include='#comments'}, {include='#preprocessor'}, {include='#strings'},
+      {match='(\\*)\\s*(const)\\b',captures={['1']={name='keyword.operator.nelua'},['2']={name='storage.modifier.const.nelua'}}},
+      {name='keyword.operator.type.variant.nelua',match='\\|'},
+      {name='storage.type.nelua',match='\\b(?:record|union|enum|array|pointer|variant)\\b(?=\\s*[({])'},
+      {begin='\\(',['end']='\\)',patterns={{include='#typecontents'}}},
+      {begin='\\[',['end']='\\]',patterns={{include='#typecontents'}}},
+      {begin='\\{',['end']='\\}',patterns={{include='#typecontents'}}},
+      {include='$self'},
+    }},
+    -- `const` is a modifier only after `*` inside a type context; elsewhere it
+    -- is an ordinary name (`x * const`, `local const = 1`).
     types={patterns={
-      {match='(@)\\s*(record|union|enum|array|pointer|variant)\\b',captures={['1']={name='keyword.operator.nelua'},['2']={name='storage.type.nelua'}}},
       {name='storage.type.nelua',match='\\b(?:boolean|cchar|cint|csize|cstring|float(?:32|64|128)?|int(?:8|16|32|64|128)?|uint(?:8|16|32|64|128)?|isize|usize|number|string|table|type|void)\\b'},
     }},
     keywords={patterns={
