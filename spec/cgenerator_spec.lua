@@ -3096,6 +3096,22 @@ it("optional orelse", function()
     -- `or` between the same optionals
     local z: integer? = find(2) or find(1)
     assert(z == 10)
+    -- as a numeric `for` range bound (the rewrite owns a scope outside the loop scope)
+    local cnt = 0
+    for i=1, find(2) orelse 3 do cnt = cnt + i end
+    assert(cnt == 6)
+    cnt = 0
+    for i=find(2) orelse 2, find(1) orelse 0, find(2) orelse 2 do cnt = cnt + i end
+    assert(cnt == 30)
+    cnt = 0
+    for i=1, (do local o = find(2) if o:has() then in o.v end local r: integer = 3 in r end) do cnt = cnt + i end
+    assert(cnt == 6)
+    local function tried(): integer?
+      local t = 0
+      for i=1, find(1)? do t = t + i end
+      return t
+    end
+    assert(tried() == 55)
   ]])
   expect.generate_c([[
     require 'optional'
@@ -3145,6 +3161,15 @@ it("optional if local", function()
       return 0
     end
     assert(f(1) == 20 and f(2) == 0)
+    -- a capturing closure as the operand and inside the then block
+    local function viaclosures(k: integer): integer
+      local base = 100
+      if local x = (function(): integer? return find(k) end)() then
+        return (function(): integer return x + base end)()
+      end
+      return 0
+    end
+    assert(viaclosures(1) == 110 and viaclosures(2) == 0)
     -- inside a loop with break and continue
     local hits, misses = 0, 0
     for k=1,5 do
@@ -3531,6 +3556,15 @@ it("closures", function()
       return apply(function(x: integer): integer return x * m + k end, 2)
     end
     assert(outer() == 10)
+    -- an immediately invoked capturing closure, in a function body and in nested blocks
+    local function iife(): integer
+      local a = 5
+      local r = (function(): integer return a + 1 end)()
+      do r = r + (function(): integer return a end)() end
+      if (function(): integer return a end)() == 5 then r = r + 100 end
+      return r
+    end
+    assert(iife() == 111)
     print('closures ok')
   ]], 'closures ok')
 end)

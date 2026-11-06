@@ -264,6 +264,13 @@ orelse" and "optional if local", and `tests/optional_test.nelua`; the `orelse` r
 local for the default (`local __r: T = d  in __r`) so the do expression resolves to `T` instead of a promoted
 type, the refusal also covers two different optional types and exempts the ternary idiom `opt and a or b`, and
 `?` inside `if local x = e` unwraps `e` itself (so `if local v = f()? then` is refused, `?` belongs inside `e`).
+The typed result local costs one more by-value copy on the default path (the default -> `__orelsed_N` ->
+`_expr` -> target; the value path copies `__orelse_N.v` -> `_expr` -> target), accepted under the "`orelse`
+returns copies" rule above; large payloads that must not be copied are a v2 lvalue desugar. Slice 3 also fixed
+two pre-existing generator limits it made reachable: an expression owning a scope (`(do end)`, `orelse`, `?`) as
+a numeric `for` range bound ("broken scope chain", the loop scope is now pushed after the range expressions are
+emitted) and an immediately invoked capturing closure `(function() ... end)()` outside the top scope (its
+closure record was emitted twice, once by the forced callee declaration, defining `__call` twice).
 
 Smallest shippable subset, useful alone: `T?` types over `lib/optional.nelua`, `==`/`~=` against `nil`/`nilptr`,
 truthiness, and `expr?` for optional/pointer operands inside optional/pointer-returning functions. No `orelse`,

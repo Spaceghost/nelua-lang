@@ -754,7 +754,9 @@ function visitors.Call(context, node, emitter, untyped)
       local builtin = cbuiltins.calls[calleeattr.name]
       callee = builtin(context, node, emitter)
     elseif calleesym then
-      if calleesym.type.is_function then -- force declaration of functions
+      -- force declaration of functions, except for a record call: its object is emitted
+      -- by the call itself, and a closure record emitted twice would define `__call` twice
+      if calleesym.type.is_function and not attr.ismetacall then
         emitter:fork():add(calleenode)
       end
       callee = calleesym
@@ -1162,7 +1164,8 @@ function visitors.ForNum(context, node, emitter)
   local itattr = itnode.attr
   local ittype, itmutate = itattr.type, itattr.mutate or itattr.refed
   local itforname = itmutate and '_it' or context:declname(itattr)
-  local scope = context:push_forked_scope(node)
+  -- the range expressions were analyzed in the enclosing scope (they may own scopes,
+  -- a `(do end)`, `orelse` or `?`), so the loop scope is pushed only after emitting them
   emitter:add_indent('for(')
   emitter:add_qualified_declaration({}, ittype, itforname)
   emitter:add(' = ')
@@ -1195,7 +1198,7 @@ function visitors.ForNum(context, node, emitter)
     emitter:add('_step >= 0 ? ', itforname, ' <= _end : ', itforname, ' >= _end')
   end
   emitter:add_ln('; ', itforname, ' += ', stepval, ') {')
-
+  local scope = context:push_forked_scope(node)
   if itmutate then -- block mutates the iterator, copy it
     emitter:inc_indent()
     emitter:add_indent_ln(itnode, ' = _it;')

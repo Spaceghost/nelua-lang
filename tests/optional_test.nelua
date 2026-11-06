@@ -174,6 +174,9 @@ do -- `orelse` evaluates the default only when empty
   local n = 4
   local p: *integer? = nilptr
   assert($(p orelse &n) == 4) -- a pointer optional yields the pointer
+  local cnt = 0
+  for i=1, find(2) orelse 3 do cnt = cnt + i end -- as a `for` range bound
+  assert(cnt == 6)
   local function word(k: integer): string?
     if k == 1 then return 'one' end
     return nil

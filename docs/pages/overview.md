@@ -1030,7 +1030,8 @@ an error) and evaluates `d` only when `x` is empty. `d` converts to the held typ
 result is that type, or `d` is the same optional type and the result stays optional, so
 defaults chain left to right. `orelse` binds tighter than the comparison operators and
 looser than `|`: `a == b orelse c` is `a == (b orelse c)` and `a orelse b == c` is
-`(a orelse b) == c`, parenthesize when in doubt. `if local x = e then` requires an
+`(a orelse b) == c`, parenthesize when in doubt. `orelse` is a reserved word, so it can no
+longer name a variable, field or function. `if local x = e then` requires an
 optional `e` (test a pointer with `if p then`), `x` is visible only in the then block and
 `elseif local` nests the same way. `opt or v` and `opt and v` with a value that is neither
 a boolean nor the same optional type are compile errors pointing to `orelse`, as they
