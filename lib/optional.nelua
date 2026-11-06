@@ -1,0 +1,187 @@
+--[[
+The optional library provides the optional generic, a value that may be empty.
+
+An optional holds either one value of type `T` or nothing.
+It can be written as `optional(T)` or with the shorthand `T?`, after `require 'optional'`.
+A default initialized optional is empty, a `T` value converts to it implicitly and
+`nil` converts to an empty optional. The held value is read back with `get`, `getptr`
+or `get_or`, and `has` tells whether there is one.
+
+Optionals of pointers and functions use a niche layout: the record holds just the pointer
+and `nilptr` is the empty value, so `*T?` has the size of `*T`,
+`nilptr` converts to the empty optional and so does a `*T` value that is null.
+
+In a boolean context (`if opt then`) an optional is true when it holds a value.
+`opt == nil` and `opt ~= nil` test for emptiness, `opt == v` compares the held value.
+The postfix `expr?` operator unwraps an optional (or a pointer) and returns empty from the
+enclosing function when there is no value.
+
+Remarks: `get` is checked, it raises a runtime error when the optional is empty.
+]]
+
+## local function make_optionalT(T)
+  ##[[
+  static_assert(traits.is_type(T), "invalid type '%s' for optional", T)
+  static_assert(not T.is_niltype, "optional cannot hold values of type 'niltype'")
+  static_assert(not T.is_nilptr, "optional cannot hold values of type 'nilptr'")
+  static_assert(not T.is_comptime, "optional cannot hold values of compile time type '%s'", T)
+  static_assert(not T.is_void, "optional cannot hold values of type '%s'", T)
+  static_assert(not T.is_optional, "optional of optional type '%s' is not allowed", T)
+  static_assert(not T.nocopy, "optional cannot hold values of non copyable type '%s'", T)
+  -- pointers and functions have a niche: the null value marks the empty optional
+  local is_niche = (T.is_pointer or T.is_function) and true or false
+  local nickname = 'optional('..tostring(T)..')'
+  ]]
+
+  -- Optional record defined when instantiating the generic `optional` with type `T`.
+  ## if is_niche then
+  local optionalT: type <nickname(#[nickname]#)> = @record{
+    v: #[T]#
+  }
+  ## else
+  local optionalT: type <nickname(#[nickname]#)> = @record{
+    some: boolean,
+    v: #[T]#
+  }
+  ## end
+
+  ##[[
+  local optionalT = optionalT.value
+  optionalT.is_optional = true
+  optionalT.is_niche = is_niche
+  optionalT.subtype = T
+  optionalT.is_falseable = true
+  ]]
+
+  -- Concept matching `nil`, values convertible to `T`, and `nilptr` for niche optionals.
+  local optionalT_value_concept: type = #[concept(function(x)
+    local xtype = x.type
+    if xtype == optionalT then
+      return false, 'already an optional'
+    end
+    if xtype.is_niltype then
+      return true
+    end
+    if xtype.is_nilptr then
+      if is_niche then return true end
+      return false, string.format("no viable conversion from 'nilptr' to '%s'", optionalT)
+    end
+    if not xtype.is_optional and T:is_convertible_from_attr(x) then
+      return T
+    end
+    return false, string.format("no viable conversion from '%s' to '%s'", xtype, optionalT)
+  end)]#
+
+  -- Concept matching the operands of `==`: optionals of this type, `nil`, `nilptr` and `T` values.
+  local optionalT_eq_concept: type = #[concept(function(x)
+    local xtype = x.type
+    if xtype == optionalT or xtype.is_niltype then
+      return true
+    end
+    if xtype.is_nilptr then
+      if is_niche then return true end
+      return false, string.format("cannot compare '%s' with 'nilptr'", optionalT)
+    end
+    if not xtype.is_optional and T:is_convertible_from_attr(x) then
+      return T
+    end
+    return false, string.format("cannot compare '%s' with '%s'", optionalT, xtype)
+  end)]#
+
+  --[[
+  Initializes an optional holding `value`, used when implicitly converting values.
+  `nil` gives an empty optional, and so does `nilptr` for pointer and function optionals.
+  ]]
+  function optionalT.__convert(value: optionalT_value_concept): optionalT <inline>
+    local self: optionalT
+    ## if not (value.type.is_niltype or value.type.is_nilptr) then
+      ## if not is_niche then
+      self.some = true
+      ## end
+      self.v = value
+    ## end
+    return self
+  end
+
+  -- Checks whether the optional holds a value.
+  function optionalT:has(): boolean <inline,nosideeffect>
+    ## if is_niche then
+    return self.v ~= nilptr
+    ## else
+    return self.some
+    ## end
+  end
+
+  -- Returns the held value, raises a runtime error when the optional is empty.
+  function optionalT:get(): #[T]# <inline>
+    check(self:has(), 'attempt to get the value of an empty optional')
+    return self.v
+  end
+
+  -- Returns a pointer to the held value, or nilptr when the optional is empty.
+  function optionalT:getptr(): *#[T]# <inline,nosideeffect>
+    if not self:has() then
+      return nilptr
+    end
+    return &self.v
+  end
+
+  -- Returns the held value, or `default` when the optional is empty.
+  function optionalT:get_or(default: #[T]#): #[T]# <inline,nosideeffect>
+    if self:has() then
+      return self.v
+    end
+    return default
+  end
+
+  -- Sets the optional to hold `value`.
+  function optionalT:set(value: #[T]#) <inline>
+    ## if not is_niche then
+    self.some = true
+    ## end
+    self.v = value
+  end
+
+  -- Clears the optional, making it empty.
+  function optionalT:clear() <inline>
+    $self = (@optionalT)()
+  end
+
+  --[[
+  Compares an optional with another optional of the same type, with `nil`,
+  with `nilptr` (pointer and function optionals only) or with a bare `T` value.
+  `opt == nil` and `opt == nilptr` are true when `opt` is empty,
+  `opt == v` is true when `opt` holds a value equal to `v`, and
+  two optionals are equal when both are empty or both hold equal values.
+  Comparing with any other type is a compile error.
+  ]]
+  function optionalT.__eq(a: optionalT_eq_concept, b: optionalT_eq_concept): boolean <polymorphic>
+    ## if not a.type.is_optional then -- put the optional on the left
+    return optionalT.__eq(b, a)
+    ## elseif b.type.is_niltype or b.type.is_nilptr then
+    return not a:has()
+    ## elseif b.type.is_optional then
+      ## if is_niche then
+      return a.v == b.v
+      ## else
+      if a.some ~= b.some then
+        return false
+      end
+      return not a.some or a.v == b.v
+      ## end
+    ## else -- bare value
+      ## if is_niche then
+      return a.v == b
+      ## else
+      return a.some and a.v == b
+      ## end
+    ## end
+  end
+
+  ## return optionalT
+## end
+
+-- Generic used to instantiate optional types in the form of `optional(T)` or `T?`.
+global optional: type = #[generalize(make_optionalT)]#
+
+return optional

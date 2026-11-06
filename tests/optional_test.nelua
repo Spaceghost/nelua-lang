@@ -1,0 +1,135 @@
+require 'optional'
+require 'variant'
+require 'string'
+
+do -- construction and queries
+  local o: optional(integer)
+  assert(not o:has() and o == nil and o:getptr() == nilptr)
+  assert(o:get_or(5) == 5)
+  o = 10
+  assert(o:has() and o ~= nil and o == 10 and 10 == o)
+  assert(o:get() == 10 and o:get_or(5) == 10)
+  assert($o:getptr() == 10)
+  $o:getptr() = 11
+  assert(o:get() == 11)
+  o:set(20)
+  assert(o:get() == 20)
+  o:clear()
+  assert(not o:has() and o == nil)
+  o = 3
+  o = nil
+  assert(o == nil)
+end
+
+do -- shorthand syntax and implicit conversions
+  local a: integer? = 1
+  local b: string? = 'hello'
+  local c: float64? = nil
+  assert(a == 1 and b == 'hello' and c == nil)
+  assert(#@integer? > #@integer)
+  local function describe(x: integer?): string
+    if x then return 'some ' .. tostring(x:get()) end
+    return 'none'
+  end
+  assert(describe(3) == 'some 3')
+  assert(describe(nil) == 'none')
+  assert(describe(a) == 'some 1')
+  local function find(k: integer): integer?
+    if k == 1 then return 10 end
+    return nil
+  end
+  assert(find(1) == 10 and find(2) == nil)
+  local x = find(1) -- inferred as `integer?`
+  local y: integer = x:get()
+  assert(x == 10 and y == 10)
+end
+
+do -- comparisons between optionals
+  local a: integer? = 1
+  local b: integer? = 1
+  local c: integer? = 2
+  local e: integer?
+  local f: integer?
+  assert(a == b and a ~= c and a ~= e and e == f and e ~= 1 and not (e == 1))
+  assert(a == 1 and 1 == a and c ~= 1)
+  local P = @record{x: integer, y: integer}
+  local p: P? = (@P){x = 1, y = 2}
+  local q: P? = (@P){x = 1, y = 2}
+  assert(p == q and p == (@P){x = 1, y = 2} and p ~= (@P){x = 1, y = 3})
+  local s: string? = 'a'
+  assert(s == 'a' and 'a' == s and s ~= 'b' and s ~= nil)
+  assert(s:get() == 'a' and s:get_or('z') == 'a')
+end
+
+do -- pointers use the niche layout
+  local n: integer = 7
+  local p: *integer? = &n
+  assert(#@*integer? == #@*integer)
+  assert(p:has() and p ~= nil and p ~= nilptr and $p:get() == 7)
+  assert(p == &n)
+  p = nilptr
+  assert(not p:has() and p == nil and p == nilptr)
+  local np: *integer = nilptr
+  p = np -- a null pointer converts to empty
+  assert(p == nil)
+  p:set(&n)
+  assert(p:get() == &n)
+  p:clear()
+  assert(p == nilptr)
+  local cp: *const integer? = &n
+  assert(cp:has() and $cp:get() == 7)
+  ## static_assert(cp.type.subtype.is_constpointer)
+  local function next(x: *integer): *integer?
+    return x
+  end
+  assert(next(&n) == &n and next(nilptr) == nil)
+end
+
+do -- functions use the niche layout
+  local F = @function(): integer
+  local function one(): integer return 1 end
+  local f: F? = one
+  assert(#@F? == #@F)
+  assert(f:has() and f:get()() == 1)
+  f = nilptr
+  assert(f == nil and not f)
+end
+
+do -- optionals and variants mix
+  local V = @variant(integer, string)
+  local v: V = 1
+  local ov: V? = nil
+  assert(ov == nil)
+  ov = v
+  assert(ov ~= nil and ov:get():is(@integer) and ov:get() == 1)
+  local oi: integer? = 3
+  local w: integer|integer? = oi
+  assert(w:is(@integer?) and w:get(@integer?) == 3)
+end
+
+do -- `?` propagation
+  local function find(k: integer): integer?
+    if k == 1 then return 10 end
+    return nil
+  end
+  local function twice(k: integer): integer?
+    return find(k)? * 2
+  end
+  assert(twice(1) == 20 and twice(2) == nil)
+  local function sum(a: integer, b: integer): integer?
+    return find(a)? + find(b)?
+  end
+  assert(sum(1, 1) == 20 and sum(1, 2) == nil and sum(2, 1) == nil)
+end
+
+do -- optionals in records and arrays
+  local R = @record{id: integer, parent: integer?}
+  local r: R = {id = 1}
+  assert(r.parent == nil)
+  r.parent = 2
+  assert(r.parent == 2 and r.parent:get() == 2)
+  local rs: [2]R = {{id = 1}, {id = 2, parent = 1}}
+  assert(rs[0].parent == nil and rs[1].parent == 1)
+end
+
+print('optional ok')

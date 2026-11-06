@@ -2805,6 +2805,202 @@ it("variant under freestanding", function()
   assert(not code:find('int main(', 1, true), 'unexpected main')
 end)
 
+it("optional types", function()
+  expect.generate_c([[
+    require 'optional'
+    local x: integer? = 3
+    local p: *integer? = nilptr
+    if x then end
+    if p then end
+    while not x do break end
+  ]], {"bool some;\n  int64_t v;", "nlint64_ptr v;", "if((x).some)", "if(((p).v != NULL))", "while((!(x).some))"})
+  expect.run_c([[
+    require 'optional'
+    local function find(k: integer): integer?
+      if k == 1 then return 10 end
+      return nil
+    end
+    assert(find(1):get() == 10)
+    assert(find(2) == nil)
+    assert(find(1) ~= nil)
+    assert(find(1) == 10)
+    assert(10 == find(1))
+    assert(not (find(2) == 10))
+    assert(find(2) ~= 10)
+    assert(find(1) == find(1) and find(2) == find(2) and find(1) ~= find(2))
+    local hit = 0
+    if find(1) then hit = hit + 1 end
+    if find(2) then hit = hit + 10 end
+    if not find(2) then hit = hit + 100 end
+    assert(hit == 101)
+    local x = find(1)
+    assert(x and x:get() == 10)
+
+    local function twice(k: integer): integer?
+      local v = find(k)?
+      return v * 2
+    end
+    assert(twice(1):get() == 20)
+    assert(twice(2) == nil)
+    assert(twice(1) == 20)
+  ]])
+  expect.run_c([[
+    require 'optional'
+    local Node = @record{v: integer}
+    local a: Node = {v = 7}
+    local function raw(k: integer): *Node
+      if k == 1 then return &a end
+      return nilptr
+    end
+    local function lookup(k: integer): *Node?
+      return raw(k) -- a null `*Node` converts to empty
+    end
+    assert(lookup(1) ~= nil and lookup(1):get().v == 7)
+    assert(lookup(1) == &a and lookup(1) ~= nilptr)
+    assert(lookup(2) == nil and lookup(2) == nilptr)
+    local function none(): *Node?
+      return nilptr
+    end
+    assert(none() == nil)
+    local function bump(k: integer): *Node?
+      local p = raw(k)? -- `?` on a raw pointer
+      p.v = p.v + 1
+      return p
+    end
+    assert(bump(1):get().v == 8)
+    assert(bump(2) == nil)
+    local function unwrap(k: integer): *Node -- `?` on an optional in a pointer returning function
+      local p = lookup(k)?
+      return p
+    end
+    assert(unwrap(1) == &a and unwrap(2) == nilptr)
+    assert(#@*Node? == #@*Node)
+    local o: *Node? = &a
+    o:clear()
+    assert(o == nil and o:getptr() == nilptr)
+  ]])
+  expect.run_c([[
+    require 'optional'
+    local function find(k: integer): integer?
+      if k == 1 then return 10 end
+      return nil
+    end
+    local function g(k: integer): (integer?, integer, *integer)
+      local v = find(k)?
+      local n: integer = 1
+      return v, 1, &n
+    end
+    local a, b, c = g(1)
+    assert(a == 10 and b == 1 and c ~= nilptr)
+    local d, e, f = g(2)
+    assert(d == nil and e == 0 and f == nilptr)
+  ]])
+  expect.run_c([[
+    require 'optional'
+    local function find(k: integer): integer?
+      if k == 1 then return 10 end
+      return nil
+    end
+    local function outer(k: integer): integer
+      local n = 100
+      local inner = function(j: integer): integer?
+        local v = find(j)? -- returns empty from the closure, not from `outer`
+        return v + n
+      end
+      local r = inner(k)
+      if r == nil then return -1 end
+      return r:get()
+    end
+    assert(outer(1) == 110 and outer(2) == -1)
+    local function outer2(k: integer): integer
+      local function inner(j: integer): integer? <byref>
+        local v = find(j)?
+        k = k + v
+        return v
+      end
+      if inner(k) == nil then return k end
+      return k
+    end
+    assert(outer2(1) == 11 and outer2(2) == 2)
+  ]])
+  expect.run_c([[
+    require 'optional'
+    local counter = 0
+    local function find(k: integer): integer?
+      if k == 1 then return 10 end
+      return nil
+    end
+    local function withdefer(k: integer): integer?
+      defer counter = counter + 1 end
+      local v = find(k)?
+      return v
+    end
+    assert(withdefer(2) == nil and counter == 1)
+    assert(withdefer(1) == 10 and counter == 2)
+    local function nested(k: integer): integer?
+      defer counter = counter + 100 end
+      do
+        defer counter = counter + 10 end
+        local v = find(k)?
+        counter = counter + v
+      end
+      return 1
+    end
+    counter = 0
+    assert(nested(2) == nil and counter == 110)
+    counter = 0
+    assert(nested(1) == 1 and counter == 120)
+  ]])
+  expect.run_error_c([[
+    require 'optional'
+    local function find(k: integer): integer?
+      if k == 1 then return 10 end
+      return nil
+    end
+    print(find(2):get())
+  ]], "attempt to get the value of an empty optional")
+  expect.run_c([[
+    ## pragmas.nogc = true
+    ## pragmas.abort = 'trap'
+    require 'optional'
+    local function find(k: integer): integer?
+      if k == 1 then return 10 end
+      return nil
+    end
+    local function twice(k: integer): integer?
+      local v = find(k)?
+      return v * 2
+    end
+    assert(find(1):get() == 10 and find(2) == nil)
+    assert(twice(1):get() == 20 and twice(2) == nil)
+  ]])
+end)
+
+it("optional under freestanding", function()
+  local _, context = expect.analyze_ast([[
+    ## pragmas.freestanding = true
+    ## pragmas.abort = 'trap'
+    require 'optional'
+    local function find(k: int64): int64?
+      if k == 1 then return 10 end
+      return nil
+    end
+    local function twice(k: int64): int64? <cexport, codename 'twice'>
+      local v = find(k)?
+      return v * 2
+    end
+    local function get(k: int64): int64 <cexport, codename 'get'>
+      return twice(k):get() -- traps when empty
+    end
+  ]], nil, 'c')
+  local code = assert(require('nelua.cgenerator').generate(context))
+  assert(code:find('int64_t get(int64_t k)', 1, true), 'missing get')
+  assert(code:find('__builtin_trap();', 1, true), 'missing trap')
+  assert(not code:find('<stdlib.h>', 1, true), 'unexpected stdlib.h')
+  assert(not code:find('<stdio.h>', 1, true), 'unexpected stdio.h')
+  assert(not code:find('int main(', 1, true), 'unexpected main')
+end)
+
 it("static initializers at top scope", function()
   -- constant initializers become C static initializers instead of statements in `nelua_main`
   expect.generate_c([[

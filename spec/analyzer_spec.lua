@@ -2512,8 +2512,196 @@ it("union type", function()
   ]])
 end)
 
-it("optional type", function()
-  expect.analyze_error("local OptionalInt = @?integer", "not implemented yet")
+it("optional types", function()
+  expect.analyze_error("local x: integer?", "optional types require the 'optional' module")
+  expect.analyze_ast([[
+    require 'optional'
+    local x: integer? = 3
+    local y: integer? = nil
+    local z: integer?
+    local p: *integer? = nilptr
+    local O = @optional(integer)
+    ## static_assert(O.value == x.type and O.value == y.type)
+    ## static_assert(O.value.is_optional and not O.value.is_niche)
+    ## static_assert(O.value.subtype == primtypes.integer)
+    ## static_assert(p.type.is_optional and p.type.is_niche)
+    ## static_assert(tostring(O.value) == 'optional(int64)')
+    local n: integer = 1
+    local q: *integer? = &n
+    local r: *integer? = (@*integer)(nilptr) -- a null pointer converts to empty
+    local w: integer = x:get()
+    local b: boolean = x:has()
+  ]])
+  expect.analyze_error([[
+    require 'optional'
+    local x: integer? = 3
+    local v: integer = x
+  ]], "no viable type conversion")
+  expect.analyze_error([[
+    require 'optional'
+    local x: integer? = 3
+    local v = (@integer)(x)
+  ]], "no viable type conversion")
+  expect.analyze_error([[
+    require 'optional'
+    local n: niltype?
+  ]], "optional cannot hold values of type 'niltype'")
+  expect.analyze_error([[
+    require 'optional'
+    local o: optional(integer?)
+  ]], "optional of optional type 'optional(int64)' is not allowed")
+  expect.analyze_error([[
+    require 'optional'
+    local q: integer? = nilptr
+  ]], "no viable conversion from 'nilptr' to 'optional(int64)'")
+  expect.analyze_error([[
+    require 'optional'
+    local q: integer? = 1.5
+  ]], "no viable conversion from 'float64' to 'optional(int64)'")
+  expect.analyze_error([[
+    require 'optional'
+    local a: integer? = 1
+    local b: string? = 'a'
+    local c = a == b
+  ]], "cannot compare 'optional(int64)' with 'optional(string)'")
+  expect.analyze_error([[
+    require 'optional'
+    local x: integer? = 3
+    local y = x?
+  ]], "`?` requires the enclosing function to declare its return types")
+  expect.analyze_error([[
+    require 'optional'
+    local x: integer? = 3
+    local function f()
+      local y = x?
+      return y
+    end
+  ]], "`?` requires the enclosing function to declare its return types")
+  expect.analyze_error([[
+    require 'optional'
+    local x: integer? = 3
+    local function f(): auto
+      local y = x?
+      return y
+    end
+  ]], "`?` requires the enclosing function to declare its return types")
+  expect.analyze_error([[
+    require 'optional'
+    local x: integer? = 3
+    local function f(): integer
+      local y = x?
+      return y
+    end
+  ]], "`?` can only propagate inside a function returning an optional or a pointer, but it returns 'int64'")
+  expect.analyze_error([[
+    require 'optional'
+    local x: integer? = 3
+    local function f(): (integer, integer?)
+      local y = x?
+      return y, y
+    end
+  ]], "`?` can only propagate inside a function returning an optional or a pointer, but it returns 'int64'")
+  expect.analyze_error([[
+    require 'optional'
+    local n = 1
+    local function f(): integer?
+      local y = n?
+      return y
+    end
+  ]], "`?` expects an optional or pointer value, but got 'int64'")
+  expect.analyze_error([[
+    require 'optional'
+    local function two(): (integer, integer) return 1, 2 end
+    local function f(): integer?
+      local y = two()?
+      return y
+    end
+  ]], "`?` expects an optional or pointer value, but got 'int64'")
+  expect.analyze_error([[
+    require 'optional'
+    local function f(): integer?
+      local y = (@integer)?
+      return y
+    end
+  ]], "`?` expects an optional or pointer value, but got 'type'")
+  expect.analyze_ast([[
+    require 'optional'
+    local function find(k: integer): integer?
+      if k == 1 then return 10 end
+      return nil
+    end
+    local function next(p: *integer): *integer?
+      return p
+    end
+    local function f(k: integer): integer?
+      local v = find(k)?
+      return v + 1
+    end
+    local function g(p: *integer): *integer
+      local q = next(p)?
+      local r = p?
+      return q
+    end
+    local function h(k: integer): (integer?, integer, *integer)
+      local v = find(k)?
+      return v, 1, nilptr
+    end
+    ## static_assert(f.type.rettypes[1].is_optional)
+  ]])
+  expect.analyze_ast([[
+    require 'optional'
+    local x: integer? = 3
+    local p: *integer? = nilptr
+    if x then end
+    if p then end
+    while x do break end
+    repeat until p
+    local b: boolean = x == nil
+    local c: boolean = p == nilptr
+    local d: boolean = nil == x
+    local e: boolean = x ~= nil
+    local f: boolean = x == 3
+    local g: boolean = 3 == x
+    local h: boolean = x == x
+    local i: boolean = not x
+    local j = x and p
+    local k: boolean = x and true
+  ]])
+  expect.analyze_error([[
+    require 'optional'
+    local b: boolean? = false
+    if b then end
+  ]], "test a boolean optional")
+  expect.analyze_error([[
+    require 'optional'
+    local b: boolean? = false
+    local c = not b
+  ]], "test a boolean optional")
+  expect.analyze_error([[
+    require 'optional'
+    local b: boolean? = false
+    local c = b and true
+  ]], "test a boolean optional")
+  expect.analyze_error([[
+    require 'optional'
+    local b: boolean? = false
+    local c: boolean = b
+  ]], "test a boolean optional")
+  expect.analyze_ast([[
+    require 'optional'
+    local b: boolean? = false
+    local c = b == nil
+    local d = b == false
+    local e = b:get_or(true)
+  ]])
+  expect.analyze_error([[
+    require 'optional'
+    local function f(p: *integer?): void <cimport,nodecl> end
+  ]], "optional types cannot be used in a <cimport> function")
+  expect.analyze_error([[
+    require 'optional'
+    local function f(): *integer? <cimport,nodecl> end
+  ]], "optional types cannot be used in a <cimport> function")
 end)
 
 it("side effects detection", function()

@@ -84,6 +84,12 @@ function CEmitter:add_val2boolean(val, valtype)
     self:add_value(val)
   elseif valtype.is_pointer or valtype.is_function then
     self:add('(', val, ' != ') self:add_null() self:add_text(')')
+  elseif valtype.is_optional then -- true when holding a value
+    if valtype.is_niche then
+      self:add('((', val, ').v != ') self:add_null() self:add_text(')')
+    else
+      self:add('(', val, ').some')
+    end
   else
     local status = not (valtype.is_niltype or valtype.is_nilptr)
     if needs_evaluation(val) then -- we need to evaluate

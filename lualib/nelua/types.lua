@@ -810,8 +810,12 @@ function BooleanType:_init(name, size)
   Type._init(self, name, size)
 end
 
-function BooleanType:get_convertible_from_type()
-  -- anything is convertible to a boolean
+function BooleanType:get_convertible_from_type(type)
+  if type and type.is_optional and type.subtype.is_boolean then
+    -- a `boolean?` would always be true in a boolean context
+    return false, "test a boolean optional with `~= nil` or `:get()` instead of using it as a boolean"
+  end
+  -- anything else is convertible to a boolean
   return self
 end
 
@@ -1983,6 +1987,9 @@ RecordType.shape = shaper.fork_shape(Type.shape, {
   is_variant = shaper.optional_boolean,
   subtypes = shaper.array_of(shaper.type):is_optional(),
   types = shaper.array_of(shaper.type):is_optional(),
+  -- Used in the lib by the 'optional' generic, `is_niche` marks the pointer layout.
+  is_optional = shaper.optional_boolean,
+  is_niche = shaper.optional_boolean,
 })
 
 function RecordType:_init(fields, node)

@@ -968,8 +968,65 @@ function visitors.VariantType(context, node)
   context:transform_and_traverse_node(node, gnode)
 end
 
-function visitors.OptionalType(_, node)
-  node:raisef("optional type not implemented yet")
+function visitors.OptionalType(context, node)
+  -- `T?` is sugar for the `optional` generic from the standard library
+  if not context.scope.symbols['optional'] then
+    node:raisef("optional types require the 'optional' module, add `require 'optional'` to the top scope")
+  end
+  local gnode = aster.GenericType{aster.Id{'optional'}, {node[1]}}
+  gnode.src, gnode.pos, gnode.endpos = node.src, node.pos, node.endpos
+  context:transform_and_traverse_node(node, gnode)
+end
+
+--[[
+Rewrites `expr?` into a do expression that returns early from the enclosing function
+when `expr` is an empty optional or a null pointer, and otherwise yields the value:
+
+  (do local __try = expr  if not __try:has() then return (@R1)(), (@R2)() end in __try.v end)
+
+Every declared return of the enclosing function is zero initialized in the early return,
+which is the empty optional or the null pointer, so `?` can only be used inside
+functions returning an optional or a pointer.
+]]
+function visitors.Try(context, node)
+  local exprnode = node[1]
+  context:traverse_node(exprnode)
+  local exprtype = exprnode.attr.type
+  if not exprtype then return end -- wait for the operand type
+  local funcscope = context.scope:get_up_function_scope()
+  local rettypes = funcscope and funcscope.rettypes
+  if not rettypes or not types.are_types_resolved(rettypes) then
+    node:raisef("`?` requires the enclosing function to declare its return types")
+  end
+  local rettype = rettypes[1] or primtypes.void
+  if not (rettype.is_optional or rettype.is_pointer) then
+    node:raisef("`?` can only propagate inside a function returning an optional or a pointer, \z
+      but it returns '%s'", rettype)
+  end
+  local tname = context.scope:generate_name('__try')
+  local failnode, valuenode
+  if exprtype.is_optional then
+    failnode = aster.UnaryOp{'not', aster.CallMethod{'has', {}, aster.Id{tname}}}
+    valuenode = aster.DotIndex{'v', aster.Id{tname}}
+  elseif exprtype.is_pointer then
+    failnode = aster.BinaryOp{aster.Id{tname}, 'eq', aster.Nilptr{}}
+    valuenode = aster.Id{tname}
+  else
+    exprnode:raisef("`?` expects an optional or pointer value, but got '%s'", exprtype)
+  end
+  local fillnodes = {}
+  for i=1,#rettypes do
+    fillnodes[i] = aster.Call{{}, aster.Paren{aster.Type{aster.value(rettypes[i])}}}
+  end
+  local declnode = aster.VarDecl{'local', {aster.IdDecl{tname}}, {}}
+  local newnode = aster.DoExpr{aster.Block{
+    declnode,
+    aster.If{{failnode, aster.Block{aster.Return(fillnodes)}}, false},
+    aster.In{valuenode},
+  }}
+  newnode:recursive_update_location(node.src, node.pos, node.endpos)
+  declnode[3][1] = exprnode -- the operand keeps its own location
+  context:transform_and_traverse_node(node, newnode)
 end
 
 function visitors.EnumField(context, node, desiredtype)
@@ -1946,12 +2003,24 @@ function visitors.Block(context, node)
   end
 end
 
+-- Checks a value used where it is tested as a boolean (`if`, `while`, `not`, `and`, `or`).
+local function visitor_boolean_context(node)
+  local type = node.attr.type
+  if type then
+    local ok, err = primtypes.boolean:is_convertible_from(node)
+    if not ok then
+      node:raisef(err)
+    end
+  end
+end
+
 function visitors.If(context, node)
   local ifpairs, elsenode = node[1], node[2]
   local done = true
   for i=1,#ifpairs,2 do
     local ifcondnode, ifblocknode = ifpairs[i], ifpairs[i+1]
     context:traverse_node(ifcondnode, {desiredtype=primtypes.boolean})
+    visitor_boolean_context(ifcondnode)
     context:traverse_node(ifblocknode)
     done = done and ifblocknode.done and ifcondnode.done
   end
@@ -2013,6 +2082,7 @@ end
 function visitors.While(context, node)
   local condnode, blocknode = node[1], node[2]
   context:traverse_node(condnode, {desiredtype=primtypes.boolean})
+  visitor_boolean_context(condnode)
   local scope = context:push_forked_cleaned_scope(node)
   scope.is_loop = true
   context:traverse_node(blocknode)
@@ -2028,6 +2098,7 @@ function visitors.Repeat(context, node)
   context:traverse_node(blocknode)
   context:push_scope(blocknode.scope)
   context:traverse_node(condnode, {desiredtype=primtypes.boolean})
+  visitor_boolean_context(condnode)
   context:pop_scope()
   context:pop_scope()
   node.done = blocknode.done and condnode.done and true
@@ -2773,6 +2844,19 @@ local function visitor_function_annotations(context, node, annotnodes, blocknode
       if #blocknode ~= 0 then
         blocknode:raisef("body of a function declaration must be empty")
       end
+      if attr.cimport and type then
+        -- a single field struct is not ABI-identical to a C pointer in portable C
+        for _,argtype in ipairs(type.argtypes) do
+          if argtype.is_optional then
+            node:raisef("optional types cannot be used in a <cimport> function, use a plain pointer")
+          end
+        end
+        for _,rettype in ipairs(type.rettypes) do
+          if rettype.is_optional then
+            node:raisef("optional types cannot be used in a <cimport> function, use a plain pointer")
+          end
+        end
+      end
       if attr.codename == 'nelua_main' then
         context.hookmain = attr
       end
@@ -3481,6 +3565,9 @@ function visitors.UnaryOp(context, node, opts)
     argopts = {desiredtype=primtypes.boolean}
   end
   context:traverse_node(argnode, argopts)
+  if opname == 'not' then
+    visitor_boolean_context(argnode)
+  end
 
   -- quick return for already resolved type
   if attr.type then
@@ -3559,14 +3646,15 @@ local function override_binary_op(context, node, opname, lnode, rnode, ltype, rt
   else
     mtname = '__' .. opname
   end
+  local lwraps, rwraps = ltype.is_variant or ltype.is_optional, rtype.is_variant or rtype.is_optional
   if mtname == '__eq' and ltype ~= rtype and ltype.is_stringy ~= rtype.is_stringy and
-     not (ltype.is_variant or rtype.is_variant) then
+     not (lwraps or rwraps) then
     -- __eq metamethod is called only for same record types (except for stringy types),
-    -- variants compare with bare member values of any kind through their __eq
+    -- variants and optionals compare with bare values of any kind through their __eq
     return
   end
-  if ltype.metafields and not (mtname == '__eq' and rtype.is_variant and not ltype.is_variant) then
-    -- a variant on the right side wins over the left type's __eq (e.g. string == variant)
+  if ltype.metafields and not (mtname == '__eq' and rwraps and not lwraps) then
+    -- a variant or optional on the right side wins over the left type's __eq (e.g. string == variant)
     mtsym = ltype.metafields[mtname]
     objtype = ltype
   end
@@ -3608,6 +3696,10 @@ function visitors.BinaryOp(context, node, opts)
 
   context:traverse_node(lnode, argopts)
   context:traverse_node(rnode, argopts)
+  if isbinaryconditional then
+    visitor_boolean_context(lnode)
+    visitor_boolean_context(rnode)
+  end
 
   -- quick return for already resolved type
   if attr.type then
