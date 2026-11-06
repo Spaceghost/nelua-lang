@@ -3228,9 +3228,19 @@ it("optional static initializers", function()
     local q: *R? = &g
     local function f(): integer return 1 end
     local z: integer? = f()
+    local c: cstring? = 'xyz'
     ## static_assert(x.type == y.type and z.type == x.type)
     ## static_assert(p.type == q.type)
+    ## static_assert(c.type.is_niche and c.type.subtype.is_cstring)
+    -- an init list into `T?` is the optional record's own literal, spell the payload field
+    local a: [2]integer? = {some = true, v = {1, 2}}
+    local b: [2]integer? = (@[2]integer?){v = {3, 4}}
+    ## static_assert(a.type.is_optional and a.type.subtype.is_array and b.type == a.type)
   ]])
+  expect.analyze_error([[
+    require 'optional'
+    local a: [2]integer? = {1, 2}
+  ]], "in record literal field 'v': no viable type conversion from 'int64' to 'array(int64, 2)'")
   expect.analyze_error([[
     require 'optional'
     local x: integer? = 3.5

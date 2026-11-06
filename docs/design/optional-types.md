@@ -277,18 +277,36 @@ Slice 4 (comptime wrapping, bindgen `--nullable-returns`, editor grammars) is im
 address-of expression (`&g`, so the fork's static-address rule applies) into the init list
 `(@T?){some = true, v = <value>}` / `{v = <value>}` / `{}` instead of a `__convert` call, so top-scope constant
 optionals are C static initializers (`static optional_int64 x = {.some = true, .v = 3};`, `{0}` for empty) and
-nothing is left in `nelua_main` under `noentrypoint`; values that `T` cannot take (`3.5 -> integer?`) still go
-through `__convert` and keep its error, runtime values (`f()`, a variable) still go through `__convert` in
-`nelua_main`, and `opt == nil` is never constant-folded. Spec'd in `analyzer_spec`/`cgenerator_spec` "optional
-static initializers". `tools/nelua-bindgen/nelua-bindgen.py --nullable-returns REGEX` (JSON `nullable_returns`)
-emits `local function name__c(...) <cimport'name'>` plus `global function name(...): *T? <inline>`, requires
+nothing is left in `nelua_main` under `noentrypoint`, used or not (the C generator drops a constant initializer
+of an unused top-scope variable instead of emitting it as a statement; before, every unused `local x = &g` or
+`= {...}` left a dead expression statement there). A comptime string into `cstring?` / `*[0]cchar?` (and into
+any record field of those types) is emitted as the C string literal `(char*)"..."` rather than
+`nelua_string2cstring(...)`, which is not a constant expression (`local a: cstring? = 'xyz'` at the top scope
+compiled on master through `__convert` and broke once wrapped). Values that `T` cannot take (`3.5 -> integer?`)
+still go through `__convert` and keep its error, runtime values (`f()`, a variable) still go through `__convert`
+in `nelua_main`, and `opt == nil` is never constant-folded. Not wrapped: an init list written directly into
+`T?` (`local a: [2]integer? = {1, 2}`) never reaches `visitor_convert`, it is the optional record's own literal
+and fails in the record-literal visitor ("in record literal field 'v': no viable type conversion from 'int64'
+to 'array(int64, 2)'", on master too); spell the payload field (`{some = true, v = {1, 2}}`, `(@[2]integer?){v =
+{3, 4}}`) or convert a typed value (`local arr: [2]integer = {1, 2}; local a: [2]integer? = arr`). Spec'd in
+`analyzer_spec`/`cgenerator_spec` "optional static initializers" and "static initializers at top scope".
+`tools/nelua-bindgen/nelua-bindgen.py --nullable-returns REGEX` (JSON `nullable_returns`) emits `local function
+name__c(...) <cimport'name'>` plus `global function name(...): *T? <inline>` (`function C.name` under
+`--prefix`; a plain `global function C.name` is not Nelua, the pre-existing prefix output never compiled), names
+an unnamed function-pointer return first (`local name__ret: type = @function(cint): cint` then `name__ret?`,
+since `function(cint): cint?` is a function returning `cint?` and types take no parentheses), requires
 `optional`, leaves non-pointer and variadic matches as they are under `-- Notes:`, and is covered by
-`test/nullable.h` / `test/use_nullable.nelua` and the `sample.json` config run. The Tree-sitter grammar
-(`optional_type` postfix, `try_expression`, `try_statement`, `orelse` at precedence 4 between comparison and `|`,
-`if_local`; corpus "Optional type suffix", "Try expression suffix", "Try statement", "orelse operator",
-"if local binding"; highlights) is regenerated from the `b8ea333e` pin, and the TextMate grammar adds
-`keyword.operator.type.optional`, `keyword.operator.try`, `keyword.operator.orelse` and `meta.if-local`
-(`test.cjs`).
+`test/nullable.h` / `test/use_nullable.nelua`, `test/use_sample_prefix.nelua` and the `sample.json` config
+run. The Tree-sitter grammar (`optional_type` postfix, `try_expression`, `try_statement`, `orelse` at
+precedence 4 between comparison and `|`, `if_local`; corpus "Optional type suffix", "Try expression suffix",
+"Try statement", "orelse operator", "if local binding"; highlights) is regenerated from the `b8ea333e` pin and
+mirrors the compiler's shapes: types are layered like `typeexpr` (`|` outermost over unary types, a unary type
+is a `*`/`[n]`-prefixed simple type with at most one `?`, so `T??` is an error), `T?` inside generic
+arguments is an `optional_type` (dynamic precedence over `try_expression`), the statement form is a try-free
+call chain ending in a call (`call` / `TryStat <== call ?`: `a?.b()` and `t[1]?()` are errors as statements,
+fine as expressions), and the compiler's keywords are reserved words (`local orelse = 1` is an error). The
+TextMate grammar adds `keyword.operator.type.optional` (spaces allowed before `?`), `keyword.operator.try`
+(every `?` outside a type context: `x??`, `x ?`), `keyword.operator.orelse` and `meta.if-local` (`test.cjs`).
 
 Smallest shippable subset, useful alone: `T?` types over `lib/optional.nelua`, `==`/`~=` against `nil`/`nilptr`,
 truthiness, and `expr?` for optional/pointer operands inside optional/pointer-returning functions. No `orelse`,

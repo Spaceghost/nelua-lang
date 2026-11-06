@@ -1323,11 +1323,13 @@ function visitors.VarDecl(context, node, emitter)
           defemitter:add_ln(';')
         end
       elseif not defined and not vartype.is_comptime and valnode and
-                             not valnode.attr.comptime and not lastcallindex then -- could be a call
+                             not valnode.attr.comptime and not lastcallindex and
+                             not is_cstatic_initializer(valnode) then -- could be a call
         emitter:add_indent_ln(valnode, ';')
       end
     elseif not vartype.is_comptime and valnode and
-           not valnode.attr.comptime and not lastcallindex then -- could be a call
+           not valnode.attr.comptime and not lastcallindex and
+           not is_cstatic_initializer(valnode) then -- could be a call (a constant initializer has no effect)
       emitter:add_indent_ln(valnode, ';')
     elseif valnode and valnode.attr.requirename then -- require call
       local rollbackpos = emitter:get_pos()

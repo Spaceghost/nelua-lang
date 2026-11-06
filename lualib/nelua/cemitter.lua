@@ -193,11 +193,20 @@ function CEmitter:add_converted_val(type, val, valtype, force, untypedinit)
     elseif type.is_boolean then -- ? -> boolean
       self:add_val2boolean(val, valtype)
     elseif type.is_pointer and valtype.is_string and
-          (type.is_byte_pointer or type.is_bytearray_pointer) then -- cstring -> string
-      if not type.is_cstring then
-        self:add('(', type, ')')
+          (type.is_byte_pointer or type.is_bytearray_pointer) then -- string -> cstring
+      if valattr.comptime and traits.is_string(valattr.value) then
+        -- a comptime string is a C string literal, which stays a constant expression
+        -- inside a static initializer (`nelua_string2cstring(...)` would not)
+        if not type.is_cstring then
+          self:add('(', type, ')')
+        end
+        self:add_string_literal(valattr.value, true, untypedinit)
+      else
+        if not type.is_cstring then
+          self:add('(', type, ')')
+        end
+        self:add_string2cstring(val)
       end
-      self:add_string2cstring(val)
     elseif type.is_string and
           (valtype.is_byte_pointer or valtype.is_bytearray_pointer) then -- string -> cstring
       self:add_cstring2string(val, valtype)

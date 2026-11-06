@@ -3481,6 +3481,9 @@ it("optional static initializers", function()
     local q: *R? = &g
     local s: string? = 'abc'
     local b: boolean? = false
+    local c: cstring? = 'xyz'
+    local S <comptime> = 'uvw'
+    local d: cstring? = S
   ]], {
     "static nelua_optional_int64_ x = {.some = true, .v = 3};",
     "static nelua_optional_int64_ y = {0};",
@@ -3488,8 +3491,10 @@ it("optional static initializers", function()
     "static nelua_optional_pointer_R__ q = {.v = (&g)};",
     "static nelua_optional_string_ s = {.some = true, .v = {(uint8_t*)\"abc\", 3}};",
     "static nelua_optional_boolean_ b = {.some = true, .v = false};",
+    "static nelua_optional_cstring_ c = {.v = (char*)\"xyz\"};",
+    "static nelua_optional_cstring_ d = {.v = (char*)\"uvw\"};",
   })
-  do -- nothing is left for `nelua_main` under `noentrypoint`
+  do -- nothing is left for `nelua_main` under `noentrypoint`, unused constant optionals included
     local _, context = expect.analyze_ast([[
       ## pragmas.noentrypoint = true
       require 'optional'
@@ -3499,6 +3504,11 @@ it("optional static initializers", function()
       local y: integer? = nil
       local p: *R? = nilptr
       local q: *R? = &g
+      local u1: integer? = 3
+      local u2: *R? = &g
+      local u3: integer? = #'abcd'
+      local u4: cstring? = 'xyz'
+      local u5: *R = &g
       local function f(): integer? <cexport, codename 'f'> return x end
       local function h(): *R? <cexport, codename 'h'> if y or p then return p end return q end
     ]], nil, 'c')
@@ -3534,9 +3544,12 @@ it("optional static initializers", function()
     local p: *R? = nilptr
     local q: *R? = &g
     local s: string? = 'abc'
+    local c: cstring? = 'xyz'
     local n: integer = 2
     local z: integer? = n
     assert(x == 3 and x:get() == 3 and x ~= nil)
+    local cs: string = c:get()
+    assert(c ~= nil and cs == 'xyz')
     assert(y == nil and not y)
     assert(p == nil and p == nilptr and not p)
     assert(q ~= nil and q:get() == &g and q:get().x == 1)
@@ -3579,6 +3592,9 @@ it("static initializers at top scope", function()
     local tab: [2]*[0]cchar = {(@*[0]cchar)(&buf[0]), nilptr}
     local px: *int64 = &r.x
     local rr: R = {x = 2, p = &r, q = (@*[0]cchar)(&buf[0])}
+    local S = @record{c: cstring, k: *[0]cchar}
+    local N <comptime> = 'uvw'
+    local sr: S = {c = 'xyz', k = N}
   ]], {
     "static R r = {.x = 1, .p = (void*)NULL};",
     "static R_ptr pr = (&r);",
@@ -3587,6 +3603,7 @@ it("static initializers at top scope", function()
     "static nlcchar_arr0_ptr_arr2 tab = {.v = {((nlcchar_arr0_ptr)(&buf.v[0])), ((nlcchar_arr0_ptr)NULL)}};",
     "static nlint64_ptr px = (&r.x);",
     "static R rr = {.x = 2, .p = (void*)(&r), .q = ((nlcchar_arr0_ptr)(&buf.v[0]))};",
+    "static S sr = {.c = (char*)\"xyz\", .k = (nlcchar_arr0_ptr)(char*)\"uvw\"};",
   })
   do -- nothing is left for `nelua_main` under `noentrypoint`
     local _, context = expect.analyze_ast([[
