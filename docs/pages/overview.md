@@ -1239,9 +1239,11 @@ local add2 = make_adder(2)
 print(add2(1)) -- outputs: 3
 ```
 
-Captured variables are copied when the closure is created, so assigning to
-them inside the closure changes the closure's own copy only. To share state,
-capture a pointer:
+Captured variables are copied when the closure is created, and `__call`
+receives the closure record by value, so assigning to a captured variable
+inside the closure changes a copy that is discarded when the call returns:
+the write is not visible outside and it does not persist across calls of
+the same closure. To share state, capture a pointer:
 
 ```nelua
 local function make_counter(count: *integer)
@@ -1285,6 +1287,25 @@ returned, stored or otherwise used after the enclosing function returns.
 Inside a `<byref>` closure the shared variables are references, so a nested
 closure that captures them shares them too, even without `<byref>`.
 {:.alert.alert-warning}
+
+A captured `<const>` variable stays read-only inside the closure, with or
+without `<byref>`, assigning to it is a compile error.
+
+Locals of a `do` block in the top scope are not in static storage, so a
+`local function` (or anonymous function) inside such a block captures them
+by value, exactly like inside a function, and `<byref>` works there too:
+
+```nelua
+do
+  local x = 1
+  local function g() <byref> x = x + 1 end
+  g()
+  print(x) -- outputs: 2
+end
+```
+
+Directly in the top scope every local is static, functions there are
+[top scope closures](#top-scope-closures) and `<byref>` is an error.
 
 A closure is a record, not a function pointer, so its type is inferred with
 `auto` and it cannot be passed where a C function pointer is expected.

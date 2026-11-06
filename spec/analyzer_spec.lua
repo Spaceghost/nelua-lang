@@ -1825,11 +1825,81 @@ it("closures", function()
     local function f(): integer <byref> return x end
   ]], "annotation 'byref' is only valid on functions nested inside another function")
   expect.analyze_error([[
+    local f = function() <byref> end
+  ]], "annotation 'byref' is only valid on functions nested inside another function")
+  expect.analyze_ast([[ -- block locals at the top scope are on the stack, byref may share them
+    do
+      local x = 1
+      local function g() <byref> x = x + 1 end
+      local h = function() <byref> x = x + 1 end
+      g() h()
+    end
+  ]])
+  expect.analyze_error([[
     local function f(n: integer)
       local g = function(x: integer): integer <byref, byref> return x + n end
       return g(1)
     end
   ]], "annotation 'byref' is undefined for functions")
+  expect.analyze_ast([[ -- a local named like the function shadows it, this is not a self reference
+    local function f(n: integer): integer
+      local function g(x: integer): integer local g = 10 return x + n + g end
+      return g(1)
+    end
+  ]])
+  expect.analyze_ast([[ -- a parameter named like the function shadows it too
+    local function f(n: integer): integer
+      local function g(g: integer): integer return g + n end
+      return g(1)
+    end
+  ]])
+  expect.analyze_error([[ -- a local declared after the use does not shadow it
+    local function f(n: integer): integer
+      local function g(x: integer): integer
+        if x > 0 then return g(x - 1) + n end
+        local g = 10
+        return g
+      end
+      return g(1)
+    end
+  ]], "nested function 'g' captures upvalues and cannot reference itself")
+  expect.analyze_error([[ -- a by value capture of a const stays const
+    local function f(): integer
+      local x <const> = 1
+      local function g(): integer x = 2 return x end
+      return g()
+    end
+  ]], "cannot assign a constant variable")
+  expect.analyze_error([[ -- a byref capture of a const local stays const
+    local function f(): integer
+      local x <const> = 1
+      local function g() <byref> x = 2 end
+      g()
+      return x
+    end
+  ]], "cannot assign a constant variable")
+  expect.analyze_error([[ -- a byref capture of a const parameter stays const
+    local function f(n: integer <const>): integer
+      local function g() <byref> n = 2 end
+      g()
+      return n
+    end
+  ]], "cannot assign a constant variable")
+  expect.analyze_error([[ -- a pointer taken through a byref const capture is a const pointer
+    local function f(n: integer <const>): integer
+      local function g() <byref> local p = &n $p = 2 end
+      g()
+      return n
+    end
+  ]], "cannot assign a constant variable")
+  expect.analyze_ast([[ -- const captures can be read
+    local function f(n: integer <const>): integer
+      local x <const> = 1
+      local function g(): integer return x + n end
+      local function h(): integer <byref> return x + n end
+      return g() + h()
+    end
+  ]])
 end)
 
 it("variant types", function()

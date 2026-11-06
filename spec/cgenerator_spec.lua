@@ -2942,8 +2942,50 @@ it("byref closures", function()
       return b
     end
     assert(mixed(5) == 11)
+
+    local function readonly(n: integer <const>): integer
+      local x <const> = 10
+      local function g(): integer <byref> return x + n end -- const captures are shared read-only
+      return g()
+    end
+    assert(readonly(5) == 15)
+
+    local function inlined(): integer
+      local v = 1
+      local function bump() <byref, inline> v = v + 1 end
+      bump() bump()
+      return v
+    end
+    assert(inlined() == 3)
+
+    do -- a block at the top scope keeps its locals on the stack, byref shares them
+      local x = 1
+      local function g() <byref> x = x + 1 end
+      g()
+      assert(x == 2)
+      print(x)
+    end
     print('byref closures ok')
-  ]], 'byref closures ok')
+  ]], '2\nbyref closures ok')
+end)
+
+it("closure call receives the record by value", function()
+  expect.run_c([[
+    local function f(): integer
+      local c = 0
+      local function inc(): integer c = c + 1 return c end
+      inc()
+      return inc() -- the copy written by the first call is gone
+    end
+    assert(f() == 1)
+
+    local function shadow(n: integer): integer
+      local function g(x: integer): integer local g = 10 return x + n + g end
+      return g(1)
+    end
+    assert(shadow(1) == 12)
+    print('closure copies ok')
+  ]], 'closure copies ok')
 end)
 
 it("const pointers", function()
