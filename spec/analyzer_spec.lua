@@ -1773,6 +1773,57 @@ it("variant types", function()
     require 'variant'
     local v: integer|integer
   ]], "variant has duplicated type 'int64'")
+  expect.analyze_ast([[
+    require 'variant'
+    local V = @variant(integer, string)
+    ## static_assert(#V.value.types == 2 and V.value.types[1] == primtypes.integer)
+    ## static_assert(V.value.types[2] == primtypes.string)
+    local a: V = 1
+    local b: V = 's'
+    local eq: boolean = a == b
+    local ne: boolean = a ~= 2
+    local se: boolean = 's' == b
+  ]])
+  expect.analyze_error([[
+    require 'variant'
+    local a: integer|string = 1
+    local b: integer|boolean = 1
+    local eq = a == b
+  ]], "no viable conversion from 'variant(int64, boolean)' to 'variant(int64, string)'")
+  -- a boolean member only takes booleans, although anything converts to a boolean
+  expect.analyze_error([[
+    require 'variant'
+    local v: integer|boolean = 1
+    local x = v == 'x'
+  ]], "no viable conversion from 'string' to 'variant(int64, boolean)'")
+  expect.analyze_error([[
+    require 'variant'
+    local v: integer|boolean = 'x'
+  ]], "no viable conversion from 'string' to 'variant(int64, boolean)'")
+  expect.analyze_error([[
+    require 'variant'
+    local v: integer|boolean = true
+    local x = 3.5 == v
+  ]], "no viable conversion from 'float64' to 'variant(int64, boolean)'")
+  expect.analyze_ast([[
+    require 'variant'
+    local v: integer|boolean = true
+    local x: boolean = v == false
+    local p: pointer|boolean = nilptr
+  ]])
+  -- tostring needs every member to be convertible to a string
+  expect.analyze_error([[
+    require 'variant'
+    local R = @record{x: integer}
+    local v: variant(R, integer) = 1
+    local s = tostring(v)
+  ]], "tostring: cannot convert type 'R' to a string")
+  -- __eq is instantiated on use, so a member without == support is fine until compared
+  expect.analyze_ast([[
+    require 'variant'
+    local v: variant(function(), integer) = 1
+    ## static_assert(v.type.metafields.__eq.type.is_polyfunction)
+  ]])
 end)
 
 it("const pointers", function()
@@ -2296,6 +2347,15 @@ it("union type", function()
   expect.analyze_error([[
     local u: union{b: boolean, i: integer} = {c = true}
   ]], "is not present in union")
+  expect.analyze_ast([[
+    -- the union size is padded to its alignment, as in C
+    local U = @union{a: int64, b: [10]int8}
+    ## static_assert(U.value.size == 16 and U.value.align == 8)
+    local W = @union{a: int32, b: [5]int8}
+    ## static_assert(W.value.size == 8 and W.value.align == 4)
+    local X = @union{a: int8, b: [3]int8}
+    ## static_assert(X.value.size == 3 and X.value.align == 1)
+  ]])
 end)
 
 it("optional type", function()

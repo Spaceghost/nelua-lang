@@ -1982,6 +1982,7 @@ RecordType.shape = shaper.fork_shape(Type.shape, {
   -- Used in the lib by the 'variant' generic to represent the member types.
   is_variant = shaper.optional_boolean,
   subtypes = shaper.array_of(shaper.type):is_optional(),
+  types = shaper.array_of(shaper.type):is_optional(),
 })
 
 function RecordType:_init(fields, node)
@@ -2227,6 +2228,7 @@ function UnionType:update_fields()
       align = size
     else
       self.is_empty = nil
+      size = align_forward(size, align) -- C pads the union to its alignment
     end
     self.size = size
     self.bitsize = size * 8

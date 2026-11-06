@@ -65,4 +65,74 @@ do -- narrowing conversions choose the single convertible member
   assert(v:is(@float64) and v:get(@float64) == 1.0)
 end
 
+do -- equality
+  local V = @variant(integer, string)
+  local a: V = 1
+  local b: V = 1
+  local c: V = 'x'
+  local e1: V
+  local e2: V
+  assert(a == b and not (a ~= b)) -- same index, equal payloads
+  assert(a ~= c and not (a == c)) -- different index
+  assert(e1 == e2) -- both empty
+  assert(a ~= e1 and e1 ~= a) -- empty versus held
+  b = 2
+  assert(a ~= b) -- same index, different payloads
+  assert(a == 1 and 1 == a and a ~= 2) -- bare member values convert first
+  assert(c == 'x' and 'x' == c and c ~= 'y')
+  assert(a ~= 'x' and c ~= 1) -- bare value of another member type
+  local R = @record{x: integer, y: integer}
+  local W = @variant(R, integer)
+  local w1: W = (@R){1, 2}
+  local w2: W = (@R){1, 2}
+  assert(w1 == w2) -- records without __eq compare field by field
+  w2 = (@R){1, 3}
+  assert(w1 ~= w2)
+end
+
+do -- tostring
+  local V = @variant(integer, string)
+  local v: V
+  assert(tostring(v) == 'variant(int64, string): empty')
+  v = 10
+  assert(tostring(v) == 'variant(int64, string): 10')
+  v = 'hello'
+  assert(tostring(v) == 'variant(int64, string): hello')
+  local sb: stringbuilder
+  sb:write(v)
+  assert(sb:promote() == 'variant(int64, string): hello')
+end
+
+local visits = 0
+local function counter(x: auto) visits = visits + 1 end -- visitor returning nothing
+
+do -- visit
+  local V = @variant(integer, string, boolean)
+  local function describe(x: auto): string
+    ## if x.type.is_integral then
+      return 'integer ' .. tostring(x)
+    ## elseif x.type.is_string then
+      return 'string ' .. x
+    ## else
+      return 'boolean ' .. tostring(x)
+    ## end
+  end
+  local v: V = 1
+  assert(v:visit(describe) == 'integer 1')
+  v = 'a'
+  assert(v:visit(describe) == 'string a')
+  v = true
+  assert(v:visit(describe) == 'boolean true')
+  v:visit(counter)
+  v = 2
+  v:visit(counter)
+  assert(visits == 2)
+  local N = @variant(integer, float64)
+  local scale = 2.5
+  local n: N = 2
+  assert(n:visit(function(x: float64): float64 return x * scale end) == 5.0) -- closure visitor
+  n = 1.5
+  assert(n:visit(function(x: float64): float64 return x * scale end) == 3.75)
+end
+
 print('variant ok')

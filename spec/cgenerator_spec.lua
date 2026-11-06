@@ -1542,6 +1542,28 @@ end)
 it("string comparisons", function()
   expect.generate_c("local a,b = 'a','b'; local x = a == b", "nelua_eq_string(a, b)")
   expect.generate_c("local a,b = 'a','b'; local x = a ~= b", "!nelua_eq_string(a, b)")
+  -- array fields compare by the field size, not the record size
+  expect.generate_c([[
+    local R = @record{x: integer, arr: [2]int8}
+    local a: R, b: R
+    local x = a == b
+  ]], "return a.x == b.x && memcmp(a.arr, b.arr, sizeof(a.arr)) == 0;")
+  expect.run_c([[
+    local R = @record{arr: [2]int8, x: integer}
+    local U = @union{a: integer, b: [10]int8}
+    local S = @record{u: U, c: int8}
+    local a: R = {arr = {1, 2}, x = 3}
+    local b: R = {arr = {1, 2}, x = 3}
+    assert(a == b)
+    b.arr[1] = 9
+    assert(a ~= b)
+    assert(#U == 16 and #S == 24)
+    local s: S = {c = 1}
+    local t: S = {c = 1}
+    assert(s == t)
+    t.u.b[9] = 1
+    assert(s ~= t)
+  ]])
   expect.run_c([[
     assert('a' == 'a')
     assert(not ('a' ~= 'a'))
@@ -2757,6 +2779,30 @@ it("freestanding pragma", function()
     global_cb = cb
     local function f(): int64 <cexport, codename 'f'> return global_cb() end
   ]], "top scope statements are emitted into `nelua_main`, but nothing calls it")
+end)
+
+it("variant under freestanding", function()
+  -- `__tostring` needs the string library, so it is left out and the rest still works
+  local _, context = expect.analyze_ast([[
+    ## pragmas.freestanding = true
+    ## pragmas.abort = 'trap'
+    require 'variant'
+    local V = @variant(int64, boolean)
+    ## static_assert(V.value.metafields.__eq and V.value.metafields.visit)
+    ## static_assert(not V.value.metafields.__tostring)
+    local function seven(v: auto): int64 return 7 end
+    local function same(a: int64, b: int64): boolean <cexport, codename 'same'>
+      local x: V = a
+      local y: V = b
+      return x == y and x:visit(seven) == 7 -- visiting an empty variant traps
+    end
+  ]], nil, 'c')
+  local code = assert(require('nelua.cgenerator').generate(context))
+  assert(code:find('bool same(int64_t a, int64_t b)', 1, true), 'missing same')
+  assert(code:find('__builtin_trap();', 1, true), 'missing trap')
+  assert(not code:find('<stdlib.h>', 1, true), 'unexpected stdlib.h')
+  assert(not code:find('<stdio.h>', 1, true), 'unexpected stdio.h')
+  assert(not code:find('int main(', 1, true), 'unexpected main')
 end)
 
 it("static initializers at top scope", function()

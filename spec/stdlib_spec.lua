@@ -33,6 +33,45 @@ it("allocators", function()
 end)
 it("variant", function()
   expect.run_c_from_file('tests/variant_test.nelua')
+  expect.run_c([[
+    require 'variant'
+    require 'string'
+    local V = @variant(integer, string)
+    local a: V = 1
+    local b: V = 1
+    local e: V
+    print(a == b, a == 'x', a == e, e == e, a == 1, 1 == a)
+    print(a, e)
+    local function describe(x: auto): string
+      ## if x.type.is_integral then
+        return 'int'
+      ## else
+        return 'str'
+      ## end
+    end
+    b = 's'
+    print(a:visit(describe), b:visit(describe))
+    local B = @variant(integer, boolean)
+    local t: B = true
+    local n: B = 1
+    print(t == true, t == false, t == 1, n == 1, n == true, 0 == n, t, n)
+  ]], "true\tfalse\tfalse\ttrue\ttrue\ttrue\n" ..
+      "variant(int64, string): 1\tvariant(int64, string): empty\n" ..
+      "int\tstr\n" ..
+      "true\tfalse\tfalse\ttrue\tfalse\tfalse\t" ..
+      "variant(int64, boolean): true\tvariant(int64, boolean): 1")
+  expect.run_error_c([[
+    require 'variant'
+    local e: integer|string
+    local function one(x: auto): integer return 1 end
+    print(e:visit(one))
+  ]], "attempt to visit an empty variant")
+  expect.run_error_c([[
+    require 'variant'
+    local a: integer|string = 1
+    local function ident(x: auto) return x end -- branches disagree on the result type
+    local r = a:visit(ident)
+  ]], "deduced type 'any'")
 end)
 it("span", function()
   expect.run_c_from_file('tests/span_test.nelua')

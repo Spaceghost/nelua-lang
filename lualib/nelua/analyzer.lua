@@ -3413,11 +3413,14 @@ local function override_binary_op(context, node, opname, lnode, rnode, ltype, rt
   else
     mtname = '__' .. opname
   end
-  if mtname == '__eq' and ltype ~= rtype and ltype.is_stringy ~= rtype.is_stringy then
-    -- __eq metamethod is called only for same record types (except for stringy types)
+  if mtname == '__eq' and ltype ~= rtype and ltype.is_stringy ~= rtype.is_stringy and
+     not (ltype.is_variant or rtype.is_variant) then
+    -- __eq metamethod is called only for same record types (except for stringy types),
+    -- variants compare with bare member values of any kind through their __eq
     return
   end
-  if ltype.metafields then
+  if ltype.metafields and not (mtname == '__eq' and rtype.is_variant and not ltype.is_variant) then
+    -- a variant on the right side wins over the left type's __eq (e.g. string == variant)
     mtsym = ltype.metafields[mtname]
     objtype = ltype
   end
