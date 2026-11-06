@@ -3042,6 +3042,182 @@ it("optional types", function()
   ]], "deduced type 'any'")
 end)
 
+it("optional try kinds", function()
+  expect.run_c([[
+    require 'optional'
+    local function open(k: integer): (integer, string, integer)
+      if k == 1 then return 10, (@string){}, 0 end
+      return 0, 'open failed', 7
+    end
+    local function okmsg(k: integer): (boolean, string, integer)
+      if k == 1 then return true, (@string){}, 0 end
+      return false, 'okmsg failed', 8
+    end
+    local calls = 0
+    local function only(k: integer): boolean
+      calls = calls + 1
+      return k == 1
+    end
+    -- errmsg -> empty
+    local function a(k: integer): integer?
+      local v = open(k)?
+      return v + 1
+    end
+    assert(a(1) == 11 and a(2) == nil)
+    -- errmsg -> errmsg keeps the message, zero fills the value and the errcode
+    local function b(k: integer): (integer, string, integer)
+      local v = open(k)?
+      return v + 2, (@string){}, 0
+    end
+    local v, e, c = b(1)
+    assert(v == 12 and #e == 0 and c == 0)
+    v, e, c = b(2)
+    local _, emsg, ecode = open(2)
+    assert(v == 0 and e == emsg and e == 'open failed' and c == 0 and ecode == 7)
+    -- errmsg (boolean value) -> errmsg, statement form
+    local function s(k: integer): (boolean, string)
+      okmsg(k)?
+      return true, (@string){}
+    end
+    local ok, err = s(1)
+    assert(ok == true and #err == 0)
+    ok, err = s(2)
+    assert(ok == false and err == 'okmsg failed')
+    -- errmsg -> ok drops the message, ok -> ok
+    local function d(k: integer): boolean
+      okmsg(k)?
+      only(k)?
+      return true
+    end
+    calls = 0
+    assert(d(1) == true and calls == 1)
+    calls = 0
+    assert(d(2) == false and calls == 0)
+    local function d2(k: integer): boolean
+      only(k)?
+      only(1)?
+      return true
+    end
+    calls = 0
+    assert(d2(1) == true and calls == 2)
+    calls = 0
+    assert(d2(2) == false and calls == 1)
+    -- ok -> (ok, ...) and ok -> empty
+    local function e1(k: integer): (boolean, integer)
+      only(k)?
+      return true, 5
+    end
+    local x, y = e1(1)
+    assert(x == true and y == 5)
+    x, y = e1(2)
+    assert(x == false and y == 0)
+    local function e2(k: integer): integer?
+      only(k)?
+      return k
+    end
+    assert(e2(1) == 1 and e2(2) == nil)
+    -- optional kind in statement form and errmsg value through an expression
+    local function g(k: integer): integer?
+      a(k)?
+      return open(k)? * 3
+    end
+    assert(g(1) == 30 and g(2) == nil)
+    -- defer runs on the early return
+    local counter = 0
+    local function withdefer(k: integer): (integer, string, integer)
+      defer counter = counter + 1 end
+      local v = open(k)?
+      return v, (@string){}, 0
+    end
+    counter = 0
+    local _, derr = withdefer(2)
+    assert(derr == 'open failed' and counter == 1)
+    assert(withdefer(1) == 10 and counter == 2)
+    -- `?` on an errmsg call inside a closure returns from the closure
+    local function outer(k: integer): integer
+      local inner = function(j: integer): (integer, string, integer)
+        local v = open(j)?
+        return v * 2, (@string){}, 0
+      end
+      local iv, ie = inner(k)
+      if #ie ~= 0 then return -1 end
+      return iv
+    end
+    assert(outer(1) == 20 and outer(2) == -1)
+  ]])
+  expect.run_c([[
+    require 'optional'
+    require 'io'
+    require 'os'
+    local path = os.tmpname()
+    local function first_line(p: string): string? -- errmsg -> empty
+      local f = io.open(p)?
+      defer f:close() end
+      return f:read('l')?
+    end
+    local function first_line_msg(p: string): (string, string, integer) -- errmsg -> errmsg
+      local f = io.open(p)?
+      defer f:close() end
+      local l = f:read('l')?
+      return l, (@string){}, 0
+    end
+    local function append(p: string, s: string): (boolean, string, integer) -- statement form
+      local f = io.open(p, 'a')?
+      f:write(s)?
+      f:close()?
+      return true, (@string){}, 0
+    end
+    local function append_ok(p: string, s: string): boolean -- errmsg -> ok drops the message
+      local f = io.open(p, 'a')?
+      f:write(s)?
+      f:close()?
+      return true
+    end
+    local missing = path .. '.missing'
+    local ok, err, code = append(path, 'first\n')
+    assert(ok == true and #err == 0 and code == 0)
+    assert(append_ok(path, 'second\n') == true)
+    assert(first_line(path) == 'first')
+    assert(first_line(missing) == nil)
+    local l, e, c = first_line_msg(path)
+    assert(l == 'first' and #e == 0 and c == 0)
+    local _, emsg, ecode = io.open(missing)
+    l, e, c = first_line_msg(missing)
+    assert(#l == 0 and e == emsg and #e > 0 and c == 0 and ecode ~= 0)
+    ok, err, code = append('/nonexistent/dir/x', 'x')
+    assert(ok == false and #err > 0 and code == 0)
+    assert(append_ok('/nonexistent/dir/x', 'x') == false)
+    local f = io.open(path)
+    assert(f:read('a') == 'first\nsecond\n')
+    f:close()
+    assert(os.remove(path))
+  ]])
+  do -- freestanding: the rewrite tests `.size` and uses no string function
+    local _, context = expect.analyze_ast([[
+      ## pragmas.freestanding = true
+      ## pragmas.abort = 'trap'
+      require 'optional'
+      local function open(k: int64): (int64, string, int64)
+        if k == 1 then return 10, (@string){}, 0 end
+        return 0, 'fail', 1
+      end
+      local function twice(k: int64): (int64, string, int64) <cexport, codename 'twice'>
+        local v = open(k)?
+        return v * 2, (@string){}, 0
+      end
+      local function maybe(k: int64): int64? <cexport, codename 'maybe'>
+        local v = open(k)?
+        return v
+      end
+    ]], nil, 'c')
+    local code = assert(require('nelua.cgenerator').generate(context))
+    assert(code:find('.size != 0', 1, true), 'missing size test')
+    assert(not code:find('nelua_string', 1, true), 'unexpected string function')
+    assert(not code:find('<stdlib.h>', 1, true), 'unexpected stdlib.h')
+    assert(not code:find('<string.h>', 1, true), 'unexpected string.h')
+  end
+end)
+
 it("optional under freestanding", function()
   local _, context = expect.analyze_ast([[
     ## pragmas.freestanding = true

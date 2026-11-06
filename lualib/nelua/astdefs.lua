@@ -197,6 +197,11 @@ aster.register('Try', {
   shaper.Node -- expr
 })
 
+-- Try statement (e.g. `f()?`), early return from the enclosing function when the call fails.
+aster.register('TryStat', {
+  shaper.Node -- call
+})
+
 -- Generic type.
 aster.register('GenericType', {
   shaper.Id + shaper.DotIndex, -- name

@@ -2592,7 +2592,7 @@ it("optional types", function()
       local y = x?
       return y
     end
-  ]], "`?` can only propagate inside a function returning an optional or a pointer, but it returns 'int64'")
+  ]], "`?` can only propagate inside a function returning an optional, a pointer, `(value, errmsg)` or `(ok, ...)`, but it returns 'int64'")
   expect.analyze_error([[
     require 'optional'
     local x: integer? = 3
@@ -2600,7 +2600,7 @@ it("optional types", function()
       local y = x?
       return y, y
     end
-  ]], "`?` can only propagate inside a function returning an optional or a pointer, but it returns 'int64'")
+  ]], "`?` can only propagate inside a function returning an optional, a pointer, `(value, errmsg)` or `(ok, ...)`, but it returns 'int64'")
   expect.analyze_error([[
     require 'optional'
     local n = 1
@@ -2608,7 +2608,7 @@ it("optional types", function()
       local y = n?
       return y
     end
-  ]], "`?` expects an optional or pointer value, but got 'int64'")
+  ]], "`?` expects an optional, a pointer or a `(value, errmsg)` call, but got 'int64'")
   expect.analyze_error([[
     require 'optional'
     local function two(): (integer, integer) return 1, 2 end
@@ -2616,14 +2616,14 @@ it("optional types", function()
       local y = two()?
       return y
     end
-  ]], "`?` expects an optional or pointer value, but got 'int64'")
+  ]], "`?` expects an optional, a pointer or a `(value, errmsg)` call, but got 'int64'")
   expect.analyze_error([[
     require 'optional'
     local function f(): integer?
       local y = (@integer)?
       return y
     end
-  ]], "`?` expects an optional or pointer value, but got 'type'")
+  ]], "`?` expects an optional, a pointer or a `(value, errmsg)` call, but got 'type'")
   expect.analyze_ast([[
     require 'optional'
     local function find(k: integer): integer?
@@ -2757,6 +2757,188 @@ it("optional types", function()
       return (do in find(v)? end) -- `?` as the sole `in` expression
     end
   ]])
+end)
+
+it("optional try kinds", function()
+  -- errmsg kind: the value is the first return, the message is tested with `.size`
+  expect.analyze_ast([[
+    require 'optional'
+    local function open(k: integer): (integer, string, integer)
+      if k == 1 then return 10, (@string){}, 0 end
+      return 0, 'fail', 1
+    end
+    local function okmsg(k: integer): (boolean, string, integer)
+      if k == 1 then return true, (@string){}, 0 end
+      return false, 'fail', 1
+    end
+    local function only(k: integer): boolean
+      return k == 1
+    end
+    local function a(k: integer): integer?
+      local v = open(k)? -- errmsg -> empty
+      ## static_assert(v.type == primtypes.integer)
+      return v
+    end
+    local function b(k: integer): (integer, string, integer)
+      local v = open(k)? -- errmsg -> errmsg
+      okmsg(k)? -- statement form
+      return v, (@string){}, 0
+    end
+    local function c(k: integer): (boolean, string)
+      local v: boolean = okmsg(k)?
+      return v, (@string){}
+    end
+    local function d(k: integer): boolean
+      okmsg(k)? -- errmsg -> ok, the message is dropped
+      only(k)? -- ok -> ok
+      open(k)? -- errmsg -> ok
+      return true
+    end
+    local function e(k: integer): (boolean, integer)
+      only(k)?
+      return true, 1
+    end
+    local function f(k: integer): integer?
+      only(k)? -- ok -> empty
+      open(k)? -- errmsg kind, statement form, value dropped
+      a(k)? -- optional kind, statement form
+      return 1
+    end
+    local function g(k: integer): *integer
+      okmsg(k)?
+      return nilptr
+    end
+    ## static_assert(b.type.rettypes[2].is_string)
+  ]])
+  expect.analyze_error([[
+    require 'optional'
+    local function only(k: integer): boolean return k == 1 end
+    local function f(k: integer): boolean
+      local v = only(k)?
+      return v
+    end
+  ]], "`?` on a call returning only a boolean yields no value, use the statement form `f()?`")
+  expect.analyze_error([[
+    require 'optional'
+    local function only(k: integer): boolean return k == 1 end
+    local function f(k: integer): boolean
+      return only(k)?
+    end
+  ]], "`?` on a call returning only a boolean yields no value, use the statement form `f()?`")
+  expect.analyze_error([[
+    require 'optional'
+    local function open(k: integer): (integer, string, integer) return k, (@string){}, 0 end
+    local function f(k: integer): integer
+      local v = open(k)?
+      return v
+    end
+  ]], "`?` can only propagate inside a function returning an optional, a pointer, `(value, errmsg)` or `(ok, ...)`, but it returns 'int64'")
+  expect.analyze_error([[
+    require 'optional'
+    local x: integer? = 3
+    local function f(): integer
+      local y = x?
+      return y
+    end
+  ]], "`?` can only propagate inside a function returning an optional, a pointer, `(value, errmsg)` or `(ok, ...)`, but it returns 'int64'")
+  expect.analyze_error([[
+    require 'optional'
+    local x: integer? = 3
+    local function f(): (integer, integer)
+      local y = x?
+      return y, 1
+    end
+  ]], "`?` can only propagate inside a function returning an optional, a pointer, `(value, errmsg)` or `(ok, ...)`, but it returns 'int64'")
+  expect.analyze_error([[
+    require 'optional'
+    local function open(k: integer): (integer, string, integer) return k, (@string){}, 0 end
+    local function f(k: integer): (integer, integer)
+      open(k)?
+      return k, 1
+    end
+  ]], "`?` can only propagate inside a function returning an optional, a pointer, `(value, errmsg)` or `(ok, ...)`, but it returns 'int64'")
+  expect.analyze_error([[
+    require 'optional'
+    local x: integer? = 3
+    local function f(): (integer, string)
+      local y = x?
+      return y, 'x'
+    end
+  ]], "`?` has no message to propagate into a `(value, errmsg)` function from an optional, a pointer or a boolean call, write the `if` by hand")
+  expect.analyze_error([[
+    require 'optional'
+    local function f(p: *integer): (integer, string)
+      local y = p?
+      return $y, 'x'
+    end
+  ]], "`?` has no message to propagate")
+  expect.analyze_error([[
+    require 'optional'
+    local function only(k: integer): boolean return k == 1 end
+    local function f(k: integer): (boolean, string)
+      only(k)?
+      return true, 'x'
+    end
+  ]], "`?` has no message to propagate")
+  expect.analyze_error([[
+    require 'optional'
+    local function two(): (integer, integer) return 1, 2 end
+    local function f(): integer?
+      local y = two()?
+      return y
+    end
+  ]], "`?` expects an optional, a pointer or a `(value, errmsg)` call, but got 'int64'")
+  expect.analyze_error([[
+    require 'optional'
+    local function two(): (integer, integer) return 1, 2 end
+    local function f(): integer?
+      two()?
+      return 1
+    end
+  ]], "`?` expects an optional, a pointer or a `(value, errmsg)` call, but got 'int64'")
+  expect.analyze_error([[
+    require 'optional'
+    local function b(): (boolean, boolean) return true, true end
+    local function f(): boolean
+      b()?
+      return true
+    end
+  ]], "`?` expects an optional, a pointer or a `(value, errmsg)` call, but got 'boolean'")
+  expect.analyze_error([[
+    require 'optional'
+    local n = 1
+    local function f(): integer?
+      local y = n?
+      return y
+    end
+  ]], "`?` expects an optional, a pointer or a `(value, errmsg)` call, but got 'int64'")
+  expect.analyze_error([[
+    require 'optional'
+    local function f(): integer?
+      local y = (@integer)?
+      return y
+    end
+  ]], "`?` expects an optional, a pointer or a `(value, errmsg)` call, but got 'type'")
+  expect.analyze_error([[
+    require 'optional'
+    local function open(k: integer): (integer, string, integer) return k, (@string){}, 0 end
+    local function f(k: integer): integer?
+      local a, b = open(k)?
+      return a
+    end
+  ]], "`?` yields a single value, but 2 values are expected")
+  expect.analyze_error([[
+    require 'optional'
+    local function okmsg(k: integer): (boolean, string, integer) return true, (@string){}, 0 end
+    okmsg(1)?
+  ]], "`?` requires the enclosing function to declare its return types")
+  expect.analyze_error([[
+    require 'optional'
+    local function okmsg(k: integer): (boolean, string, integer) return true, (@string){}, 0 end
+    local function f(k: integer)
+      okmsg(k)?
+    end
+  ]], "`?` requires the enclosing function to declare its return types")
 end)
 
 it("side effects detection", function()

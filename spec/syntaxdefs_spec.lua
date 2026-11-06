@@ -1368,7 +1368,26 @@ describe("type expression", function()
         n.Return{n.BinaryOp{n.Try{n.Id{'x'}}, 'add', n.Number{'1'}}}
     })
     expect_ast_error("x? = 1", 'UnexpectedSyntax')
-    expect_ast_error("f()?", 'UnexpectedSyntax')
+  end)
+  it("try statement", function()
+    expect_ast("f()?",
+      n.Block{
+        n.TryStat{n.Call{{}, n.Id{'f'}}}
+    })
+    expect_ast("a.b:c(1)? d()",
+      n.Block{
+        n.TryStat{n.CallMethod{'c', {n.Number{'1'}}, n.DotIndex{'b', n.Id{'a'}}}},
+        n.Call{{}, n.Id{'d'}}
+    })
+    expect_ast("f()",
+      n.Block{
+        n.Call{{}, n.Id{'f'}}
+    })
+    expect_ast_error("f()?:g()", 'UnexpectedSyntax')
+    expect_ast_error("f()?.v", 'UnexpectedSyntax')
+    expect_ast_error("x?", 'UnexpectedSyntax')
+    expect_ast_error("x? = 1", 'UnexpectedSyntax')
+    expect_ast_error("local a, b = f()?, 1 f()?.v = 1", 'UnexpectedSyntax')
   end)
   it("enum type", function()
     expect_ast("local e: enum{a}",

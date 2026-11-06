@@ -993,63 +993,138 @@ end
 
 --[[
 Rewrites `expr?` into a do expression that returns early from the enclosing function
-when `expr` is an empty optional or a null pointer, and otherwise yields the value:
+when the operand has no value, and otherwise yields the value:
 
-  (do local __try = expr  if not __try:has() then return (@R1)(), (@R2)() end in __try.v end)
+  (do local __try = expr  if not __try:has() then return <fill> end in __try.v end)
 
-Every declared return of the enclosing function is zero initialized in the early return,
-which is the empty optional or the null pointer, so `?` can only be used inside
-functions returning an optional or a pointer.
+Operand kinds: an optional (fails when empty), a pointer (fails when null), a call returning
+`(value, errmsg: string, ...)` (fails when the message is not empty, the value is the first
+return, `errmsg` kind) and a call returning only a boolean (fails when false, yields no value,
+`ok` kind, statement form only). The early return fills every declared return of the
+enclosing function: zero initialized when it returns an optional or a pointer (`empty`),
+`(@R1)(), msg, (@R3)()...` when it returns `(value, errmsg)` (the message of an `errmsg`
+operand is propagated unchanged, the other kinds have no message and are refused),
+and `false, (@R2)()...` when it returns `(ok, ...)` (the message of an `errmsg` operand is
+dropped). The statement form `f()?` is rewritten into a plain `do` block without `in`.
 ]]
-function visitors.Try(context, node)
+local function visitor_try(context, node, isstat)
   local exprnode = node[1]
   local funcscope = context.scope:get_up_function_scope()
-  -- the operand is traversed under the scopes the do expression and its block will own,
+  -- the operand is traversed under the scopes the do block will own,
   -- so scopes created inside it (a nested `?`, a closure) keep a valid parent after the rewrite
   local blocknode = node.tryblock
   if not blocknode then
     blocknode = aster.Block{}
     node.tryblock = blocknode
   end
-  context:push_forked_cleaned_scope(node)
+  if not isstat then
+    context:push_forked_cleaned_scope(node)
+  end
   context:push_forked_cleaned_scope(blocknode)
   context:traverse_node(exprnode)
   context:pop_scope()
-  context:pop_scope()
+  if not isstat then
+    context:pop_scope()
+  end
   local exprtype = exprnode.attr.type
   if not exprtype then return end -- wait for the operand type
   local rettypes = funcscope and funcscope.rettypes
   if not rettypes or not types.are_types_resolved(rettypes) then
     node:raisef("`?` requires the enclosing function to declare its return types")
   end
+  -- the enclosing kind decides what the early return fills
   local rettype = rettypes[1] or primtypes.void
-  if not (rettype.is_optional or rettype.is_pointer) then
-    node:raisef("`?` can only propagate inside a function returning an optional or a pointer, \z
-      but it returns '%s'", rettype)
+  local enclosing
+  if rettype.is_optional or rettype.is_pointer then
+    enclosing = 'empty'
+  elseif rettypes[2] and rettypes[2].is_string then
+    enclosing = 'errmsg'
+  elseif rettype.is_boolean then
+    enclosing = 'ok'
+  else
+    node:raisef("`?` can only propagate inside a function returning an optional, a pointer, \z
+      `(value, errmsg)` or `(ok, ...)`, but it returns '%s'", rettype)
+  end
+  -- the operand kind decides the failure test and the value
+  local kind
+  if exprtype.is_optional then
+    kind = 'optional'
+  elseif exprtype.is_pointer then
+    kind = 'pointer'
+  elseif exprnode.is_call then
+    local calleetype = exprnode.attr.calleetype
+    local callrettypes = calleetype and calleetype.is_procedure and calleetype.rettypes
+    if callrettypes then
+      if not types.are_types_resolved(callrettypes) then return end -- wait for the callee returns
+      if #callrettypes >= 2 and callrettypes[2].is_string then
+        kind = 'errmsg'
+      elseif #callrettypes == 1 and callrettypes[1].is_boolean then
+        kind = 'ok'
+      end
+    end
+  end
+  if not kind then
+    exprnode:raisef("`?` expects an optional, a pointer or a `(value, errmsg)` call, but got '%s'", exprtype)
+  elseif kind == 'ok' and not isstat then
+    node:raisef("`?` on a call returning only a boolean yields no value, use the statement form `f()?`")
+  elseif enclosing == 'errmsg' and kind ~= 'errmsg' then
+    node:raisef("`?` has no message to propagate into a `(value, errmsg)` function \z
+      from an optional, a pointer or a boolean call, write the `if` by hand")
   end
   local tname = context.scope:generate_name('__try')
+  local ename
   local failnode, valuenode
-  if exprtype.is_optional then
+  if kind == 'optional' then
     failnode = aster.UnaryOp{'not', aster.CallMethod{'has', {}, aster.Id{tname}}}
     valuenode = aster.DotIndex{'v', aster.Id{tname}}
-  elseif exprtype.is_pointer then
+  elseif kind == 'pointer' then
     failnode = aster.BinaryOp{aster.Id{tname}, 'eq', aster.Nilptr{}}
     valuenode = aster.Id{tname}
-  else
-    exprnode:raisef("`?` expects an optional or pointer value, but got '%s'", exprtype)
+  elseif kind == 'errmsg' then
+    ename = context.scope:generate_name('__tryerr')
+    -- `.size` keeps the rewrite free of the string module
+    failnode = aster.BinaryOp{aster.DotIndex{'size', aster.Id{ename}}, 'ne', aster.Number{'0'}}
+    valuenode = aster.Id{tname}
+    exprnode.attr.usemultirets = true -- the whole multiple return is received once
+  else -- ok
+    failnode = aster.UnaryOp{'not', aster.Id{tname}}
   end
   local fillnodes = {}
   for i=1,#rettypes do
-    fillnodes[i] = aster.Call{{}, aster.Paren{aster.Type{aster.value(rettypes[i])}}}
+    if enclosing == 'errmsg' and i == 2 then
+      fillnodes[i] = aster.Id{ename}
+    elseif enclosing == 'ok' and i == 1 then
+      fillnodes[i] = aster.Boolean{false}
+    else
+      fillnodes[i] = aster.Call{{}, aster.Paren{aster.Type{aster.value(rettypes[i])}}}
+    end
   end
-  local declnode = aster.VarDecl{'local', {aster.IdDecl{tname}}, {}}
+  local declnames = {aster.IdDecl{tname}}
+  if ename then
+    declnames[2] = aster.IdDecl{ename}
+  end
+  local declnode = aster.VarDecl{'local', declnames, {}}
   blocknode[1] = declnode
   blocknode[2] = aster.If{{failnode, aster.Block{aster.Return(fillnodes)}}, false}
-  blocknode[3] = aster.In{valuenode}
-  local newnode = aster.DoExpr{blocknode}
+  local newnode
+  if isstat then
+    blocknode[3] = nil
+    newnode = aster.Do{blocknode}
+  else
+    blocknode[3] = aster.In{valuenode}
+    newnode = aster.DoExpr{blocknode}
+  end
   newnode:recursive_update_location(node.src, node.pos, node.endpos)
   declnode[3][1] = exprnode -- the operand keeps its own location
   context:transform_and_traverse_node(node, newnode)
+end
+
+function visitors.Try(context, node)
+  visitor_try(context, node, false)
+end
+
+function visitors.TryStat(context, node)
+  visitor_try(context, node, true)
 end
 
 function visitors.EnumField(context, node, desiredtype)

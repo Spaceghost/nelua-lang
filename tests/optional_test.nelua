@@ -1,6 +1,8 @@
 require 'optional'
 require 'variant'
 require 'string'
+require 'io'
+require 'os'
 
 do -- construction and queries
   local o: optional(integer)
@@ -120,6 +122,35 @@ do -- `?` propagation
     return find(a)? + find(b)?
   end
   assert(sum(1, 1) == 20 and sum(1, 2) == nil and sum(2, 1) == nil)
+end
+
+do -- `?` over the stdlib `(value, errmsg, errcode)` triples
+  local path = os.tmpname()
+  local function write_lines(p: string): (boolean, string, integer)
+    local f = io.open(p, 'w')?
+    f:write('one\n')?
+    f:write('two\n')?
+    f:close()?
+    return true, (@string){}, 0
+  end
+  local function second_line(p: string): string?
+    local f = io.open(p)?
+    defer f:close() end
+    f:read('l')?
+    return f:read('l')?
+  end
+  local function remove_ok(p: string): boolean
+    os.remove(p)?
+    return true
+  end
+  assert(write_lines(path))
+  assert(second_line(path) == 'two')
+  local ok, err = write_lines('/nonexistent/dir/x')
+  assert(not ok and #err > 0)
+  assert(second_line(path .. '.missing') == nil)
+  assert(remove_ok(path) == true)
+  assert(remove_ok(path) == false)
+  assert(second_line(path) == nil)
 end
 
 do -- optionals in records and arrays

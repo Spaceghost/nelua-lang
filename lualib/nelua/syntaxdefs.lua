@@ -23,7 +23,7 @@ Block           <==(local / global /
                     Break / Continue / Fallthrough /
                     Goto / Label /
                     Preprocess /
-                    Assign / call /
+                    TryStat / Assign / call /
                     `;`)*
 
 -- Statements
@@ -94,6 +94,7 @@ KeyIndex        <== `[` @expr @`]`
 indexsuffix     <-- DotIndex / KeyIndex
 callsuffix      <-- Call / CallMethod
 Try             <== `?`
+TryStat         <== call `?`
 
 var             <-- (exprprim (indexsuffix / callsuffix+ indexsuffix)+)~>rfoldright /
                     id / deref
