@@ -2927,6 +2927,81 @@ it("optional try kinds", function()
       return y
     end
   ]], "`?` expects an optional, a pointer or a `(value, errmsg)` call, but got 'type'")
+  -- the operand is checked before the enclosing function (design rules 2 then 3)
+  expect.analyze_error([[
+    require 'optional'
+    local n = 1
+    local function f(): integer
+      local y = n?
+      return y
+    end
+  ]], "`?` expects an optional, a pointer or a `(value, errmsg)` call, but got 'int64'")
+  expect.analyze_error([[
+    require 'optional'
+    local function two(): (integer, integer) return 1, 2 end
+    local function f(): (integer, integer)
+      two()?
+      return 1, 2
+    end
+  ]], "`?` expects an optional, a pointer or a `(value, errmsg)` call, but got 'int64'")
+  expect.analyze_error([[
+    require 'optional'
+    local function only(k: integer): boolean return k == 1 end
+    local function f(k: integer): integer
+      local v = only(k)?
+      return v
+    end
+  ]], "`?` on a call returning only a boolean yields no value, use the statement form `f()?`")
+  -- the operand type wins over the call shape: `(T?, string)` and `(*T, string)` calls are
+  -- the optional and pointer kinds, their message is never read
+  expect.analyze_ast([[
+    require 'optional'
+    local function both(k: integer): (integer?, string)
+      if k == 1 then return 1, (@string){} end
+      return nil, 'both failed'
+    end
+    local function pboth(k: integer): (*integer, string)
+      return nilptr, 'pboth failed'
+    end
+    local function f(k: integer): integer?
+      local v = both(k)?
+      local p = pboth(k)?
+      return v + $p
+    end
+    local function g(k: integer): boolean
+      both(k)?
+      return true
+    end
+    ## static_assert(f.type.rettypes[1].is_optional)
+  ]])
+  expect.analyze_error([[
+    require 'optional'
+    local function both(k: integer): (integer?, string) return nil, 'x' end
+    local function f(k: integer): (integer, string)
+      local v = both(k)?
+      return v, (@string){}
+    end
+  ]], "`?` has no message to propagate into a `(value, errmsg)` function from an optional, a pointer or a boolean call, write the `if` by hand")
+  expect.analyze_error([[
+    require 'optional'
+    local function pboth(k: integer): (*integer, string) return nilptr, 'x' end
+    local function f(k: integer): (integer, string)
+      local p = pboth(k)?
+      return $p, (@string){}
+    end
+  ]], "`?` has no message to propagate")
+  -- the errmsg kind is decided by the shape alone, a `(string, string)` pair is one
+  expect.analyze_ast([[
+    require 'optional'
+    local function two(): (string, string) return 'a', 'b' end
+    local function f(): (string, string)
+      local v = two()?
+      return v, (@string){}
+    end
+    local function g(): string?
+      return two()?
+    end
+  ]])
   expect.analyze_error([[
     require 'optional'
     local function open(k: integer): (integer, string, integer) return k, (@string){}, 0 end

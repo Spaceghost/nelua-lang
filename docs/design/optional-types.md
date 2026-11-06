@@ -101,12 +101,17 @@ Precedence by construction: `*T?` = `(*T)?`, `*const T?` = `(*const T)?`, `[4]T?
   rettypes `R1..Rn`; errors are compile errors:
   1. `F` must exist with resolved, non-auto rettypes ("`?` requires the enclosing function to declare its return
      types"; polymorphic parents are checked per instance).
-  2. Operand kinds: (a) `E.is_optional` -> value `E.subtype`, failure `not has()`; (b) `E.is_pointer` -> value `E`,
-     failure `== nilptr`; (c) graft, Design 3: a call whose callee rettypes have `#R >= 2` and `R[2].is_string`
-     (the stdlib `(value, errmsg, errcode)` and `(boolean, errmsg, errcode)` shapes) -> value `R[1]`, failure
-     `R[2].size ~= 0`, `R[3..]` dropped (`errmsg` kind); (d) a call with `#R == 1` and `R[1].is_boolean` -> no
-     value (statement form only), failure `not R[1]` (`ok` kind). Anything else: "`?` expects an optional, a
-     pointer or a `(value, errmsg)` call, but got 'int64'". No heuristic on integral or `(T, T)` pairs.
+  2. Operand kinds, tested in this order: (a) `E.is_optional` -> value `E.subtype`, failure `not has()`;
+     (b) `E.is_pointer` -> value `E`, failure `== nilptr`; (c) graft, Design 3: a call whose callee rettypes have
+     `#R >= 2` and `R[2].is_string` (the stdlib `(value, errmsg, errcode)` and `(boolean, errmsg, errcode)`
+     shapes) -> value `R[1]`, failure `R[2].size ~= 0`, `R[3..]` dropped (`errmsg` kind); (d) a call with
+     `#R == 1` and `R[1].is_boolean` -> no value (statement form only), failure `not R[1]` (`ok` kind). Anything
+     else: "`?` expects an optional, a pointer or a `(value, errmsg)` call, but got 'int64'". No heuristic on
+     integral or `(T, T)` pairs. The operand type wins over the call shape: a call returning `(T?, string)` or
+     `(*T, string)` is kind (a) or (b), its message is never read (so it is refused by rule 4 inside an errmsg
+     function). Kind (c) is decided by the shape alone: a `(string, string)` call that is not an error convention
+     is still errmsg, documented in the overview as "bind it instead of `?`". Rule 2 is checked before rule 3, so
+     an invalid operand in a non-propagating function reports the operand error.
   3. Enclosing kinds from `F.rettypes`: `R1` optional or pointer -> `empty` (return `(@R1)(), (@R2)(), ...`);
      `R2.is_string` -> `errmsg` (return `(@R1)(), msg, (@R3)(), ...`); `R1.is_boolean` and not errmsg -> `ok`
      (return `false, (@R2)(), ...`); else "`?` can only propagate inside a function returning an optional, a

@@ -1032,20 +1032,10 @@ local function visitor_try(context, node, isstat)
   if not rettypes or not types.are_types_resolved(rettypes) then
     node:raisef("`?` requires the enclosing function to declare its return types")
   end
-  -- the enclosing kind decides what the early return fills
-  local rettype = rettypes[1] or primtypes.void
-  local enclosing
-  if rettype.is_optional or rettype.is_pointer then
-    enclosing = 'empty'
-  elseif rettypes[2] and rettypes[2].is_string then
-    enclosing = 'errmsg'
-  elseif rettype.is_boolean then
-    enclosing = 'ok'
-  else
-    node:raisef("`?` can only propagate inside a function returning an optional, a pointer, \z
-      `(value, errmsg)` or `(ok, ...)`, but it returns '%s'", rettype)
-  end
-  -- the operand kind decides the failure test and the value
+  -- the operand kind decides the failure test and the value, it is checked before the
+  -- enclosing kind so an invalid operand is reported as such wherever it is written;
+  -- the operand type wins over the call shape: a call returning `(T?, string)` or
+  -- `(*T, string)` is the optional or pointer kind and its message is never read
   local kind
   if exprtype.is_optional then
     kind = 'optional'
@@ -1067,7 +1057,21 @@ local function visitor_try(context, node, isstat)
     exprnode:raisef("`?` expects an optional, a pointer or a `(value, errmsg)` call, but got '%s'", exprtype)
   elseif kind == 'ok' and not isstat then
     node:raisef("`?` on a call returning only a boolean yields no value, use the statement form `f()?`")
-  elseif enclosing == 'errmsg' and kind ~= 'errmsg' then
+  end
+  -- the enclosing kind decides what the early return fills
+  local rettype = rettypes[1] or primtypes.void
+  local enclosing
+  if rettype.is_optional or rettype.is_pointer then
+    enclosing = 'empty'
+  elseif rettypes[2] and rettypes[2].is_string then
+    enclosing = 'errmsg'
+  elseif rettype.is_boolean then
+    enclosing = 'ok'
+  else
+    node:raisef("`?` can only propagate inside a function returning an optional, a pointer, \z
+      `(value, errmsg)` or `(ok, ...)`, but it returns '%s'", rettype)
+  end
+  if enclosing == 'errmsg' and kind ~= 'errmsg' then
     node:raisef("`?` has no message to propagate into a `(value, errmsg)` function \z
       from an optional, a pointer or a boolean call, write the `if` by hand")
   end

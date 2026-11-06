@@ -990,7 +990,12 @@ matching row applies:
 
 An errmsg call whose failure is reported with an empty message counts as a success, which is
 how the standard library behaves. `?` never guesses on other shapes: a `(integer, integer)`
-call is rejected.
+call is rejected. The operand is classified by its type first and by the call shape second:
+a call returning `(T?, string)` or `(*T, string)` is the optional or pointer kind, its
+message is never read and it cannot propagate into a `(value, errmsg)` function. The errmsg
+kind is decided by the shape alone, so any call whose second return is a `string` is one,
+including pairs that are not an error convention such as `(name, ext)`, where a non-empty
+second string counts as a failure: bind such calls with `local a, b = f()` instead of `?`.
 {:.alert.alert-info}
 
 ### Pointer

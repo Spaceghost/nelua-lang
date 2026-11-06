@@ -3144,6 +3144,46 @@ it("optional try kinds", function()
       return iv
     end
     assert(outer(1) == 20 and outer(2) == -1)
+    -- the operand type wins over the call shape: a `(T?, string)` call is the optional kind
+    -- and a `(*T, string)` call is the pointer kind, their message is never read
+    local msgs = 0
+    local function both(k: integer): (integer?, string)
+      msgs = msgs + 1
+      if k == 1 then return 5, 'ignored' end
+      return nil, (@string){}
+    end
+    local cell: integer = 7
+    local function pboth(k: integer): (*integer, string)
+      if k == 1 then return &cell, 'ignored' end
+      return nilptr, (@string){}
+    end
+    local function h(k: integer): integer?
+      local v = both(k)?
+      local p = pboth(k)?
+      return v + $p
+    end
+    assert(h(1) == 12 and h(2) == nil and msgs == 2)
+    local function hok(k: integer): boolean
+      both(k)?
+      return true
+    end
+    assert(hok(1) == true and hok(2) == false)
+    -- the errmsg kind is decided by the shape alone: a `(string, string)` pair fails on a
+    -- non-empty second string even when it is not an error convention
+    local function nameext(k: integer): (string, string)
+      if k == 1 then return 'readme', (@string){} end
+      return 'readme', 'md'
+    end
+    local function stem(k: integer): string?
+      return nameext(k)?
+    end
+    assert(stem(1) == 'readme' and stem(2) == nil)
+    local function stem_msg(k: integer): (string, string)
+      local s = nameext(k)?
+      return s, (@string){}
+    end
+    local sv, se = stem_msg(2)
+    assert(#sv == 0 and se == 'md')
   ]])
   expect.run_c([[
     require 'optional'
