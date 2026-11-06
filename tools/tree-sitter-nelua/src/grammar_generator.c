@@ -410,23 +410,24 @@ int nelua_main(int argc, char** argv) {
     _tmp.v[0] = grammar_sym((char*)"variable_declaration");
     _tmp.v[1] = grammar_sym((char*)"function_declaration");
     _tmp.v[2] = grammar_sym((char*)"assignment_statement");
-    _tmp.v[3] = grammar_sym((char*)"call_statement");
-    _tmp.v[4] = grammar_sym((char*)"if_statement");
-    _tmp.v[5] = grammar_sym((char*)"switch_statement");
-    _tmp.v[6] = grammar_sym((char*)"for_statement");
-    _tmp.v[7] = grammar_sym((char*)"while_statement");
-    _tmp.v[8] = grammar_sym((char*)"repeat_statement");
-    _tmp.v[9] = grammar_sym((char*)"do_statement");
-    _tmp.v[10] = grammar_sym((char*)"defer_statement");
-    _tmp.v[11] = grammar_sym((char*)"return_statement");
-    _tmp.v[12] = grammar_sym((char*)"in_statement");
-    _tmp.v[13] = grammar_sym((char*)"break_statement");
-    _tmp.v[14] = grammar_sym((char*)"continue_statement");
-    _tmp.v[15] = grammar_sym((char*)"fallthrough_statement");
-    _tmp.v[16] = grammar_sym((char*)"goto_statement");
-    _tmp.v[17] = grammar_sym((char*)"label_statement");
-    _tmp.v[18] = grammar_sym((char*)"preprocessor");
-    _tmp.v[19] = grammar_literal((char*)";");
+    _tmp.v[3] = grammar_sym((char*)"try_statement");
+    _tmp.v[4] = grammar_sym((char*)"call_statement");
+    _tmp.v[5] = grammar_sym((char*)"if_statement");
+    _tmp.v[6] = grammar_sym((char*)"switch_statement");
+    _tmp.v[7] = grammar_sym((char*)"for_statement");
+    _tmp.v[8] = grammar_sym((char*)"while_statement");
+    _tmp.v[9] = grammar_sym((char*)"repeat_statement");
+    _tmp.v[10] = grammar_sym((char*)"do_statement");
+    _tmp.v[11] = grammar_sym((char*)"defer_statement");
+    _tmp.v[12] = grammar_sym((char*)"return_statement");
+    _tmp.v[13] = grammar_sym((char*)"in_statement");
+    _tmp.v[14] = grammar_sym((char*)"break_statement");
+    _tmp.v[15] = grammar_sym((char*)"continue_statement");
+    _tmp.v[16] = grammar_sym((char*)"fallthrough_statement");
+    _tmp.v[17] = grammar_sym((char*)"goto_statement");
+    _tmp.v[18] = grammar_sym((char*)"label_statement");
+    _tmp.v[19] = grammar_sym((char*)"preprocessor");
+    _tmp.v[20] = grammar_literal((char*)";");
     _tmp;
   })));
   grammar_define((char*)"block", grammar_repeated1(grammar_sym((char*)"_statement")));
@@ -734,6 +735,12 @@ int nelua_main(int argc, char** argv) {
     _tmp;
   })));
   grammar_define((char*)"call_statement", grammar_sym((char*)"call_expression"));
+  grammar_define((char*)"try_statement", grammar_left(16, grammar_sequence(({
+    nluint32_arr32 _tmp = {0};
+    _tmp.v[0] = grammar_sym((char*)"call_expression");
+    _tmp.v[1] = grammar_literal((char*)"?");
+    _tmp;
+  }))));
   grammar_define((char*)"return_statement", grammar_right(0, grammar_sequence(({
     nluint32_arr32 _tmp = {0};
     _tmp.v[0] = grammar_literal((char*)"return");
@@ -804,7 +811,12 @@ int nelua_main(int argc, char** argv) {
   grammar_define((char*)"if_statement", grammar_sequence(({
     nluint32_arr32 _tmp = {0};
     _tmp.v[0] = grammar_literal((char*)"if");
-    _tmp.v[1] = grammar_sym((char*)"_expression");
+    _tmp.v[1] = grammar_choice(({
+      nluint32_arr32 _tmp = {0};
+      _tmp.v[0] = grammar_sym((char*)"if_local");
+      _tmp.v[1] = grammar_sym((char*)"_expression");
+      _tmp;
+    }));
     _tmp.v[2] = grammar_literal((char*)"then");
     _tmp.v[3] = grammar_choice(({
       nluint32_arr32 _tmp = {0};
@@ -815,7 +827,12 @@ int nelua_main(int argc, char** argv) {
     _tmp.v[4] = grammar_repeated(grammar_sequence(({
       nluint32_arr32 _tmp = {0};
       _tmp.v[0] = grammar_literal((char*)"elseif");
-      _tmp.v[1] = grammar_sym((char*)"_expression");
+      _tmp.v[1] = grammar_choice(({
+        nluint32_arr32 _tmp = {0};
+        _tmp.v[0] = grammar_sym((char*)"if_local");
+        _tmp.v[1] = grammar_sym((char*)"_expression");
+        _tmp;
+      }));
       _tmp.v[2] = grammar_literal((char*)"then");
       _tmp.v[3] = grammar_choice(({
         nluint32_arr32 _tmp = {0};
@@ -842,6 +859,14 @@ int nelua_main(int argc, char** argv) {
       _tmp;
     }));
     _tmp.v[6] = grammar_literal((char*)"end");
+    _tmp;
+  })));
+  grammar_define((char*)"if_local", grammar_sequence(({
+    nluint32_arr32 _tmp = {0};
+    _tmp.v[0] = grammar_literal((char*)"local");
+    _tmp.v[1] = grammar_sym((char*)"parameter");
+    _tmp.v[2] = grammar_literal((char*)"=");
+    _tmp.v[3] = grammar_sym((char*)"_expression");
     _tmp;
   })));
   grammar_define((char*)"switch_statement", grammar_sequence(({
@@ -1022,8 +1047,9 @@ int nelua_main(int argc, char** argv) {
     _tmp.v[15] = grammar_sym((char*)"member_expression");
     _tmp.v[16] = grammar_sym((char*)"index_expression");
     _tmp.v[17] = grammar_sym((char*)"call_expression");
-    _tmp.v[18] = grammar_sym((char*)"preprocess_expression");
-    _tmp.v[19] = grammar_sym((char*)"preprocess_name");
+    _tmp.v[18] = grammar_sym((char*)"try_expression");
+    _tmp.v[19] = grammar_sym((char*)"preprocess_expression");
+    _tmp.v[20] = grammar_sym((char*)"preprocess_name");
     _tmp;
   })));
   grammar_define((char*)"boolean", grammar_choice(({
@@ -1179,6 +1205,12 @@ int nelua_main(int argc, char** argv) {
     }));
     _tmp;
   }))));
+  grammar_define((char*)"try_expression", grammar_left(15, grammar_sequence(({
+    nluint32_arr32 _tmp = {0};
+    _tmp.v[0] = grammar_sym((char*)"_expression");
+    _tmp.v[1] = grammar_literal((char*)"?");
+    _tmp;
+  }))));
   grammar_define((char*)"arguments", grammar_sequence(({
     nluint32_arr32 _tmp = {0};
     _tmp.v[0] = grammar_literal((char*)"(");
@@ -1201,7 +1233,7 @@ int nelua_main(int argc, char** argv) {
     _tmp.v[2] = grammar_literal((char*)")");
     _tmp;
   })));
-  grammar_define((char*)"unary_expression", grammar_right(12, grammar_sequence(({
+  grammar_define((char*)"unary_expression", grammar_right(13, grammar_sequence(({
     nluint32_arr32 _tmp = {0};
     _tmp.v[0] = grammar_choice(({
       nluint32_arr32 _tmp = {0};
@@ -1251,25 +1283,32 @@ int nelua_main(int argc, char** argv) {
     _tmp.v[3] = grammar_left(4, grammar_sequence(({
       nluint32_arr32 _tmp = {0};
       _tmp.v[0] = grammar_field((char*)"left", grammar_sym((char*)"_expression"));
-      _tmp.v[1] = grammar_field((char*)"operator", grammar_literal((char*)"|"));
+      _tmp.v[1] = grammar_field((char*)"operator", grammar_literal((char*)"orelse"));
       _tmp.v[2] = grammar_field((char*)"right", grammar_sym((char*)"_expression"));
       _tmp;
     })));
     _tmp.v[4] = grammar_left(5, grammar_sequence(({
       nluint32_arr32 _tmp = {0};
       _tmp.v[0] = grammar_field((char*)"left", grammar_sym((char*)"_expression"));
-      _tmp.v[1] = grammar_field((char*)"operator", grammar_literal((char*)"~"));
+      _tmp.v[1] = grammar_field((char*)"operator", grammar_literal((char*)"|"));
       _tmp.v[2] = grammar_field((char*)"right", grammar_sym((char*)"_expression"));
       _tmp;
     })));
     _tmp.v[5] = grammar_left(6, grammar_sequence(({
       nluint32_arr32 _tmp = {0};
       _tmp.v[0] = grammar_field((char*)"left", grammar_sym((char*)"_expression"));
-      _tmp.v[1] = grammar_field((char*)"operator", grammar_literal((char*)"&"));
+      _tmp.v[1] = grammar_field((char*)"operator", grammar_literal((char*)"~"));
       _tmp.v[2] = grammar_field((char*)"right", grammar_sym((char*)"_expression"));
       _tmp;
     })));
     _tmp.v[6] = grammar_left(7, grammar_sequence(({
+      nluint32_arr32 _tmp = {0};
+      _tmp.v[0] = grammar_field((char*)"left", grammar_sym((char*)"_expression"));
+      _tmp.v[1] = grammar_field((char*)"operator", grammar_literal((char*)"&"));
+      _tmp.v[2] = grammar_field((char*)"right", grammar_sym((char*)"_expression"));
+      _tmp;
+    })));
+    _tmp.v[7] = grammar_left(8, grammar_sequence(({
       nluint32_arr32 _tmp = {0};
       _tmp.v[0] = grammar_field((char*)"left", grammar_sym((char*)"_expression"));
       _tmp.v[1] = grammar_field((char*)"operator", grammar_choice(({
@@ -1282,14 +1321,14 @@ int nelua_main(int argc, char** argv) {
       _tmp.v[2] = grammar_field((char*)"right", grammar_sym((char*)"_expression"));
       _tmp;
     })));
-    _tmp.v[7] = grammar_right(8, grammar_sequence(({
+    _tmp.v[8] = grammar_right(9, grammar_sequence(({
       nluint32_arr32 _tmp = {0};
       _tmp.v[0] = grammar_field((char*)"left", grammar_sym((char*)"_expression"));
       _tmp.v[1] = grammar_field((char*)"operator", grammar_literal((char*)".."));
       _tmp.v[2] = grammar_field((char*)"right", grammar_sym((char*)"_expression"));
       _tmp;
     })));
-    _tmp.v[8] = grammar_left(9, grammar_sequence(({
+    _tmp.v[9] = grammar_left(10, grammar_sequence(({
       nluint32_arr32 _tmp = {0};
       _tmp.v[0] = grammar_field((char*)"left", grammar_sym((char*)"_expression"));
       _tmp.v[1] = grammar_field((char*)"operator", grammar_choice(({
@@ -1301,7 +1340,7 @@ int nelua_main(int argc, char** argv) {
       _tmp.v[2] = grammar_field((char*)"right", grammar_sym((char*)"_expression"));
       _tmp;
     })));
-    _tmp.v[9] = grammar_left(10, grammar_sequence(({
+    _tmp.v[10] = grammar_left(11, grammar_sequence(({
       nluint32_arr32 _tmp = {0};
       _tmp.v[0] = grammar_field((char*)"left", grammar_sym((char*)"_expression"));
       _tmp.v[1] = grammar_field((char*)"operator", grammar_choice(({
@@ -1317,7 +1356,7 @@ int nelua_main(int argc, char** argv) {
       _tmp.v[2] = grammar_field((char*)"right", grammar_sym((char*)"_expression"));
       _tmp;
     })));
-    _tmp.v[10] = grammar_right(13, grammar_sequence(({
+    _tmp.v[11] = grammar_right(14, grammar_sequence(({
       nluint32_arr32 _tmp = {0};
       _tmp.v[0] = grammar_field((char*)"left", grammar_sym((char*)"_expression"));
       _tmp.v[1] = grammar_field((char*)"operator", grammar_literal((char*)"^"));
@@ -1380,10 +1419,10 @@ int nelua_main(int argc, char** argv) {
     }));
     _tmp;
   }))));
-  grammar_define((char*)"optional_type", grammar_right(4, grammar_sequence(({
+  grammar_define((char*)"optional_type", grammar_left(3, grammar_sequence(({
     nluint32_arr32 _tmp = {0};
-    _tmp.v[0] = grammar_literal((char*)"?");
-    _tmp.v[1] = grammar_sym((char*)"_type");
+    _tmp.v[0] = grammar_sym((char*)"_type");
+    _tmp.v[1] = grammar_literal((char*)"?");
     _tmp;
   }))));
   grammar_define((char*)"array_type", grammar_right(4, grammar_choice(({

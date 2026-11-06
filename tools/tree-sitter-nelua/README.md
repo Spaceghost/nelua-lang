@@ -1,7 +1,7 @@
 # Nelua Tree-sitter grammar
 
 Grammar rules follow the compiler's existing `syntaxdefs.lua`, pinned to
-`Spaceghost/nelua-lang@1ad3d5ce10327c31e2bec65972749f1f3aae47c2`.
+`Spaceghost/nelua-lang@b8ea333eca77eabc8add419f88f9ce5a4d0d00f5`.
 This is editor parsing/highlighting, not compiler validation or a language change.
 The grammar graph and external scanner are maintained in Nelua, with generated C.
 It matches arbitrary long-bracket string/comment/preprocessor delimiter levels;

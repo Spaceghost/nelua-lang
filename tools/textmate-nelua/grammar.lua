@@ -61,6 +61,10 @@ return {
       {include='#comments'}, {include='#preprocessor'}, {include='#strings'},
       {match='(\\*)\\s*(const)\\b',captures={['1']={name='keyword.operator.nelua'},['2']={name='storage.modifier.const.nelua'}}},
       {name='keyword.operator.type.variant.nelua',match='\\|'},
+      -- `?` after a type name is the optional suffix; after `)` or `]` it falls
+      -- through to the try operator, so a method call that opened the context
+      -- (`f:write(x)?`) keeps its try suffix (`variant(A, B)?` is the price).
+      {name='keyword.operator.type.optional.nelua',match='(?<=[\\p{L}\\p{N}_])\\?'},
       {name='storage.type.nelua',match='\\b(?:record|union|enum|array|pointer|variant)\\b(?=\\s*[({])'},
       {begin='\\(',['end']='\\)',patterns={{include='#typecontents'}}},
       {begin='\\[',['end']='\\]',patterns={{include='#typecontents'}}},
@@ -72,12 +76,22 @@ return {
     types={patterns={
       {name='storage.type.nelua',match='\\b(?:boolean|cchar|cint|csize|cstring|float(?:32|64|128)?|int(?:8|16|32|64|128)?|uint(?:8|16|32|64|128)?|isize|usize|number|string|table|type|void)\\b'},
     }},
+    -- `if local x = e then` / `elseif local`: the binding keyword keeps its
+    -- storage scope inside a `meta.if-local` span so themes can tell it apart.
     keywords={patterns={
+      {name='meta.if-local.nelua',match='\\b(if|elseif)\\s+(local)\\b',
+        captures={['1']={name='keyword.control.nelua'},['2']={name='storage.modifier.nelua'}}},
       {name='storage.modifier.nelua',match='\\b(?:local|global)\\b'},
       {name='constant.language.nelua',match='\\b(?:true|false|nil|nilptr)\\b'},
       {name='keyword.control.nelua',match='\\b(?:function|end|if|then|elseif|else|switch|case|for|in|do|while|repeat|until|defer|return|break|continue|fallthrough|goto)\\b'},
+      {name='keyword.operator.orelse.nelua',match='\\borelse\\b'},
       {name='keyword.operator.nelua',match='\\b(?:and|or|not)\\b'},
     }},
-    operators={patterns={{name='keyword.operator.nelua',match='>>>|<<|>>|///|//|%%%|~=|==|<=|>=|\\.\\.|[+*/%&|~^#$@<>=-]'}}},
+    -- `?` after a name, a call or an index is the try suffix (`f()?`, `x?`);
+    -- `?` after a type inside a type context is the optional suffix above.
+    operators={patterns={
+      {name='keyword.operator.try.nelua',match='(?<=[\\p{L}\\p{N}_\\)\\]])\\?'},
+      {name='keyword.operator.nelua',match='>>>|<<|>>|///|//|%%%|~=|==|<=|>=|\\.\\.|[+*/%&|~^#$@<>=-]'},
+    }},
   },
 }

@@ -9,7 +9,7 @@ local function run(command)
 end
 local function read(p) local f=assert(io.open(p,'rb'));local s=f:read('a');f:close();return s end
 local function write(p,s) local f=assert(io.open(p,'wb'));assert(f:write(s));f:close() end
-local pin='1ad3d5ce10327c31e2bec65972749f1f3aae47c2'
+local pin='b8ea333eca77eabc8add419f88f9ce5a4d0d00f5'
 assert(run('git -C '..q(assert(compiler:match('^(.*)/[^/]+$')))..' rev-parse HEAD'):match('%w+')==pin,'wrong compiler pin')
 assert(run(q(treesitter)..' --version'):match('tree%-sitter 0%.25%.10'),'wrong Tree-sitter pin')
 local root=run('pwd'):gsub('%s+$','')

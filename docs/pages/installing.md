@@ -137,13 +137,25 @@ Two editor grammars live in the repository and follow the fork syntax:
 * `tools/tree-sitter-nelua`: a Tree-sitter grammar authored in Nelua
   (`grammar.nelua`) with corpus tests and highlight queries. It covers const
   pointers (`*const T`, `*const [0]cchar`, `*const *const T`), variant type
-  expressions (`A|B`, `A|B|C`, `variant(A, B)`) and anonymous `function`
-  expressions. The checked-in `src/parser.c` is generated from the compiler
+  expressions (`A|B`, `A|B|C`, `variant(A, B)`), anonymous `function`
+  expressions and the optional syntax: the type suffix `T?` (`optional_type`,
+  binding looser than `*`, `[N]` and tighter than `|`), the try suffix `expr?`
+  (`try_expression`) and statement `f()?` (`try_statement`), the `orelse`
+  operator (between comparison and `|`) and `if local x = e then` /
+  `elseif local` (`if_local`); `queries/highlights.scm` captures `orelse` as
+  `@keyword.operator` and the `?` tokens as `@operator`.
+  The checked-in `src/parser.c` is generated from the compiler
   pin named in the tool README with Tree-sitter CLI 0.25.10 and parses the
   fork syntax; the corpus under `test/corpus` exercises it.
 * `tools/textmate-nelua`: a TextMate grammar (`source.nelua`) for GitHub,
   VS Code and other TextMate consumers. `const` after `*` is a storage
-  modifier and `|` inside a type context is the variant operator. A type
+  modifier and `|` inside a type context is the variant operator; `?` after a
+  type name inside a type context is `keyword.operator.type.optional`, `?`
+  after a name, a `)` or a `]` elsewhere (also after a method call such as
+  `f:write(x)?`, whose `:` opened a type context) is the try suffix
+  `keyword.operator.try` (so `variant(A, B)?` is scoped as try), `orelse` is
+  `keyword.operator.orelse` and the `local` of `if local` / `elseif local` is
+  wrapped in `meta.if-local`. A type
   context is a line heuristic, not compiler parsing: it opens after any
   `name:` (a declaration, a `):` return type, but also a method call such as
   `obj:method(...)`) or after `@`, and closes at `=`, `,`, `;`, `<`, a closing

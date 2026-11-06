@@ -150,3 +150,147 @@ local q: *const function(integer): void = nilptr
           (identifier)
           (identifier))))
     (nilptr)))
+
+==================
+Optional type suffix
+==================
+local x: integer? = 3
+local p: *R? = nilptr
+local v: integer|string? = 1
+local function find(k: integer): integer? return nil end
+---
+
+(source_file
+  (variable_declaration
+    (parameter
+      (identifier)
+      (optional_type
+        (identifier)))
+    (number))
+  (variable_declaration
+    (parameter
+      (identifier)
+      (optional_type
+        (pointer_type
+          (identifier))))
+    (nilptr))
+  (variable_declaration
+    (parameter
+      (identifier)
+      (variant_type
+        (identifier)
+        (optional_type
+          (identifier))))
+    (number))
+  (function_declaration
+    (identifier)
+    (function_body
+      (parameter
+        (identifier)
+        (identifier))
+      (optional_type
+        (identifier))
+      (block
+        (return_statement
+          (nil))))))
+
+==================
+Try expression suffix
+==================
+local y = find(1)?
+local z = x? + 1
+---
+
+(source_file
+  (variable_declaration
+    (parameter
+      (identifier))
+    (try_expression
+      (call_expression
+        (identifier)
+        (arguments
+          (number)))))
+  (variable_declaration
+    (parameter
+      (identifier))
+    (binary_expression
+      (try_expression
+        (identifier))
+      (number))))
+
+==================
+Try statement
+==================
+f:write('x')?
+---
+
+(source_file
+  (try_statement
+    (call_expression
+      (member_expression
+        (identifier)
+        (identifier))
+      (arguments
+        (string)))))
+
+==================
+orelse operator
+==================
+local d = find(2) orelse 0
+local e = a == b orelse c
+local m = a | b orelse c
+---
+
+(source_file
+  (variable_declaration
+    (parameter
+      (identifier))
+    (binary_expression
+      (call_expression
+        (identifier)
+        (arguments
+          (number)))
+      (number)))
+  (variable_declaration
+    (parameter
+      (identifier))
+    (binary_expression
+      (identifier)
+      (binary_expression
+        (identifier)
+        (identifier))))
+  (variable_declaration
+    (parameter
+      (identifier))
+    (binary_expression
+      (binary_expression
+        (identifier)
+        (identifier))
+      (identifier))))
+
+==================
+if local binding
+==================
+if local w = find(1) then
+elseif local u: integer = find(2) then
+else
+end
+---
+
+(source_file
+  (if_statement
+    (if_local
+      (parameter
+        (identifier))
+      (call_expression
+        (identifier)
+        (arguments
+          (number))))
+    (if_local
+      (parameter
+        (identifier)
+        (identifier))
+      (call_expression
+        (identifier)
+        (arguments
+          (number))))))

@@ -45,8 +45,9 @@ each with specs in `spec/` and docs under `docs/pages/`:
 - **`--target <triple>`**: cross compile with clang or `zig cc`, the triple reaches
   the type-size probe, the cache hash and the compile.
 - **`tools/nelua-bindgen`**: generates `<cimport>` bindings from C headers with libclang;
-  string and alias macros, `--exclude`, `--opaque`, `--enum-using` and a JSON `--config`
-  with `prepend`/`append` text ([tool README](tools/nelua-bindgen/README.md)).
+  string and alias macros, `--exclude`, `--opaque`, `--enum-using`, `--nullable-returns REGEX`
+  (matched pointer-returning functions get a `*T?` wrapper over the unchanged C prototype)
+  and a JSON `--config` with `prepend`/`append` text ([tool README](tools/nelua-bindgen/README.md)).
 - **Variants**: tagged unions as `variant(A, B)` or `A|B` through `require 'variant'`,
   with `==` (also against bare member values), `tostring` and `visit` ([overview](docs/pages/overview.md#variant)).
 - **Optionals**: `T?` / `optional(T)` through `require 'optional'`, `nil` and `T` convert
@@ -54,13 +55,15 @@ each with specs in `spec/` and docs under `docs/pages/`:
   the postfix `expr?` propagates empty optionals, null pointers and the stdlib
   `(value, errmsg)` / boolean call failures as an early return, also as the statement
   `f()?`; `x orelse d` (`orelse` is a reserved word) unwraps or lazily evaluates a default
-  and `if local x = e then` binds the held value ([overview](docs/pages/overview.md#optional)).
+  and `if local x = e then` binds the held value; constant optionals at the top scope
+  (`= 3`, `= nil`, `= nilptr`, `= &g`) are C static initializers ([overview](docs/pages/overview.md#optional)).
 - **Closures**: anonymous and local nested functions capture upvalues by value as
   closure records; `<byref>` captures them by pointer so the closure can mutate the
   enclosing locals ([overview](docs/pages/overview.md#closures)).
 - **Editor grammars**: `tools/tree-sitter-nelua` and `tools/textmate-nelua` know
-  `*const T`, `A|B` variants and anonymous `function` expressions
-  ([installing](docs/pages/installing.md#editor-support)); the Tree-sitter parser is regenerated from the `1ad3d5ce` pin.
+  `*const T`, `A|B` variants, anonymous `function` expressions, the optional suffix `T?`,
+  the try suffix `expr?` / `f()?`, `orelse` and `if local`
+  ([installing](docs/pages/installing.md#editor-support)); the Tree-sitter parser is regenerated from the `b8ea333e` pin.
 - **Static initializers**: top-scope variables initialized with `nilptr`, the
   address of a static object (`&g`, `&arr[3]`, `&rec.field`), casts of those,
   or record/array literals built from them are emitted as C static initializers

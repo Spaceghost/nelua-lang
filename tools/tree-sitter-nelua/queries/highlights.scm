@@ -19,3 +19,8 @@
 (pointer_type "const" @keyword.modifier)
 (variant_type "|" @operator)
 (function_expression "function" @keyword.function)
+(binary_expression operator: "orelse" @keyword.operator)
+(optional_type "?" @operator)
+(try_expression "?" @operator)
+(try_statement "?" @operator)
+(if_local "local" @keyword)
