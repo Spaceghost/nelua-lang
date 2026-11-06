@@ -44,6 +44,20 @@ forward declare `foo` once and emit `foo_t` as its alias, so `*foo` and
 opaque record by value are not generated (Nelua cannot size a forwarddecl
 record); they are listed in the `-- Not generated:` trailer.
 
+`--nullable-returns REGEX` opts a function into the fork's optional pointers:
+libclang 14 does not expose `_Nullable`, so nullability is declared by name.
+`nul_item *nul_find(int id);` matched by `--nullable-returns '^nul_find$'` becomes
+
+```nelua
+local function nul_find__c(id: cint): *nul_item <cimport'nul_find',cinclude'"nullable.h"'> end
+global function nul_find(id: cint): *nul_item? <inline> return nul_find__c(id) end
+```
+
+so the C ABI sees the raw pointer and Nelua sees `*nul_item?` (`if p then`,
+`p orelse default`, `if local item = nul_find(1) then`, `nul_find(id)?`).
+`--prefix` applies to the wrapper (`global function C.nul_find(...)`), the
+hidden `__c` name stays local to the generated module.
+
 Only declarations located in the headers given on the command line are bound.
 Pass the target triple with `--target` when binding for a cross target, since
 struct layouts and `long` sizes follow the target.
@@ -61,6 +75,7 @@ struct layouts and `long` sizes follow the target.
 | `--match REGEX` | `match` | only bind declarations whose name matches |
 | `--exclude REGEX` | `exclude` | skip declarations whose name matches (repeatable); excluded types still referenced become stubs |
 | `--opaque NAME` | `opaque` | emit this record (by tag or typedef name) as `<forwarddecl> @record{}` even if its definition is visible; by-value uses are skipped (repeatable) |
+| `--nullable-returns REGEX` | `nullable_returns` | pointer-returning functions whose name matches get a `*T?` wrapper: the C prototype is bound unchanged as `local function name__c(...) <cimport'name'>` and `global function name(...): *T? <inline>` forwards to it (repeatable); the output then starts with `require 'optional'`. Matches that do not return a pointer or are variadic are bound as is and listed under `-- Notes:` |
 | `--enum-using` | `enum_using` | mark named enums `<using>` so enumerators are also bare globals, as nelua-decl does |
 | `--all` | `all` | also bind declarations from transitively included headers |
 | `--include-file-regex REGEX` | `include_file_regex` | also bind declarations from included files matching |
@@ -90,7 +105,12 @@ Config example, `zlib.json` (`nelua-bindgen.py --config zlib.json`):
 `test/sample_config.nelua` (from `test/sample.json`), diffs both against the
 committed expectations, checks that command-line flags override the config
 file, and compiles and runs `test/use_sample.nelua` and
-`test/use_sample_config.nelua` against `sample.c`. The config run covers
+`test/use_sample_config.nelua` against `sample.c`; `test/nullable.h` is
+generated with `--nullable-returns` (a matched pointer, `const char *` and
+typedef'd pointer return, plus a non-pointer and a variadic match that stay as
+they are), diffed against `test/nullable.expected.nelua` and exercised by
+`test/use_nullable.nelua` (`if p then`, `orelse`, `if local`, `?`). The config run covers
+`nullable_returns` from the JSON file (`sample_handle_open`),
 `--opaque` on a typedef whose tag differs (`sample_handle`, `sample_ctx`),
 skipped by-value uses of an opaque record (`sample_node_make`), a stub for an
 excluded but referenced type (`sample_bits`) and alias-macro chains.

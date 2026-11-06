@@ -3,6 +3,7 @@
   "output": "sample_config.nelua",
   "exclude": ["^sample_printf$", "^SAMPLE_ANON_", "^sample_bits$"],
   "opaque": ["sample_node", "sample_handle", "sample_ctx"],
+  "nullable_returns": ["^sample_handle_open$"],
   "enum_using": true,
   "prepend": "-- prepended by sample.json",
   "append": [

@@ -1,0 +1,31 @@
+-- Smoke test for `--nullable-returns`: matched pointer returns become `*T?` wrappers.
+## cfile 'nullable.c'
+require 'nullable'
+
+## static_assert(nul_find.type.rettypes[1].is_optional and nul_find.type.rettypes[1].is_niche)
+## static_assert(nul_make.type.rettypes[1].is_pointer) -- not matched, stays a raw pointer
+## static_assert(nul_lookup.type.rettypes[1].is_pointer) -- variadic, bound as is
+local p = nul_find(2)
+if p then
+  assert(p:get().id == 2)
+else
+  error('expected an item')
+end
+assert(nul_find(9) == nil and nul_find(9) == nilptr)
+local missing = nul_find(9) orelse nul_make(7)
+assert(missing.id == 7)
+if local item = nul_find(1) then
+  assert(item.id == 1)
+  local name = nul_name(item) orelse 'anonymous'
+  assert(#name == 3)
+end
+assert(nul_name(nul_find(3) orelse nilptr) == nil)
+local first: nul_item_ref? = nul_first()
+assert(first ~= nil and first:get().id == 1)
+assert(nul_count() == 3)
+local function find_id(id: cint): cint?
+  local item = nul_find(id)? -- `?` on the wrapper's optional
+  return item.id
+end
+assert(find_id(3) == 3 and find_id(4) == nil)
+print('bindgen nullable ok')

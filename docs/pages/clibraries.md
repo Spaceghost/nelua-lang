@@ -4198,8 +4198,12 @@ tools/nelua-bindgen/nelua-bindgen.py --config zlib.json   # same options as a JS
 
 `--exclude REGEX` skips declarations (types still referenced become opaque
 stubs), `--opaque NAME` forces a record, named by tag or typedef, to one opaque
-`<forwarddecl>` record (its by-value uses are skipped), and `--enum-using` marks named enums `<using>`
-so their enumerators are bare globals as well. A `--config FILE` JSON object
+`<forwarddecl>` record (its by-value uses are skipped), `--enum-using` marks named enums `<using>`
+so their enumerators are bare globals as well, and `--nullable-returns REGEX` gives the
+matched pointer-returning functions a `*T?` wrapper (`require 'optional'`): the C prototype
+is bound unchanged under a hidden `name__c` and `global function name(...): *T? <inline>`
+forwards to it, so `if p then`, `p orelse d` and `f()?` work on the result while the
+`<cimport>` signature keeps the raw pointer. A `--config FILE` JSON object
 mirrors every flag plus `prepend`/`append` text written around the generated
 declarations; command-line flags override the file.
 
