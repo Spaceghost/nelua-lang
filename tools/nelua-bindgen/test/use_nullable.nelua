@@ -28,4 +28,7 @@ local function find_id(id: cint): cint?
   return item.id
 end
 assert(find_id(3) == 3 and find_id(4) == nil)
+## static_assert(nul_callback.type.rettypes[1].is_optional and nul_callback.type.rettypes[1].subtype.is_function)
+local cb = nul_callback()
+assert(cb ~= nil and cb:get()(21) == 42)
 print('bindgen nullable ok')

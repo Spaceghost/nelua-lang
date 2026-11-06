@@ -1,0 +1,10 @@
+-- Smoke test for `--prefix C` output: every declaration is a field of the global record `C`.
+## cfile 'sample.c'
+require 'sample_prefix'
+
+assert(C.SAMPLE_VERSION == 3 and C.sample_add(2, 3) == 5)
+assert(C.sample_strlen('hello') == 5)
+local h = C.sample_open('abc', 1) -- the wrapper returns `*C.sample_opaque?`
+if h then C.sample_close(h:get()) else error('expected a handle') end
+assert(C.sample_open('', 0) ~= nil)
+print('bindgen prefix ok')

@@ -8,3 +8,5 @@ nul_item_ref nul_first(void) { return &items[0]; }
 int nul_count(void) { return 3; }
 nul_item *nul_lookup(const char *fmt, ...) { va_list ap; va_start(ap, fmt); int id = va_arg(ap, int); va_end(ap); (void)fmt; return nul_find(id); }
 nul_item *nul_make(int id) { nul_item *i = malloc(sizeof *i); i->id = id; return i; }
+static int nul_twice(int x) { return 2 * x; }
+int (*nul_callback(void))(int) { return nul_twice; }

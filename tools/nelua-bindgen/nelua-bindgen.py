@@ -494,16 +494,24 @@ class Generator:
             self.skip(cursor, str(e))
             return
         rets = (': ' + ret) if ret != 'void' else ''
+        # a record field is declared `function C.name(...)`; `global function C.name` is not Nelua
+        head = 'function %s%s' % (self.prefix, nelua_ident(name)) if self.prefix else 'global function %s' % nelua_ident(name)
         if self.is_nullable_return(cursor, name, params):
             # `--nullable-returns`: bind the C prototype unchanged under a hidden name and expose an inline
             # wrapper whose Nelua return type is the optional pointer `*T?` (`nilptr` converts to empty)
             hidden = nelua_ident(name) + '__c'
             self.emit('local function %s(%s)%s %s end' % (hidden, ', '.join(params), rets, self.annots(cursor, cimport=name)))
-            self.emit('global function %s%s(%s): %s? <inline> return %s(%s) end' % (
-                self.prefix, nelua_ident(name), ', '.join(params), ret, hidden, ', '.join(p.split(':', 1)[0] for p in params)))
+            optret = ret
+            if 'function(' in ret:
+                # `?` binds to the result of an inline function type (`function(cint): cint?` returns `cint?`)
+                # and types take no parentheses, so the return type is named first
+                optret = nelua_ident(name) + '__ret'
+                self.emit('local %s: type = @%s' % (optret, ret))
+            self.emit('%s(%s): %s? <inline> return %s(%s) end' % (
+                head, ', '.join(params), optret, hidden, ', '.join(p.split(':', 1)[0] for p in params)))
             self.nullable_wrapped = True
         else:
-            self.emit('global function %s%s(%s)%s %s end' % (self.prefix, nelua_ident(name), ', '.join(params), rets, self.annots(cursor)))
+            self.emit('%s(%s)%s %s end' % (head, ', '.join(params), rets, self.annots(cursor)))
         self.names_used.add(name)
 
     def is_nullable_return(self, cursor, name, params):

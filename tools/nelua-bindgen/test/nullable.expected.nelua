@@ -14,6 +14,9 @@ global function nul_first(): nul_item_ref? <inline> return nul_first__c() end
 global function nul_count(): cint <cimport,cinclude'"nullable.h"'> end
 global function nul_lookup(fmt: *const cchar, ...: cvarargs): *nul_item <cimport,cinclude'"nullable.h"'> end
 global function nul_make(id: cint): *nul_item <cimport,cinclude'"nullable.h"'> end
+local function nul_callback__c(): function(cint): cint <cimport'nul_callback',cinclude'"nullable.h"'> end
+local nul_callback__ret: type = @function(cint): cint
+global function nul_callback(): nul_callback__ret? <inline> return nul_callback__c() end
 
 -- Notes:
 --   nul_count: --nullable-returns matched but it does not return a pointer, bound as is

@@ -55,8 +55,12 @@ global function nul_find(id: cint): *nul_item? <inline> return nul_find__c(id) e
 
 so the C ABI sees the raw pointer and Nelua sees `*nul_item?` (`if p then`,
 `p orelse default`, `if local item = nul_find(1) then`, `nul_find(id)?`).
-`--prefix` applies to the wrapper (`global function C.nul_find(...)`), the
-hidden `__c` name stays local to the generated module.
+`--prefix` applies to the wrapper (`function C.nul_find(...)`), the hidden
+`__c` name stays local to the generated module. A match returning an unnamed
+function pointer (`int (*nul_callback(void))(int);`) gets its return type named
+first (`local nul_callback__ret: type = @function(cint): cint`) and the wrapper
+returns `nul_callback__ret?`, since `function(cint): cint?` would be a function
+returning `cint?` and types take no parentheses.
 
 Only declarations located in the headers given on the command line are bound.
 Pass the target triple with `--target` when binding for a cross target, since

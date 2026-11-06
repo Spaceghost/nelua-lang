@@ -11,4 +11,5 @@ nul_item_ref nul_first(void);               /* a typedef'd pointer return is a p
 int nul_count(void);                        /* matched by the regex but not a pointer: bound as is */
 nul_item *nul_lookup(const char *fmt, ...); /* variadic: cannot be wrapped, bound as is */
 nul_item *nul_make(int id);                 /* not matched: stays `*nul_item` */
+int (*nul_callback(void))(int);             /* unnamed function pointer: the return type is named before `?` */
 #endif
