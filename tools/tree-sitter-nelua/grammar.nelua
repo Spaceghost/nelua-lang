@@ -11,8 +11,8 @@ local nodes: [2048]Node
 local definitions: [128]Definition
 local used: uint32 = 0
 local defined: uint32 = 0
-local kinds: [13]cstring = {'BLANK','SYMBOL','STRING','PATTERN','SEQ','CHOICE',
-  'REPEAT','REPEAT1','ALIAS','PREC_LEFT','PREC_RIGHT','TOKEN','FIELD'}
+local kinds: [14]cstring = {'BLANK','SYMBOL','STRING','PATTERN','SEQ','CHOICE',
+  'REPEAT','REPEAT1','ALIAS','PREC_LEFT','PREC_RIGHT','TOKEN','FIELD','PREC_DYNAMIC'}
 local function add(kind: uint8, text: cstring, children: [32]uint32, priority: int32): uint32
   assert(used < 2047); used = used + 1
   nodes[used] = {kind=kind,text=text,children=children,priority=priority}
@@ -31,6 +31,7 @@ local function left(p: int32,c: uint32): uint32 return add(9,nilptr,{c},p) end
 local function right(p: int32,c: uint32): uint32 return add(10,nilptr,{c},p) end
 local function token(c: uint32): uint32 return add(11,nilptr,{c},0) end
 local function field(s: cstring,c: uint32): uint32 return add(12,s,{c},0) end
+local function dynamic(p: int32,c: uint32): uint32 return add(13,nilptr,{c},p) end
 local function define(s: cstring,c: uint32)
   assert(defined < 128); definitions[defined] = {name=s,node=c}; defined = defined + 1
 end
@@ -62,7 +63,7 @@ local function emit(id: uint32, depth: uint32)
   out('{"type":'); text(kinds[n.kind])
   if n.kind == 1 or n.kind == 12 then out(',"name":'); text(n.text)
   elseif n.kind == 2 or n.kind == 3 or n.kind == 8 then out(',"value":'); text(n.text)
-  elseif n.kind == 9 or n.kind == 10 then out(',"value":'); number(n.priority) end
+  elseif n.kind == 9 or n.kind == 10 or n.kind == 13 then out(',"value":'); number(n.priority) end
   if n.kind == 8 then out(',"named":true') end
   if n.kind == 4 or n.kind == 5 then
     out(',"members":[')
@@ -136,7 +137,7 @@ define("enum_type",sequence{literal("enum"),choice{sequence{literal("("),sym("_t
 define("enum_field",sequence{sym("_name"),choice{sequence{literal("="),sym("_expression")},blank()}})
 define("function_type",right(0,sequence{literal("function"),literal("("),choice{sequence{choice{sym("type_field"),sym("_type"),sym("vararg")},repeated(sequence{literal(","),choice{sym("type_field"),sym("_type"),sym("vararg")}})},blank()},literal(")"),choice{sequence{literal(":"),choice{sym("_type"),sequence{literal("("),sequence{sym("_type"),repeated(sequence{literal(","),sym("_type")})},literal(")")}}},blank()}}))
 define("generic_type",left(3,sequence{choice{sym("_name"),sym("declaration_name")},literal("("),sequence{choice{sym("_type"),sym("_expression")},repeated(sequence{literal(","),choice{sym("_type"),sym("_expression")}})},literal(")")}))
-define("variant_type",left(1,choice{sequence{sym("_type"),literal("|"),sym("_type")},sequence{literal("variant"),literal("("),sequence{choice{sym("_type"),sym("_expression")},repeated(sequence{literal(","),choice{sym("_type"),sym("_expression")}})},literal(")")}}))
+define("variant_type",left(1,choice{dynamic(1,sequence{sym("_type"),literal("|"),sym("_type")}),sequence{literal("variant"),literal("("),sequence{choice{sym("_type"),sym("_expression")},repeated(sequence{literal(","),choice{sym("_type"),sym("_expression")}})},literal(")")}}))
 define("preprocess_expression",sequence{literal("#["),sym("_expression"),literal("]#")})
 define("preprocess_name",sequence{literal("#|"),sym("_expression"),literal("|#")})
 out('{"name":"nelua","word":"identifier","rules":{')

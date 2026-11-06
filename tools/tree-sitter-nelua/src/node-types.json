@@ -3586,6 +3586,10 @@
     "extra": true
   },
   {
+    "type": "const",
+    "named": false
+  },
+  {
     "type": "continue_statement",
     "named": true
   },

@@ -154,10 +154,10 @@ NELUA_STATIC_ASSERT(sizeof(grammar_Definition_arr128) == 2048 && NELUA_ALIGNOF(g
 static grammar_Definition_arr128 grammar_definitions;
 static uint32_t grammar_used = 0U;
 static uint32_t grammar_defined = 0U;
-typedef struct NELUA_MAYALIAS nlcstring_arr13 {char* v[13];} nlcstring_arr13;
-typedef union NELUA_MAYALIAS nlcstring_arr13_cast {nlcstring_arr13 a; char* p[13];} nlcstring_arr13_cast;
-NELUA_STATIC_ASSERT(sizeof(nlcstring_arr13) == 104 && NELUA_ALIGNOF(nlcstring_arr13) == 8, "Nelua and C disagree on type size or align");
-static nlcstring_arr13 grammar_kinds = {.v = {(char*)"BLANK", (char*)"SYMBOL", (char*)"STRING", (char*)"PATTERN", (char*)"SEQ", (char*)"CHOICE", (char*)"REPEAT", (char*)"REPEAT1", (char*)"ALIAS", (char*)"PREC_LEFT", (char*)"PREC_RIGHT", (char*)"TOKEN", (char*)"FIELD"}};
+typedef struct NELUA_MAYALIAS nlcstring_arr14 {char* v[14];} nlcstring_arr14;
+typedef union NELUA_MAYALIAS nlcstring_arr14_cast {nlcstring_arr14 a; char* p[14];} nlcstring_arr14_cast;
+NELUA_STATIC_ASSERT(sizeof(nlcstring_arr14) == 112 && NELUA_ALIGNOF(nlcstring_arr14) == 8, "Nelua and C disagree on type size or align");
+static nlcstring_arr14 grammar_kinds = {.v = {(char*)"BLANK", (char*)"SYMBOL", (char*)"STRING", (char*)"PATTERN", (char*)"SEQ", (char*)"CHOICE", (char*)"REPEAT", (char*)"REPEAT1", (char*)"ALIAS", (char*)"PREC_LEFT", (char*)"PREC_RIGHT", (char*)"TOKEN", (char*)"FIELD", (char*)"PREC_DYNAMIC"}};
 typedef struct NELUA_MAYALIAS nluint32_arr32 {uint32_t v[32];} nluint32_arr32;
 typedef union NELUA_MAYALIAS nluint32_arr32_cast {nluint32_arr32 a; uint32_t p[32];} nluint32_arr32_cast;
 NELUA_STATIC_ASSERT(sizeof(nluint32_arr32) == 128 && NELUA_ALIGNOF(nluint32_arr32) == 4, "Nelua and C disagree on type size or align");
@@ -178,6 +178,7 @@ static uint32_t grammar_left(int32_t p, uint32_t c);
 static uint32_t grammar_right(int32_t p, uint32_t c);
 static uint32_t grammar_token(uint32_t c);
 static uint32_t grammar_field(char* s, uint32_t c);
+static uint32_t grammar_dynamic(int32_t p, uint32_t c);
 static void grammar_define(char* s, uint32_t c);
 static void nelua_assert_line_2(bool cond);
 static void grammar_out(char* s);
@@ -266,9 +267,12 @@ uint32_t grammar_token(uint32_t c) {
 uint32_t grammar_field(char* s, uint32_t c) {
   return grammar_add(12U, s, (nluint32_arr32){{c}}, 0);
 }
+uint32_t grammar_dynamic(int32_t p, uint32_t c) {
+  return grammar_add(13U, (char*)NULL, (nluint32_arr32){{c}}, p);
+}
 void nelua_assert_line_2(bool cond) {
   if(NELUA_UNLIKELY(!cond)) {
-    nelua_write_stderr("grammar.nelua:35:18: runtime error: assertion failed!\n  assert(defined < 128); definitions[defined] = {name=s,node=c}; defined = defined + 1\n                 ^~~~~\n",  164, true);
+    nelua_write_stderr("grammar.nelua:36:18: runtime error: assertion failed!\n  assert(defined < 128); definitions[defined] = {name=s,node=c}; defined = defined + 1\n                 ^~~~~\n",  164, true);
     nelua_abort();
   }
 }
@@ -279,7 +283,7 @@ void grammar_define(char* s, uint32_t c) {
 }
 void nelua_assert_line_3(bool cond) {
   if(NELUA_UNLIKELY(!cond)) {
-    nelua_write_stderr("grammar.nelua:37:55: runtime error: assertion failed!\nlocal function out(s: cstring) assert(fputs(s,stdout) >= 0) end\n                                                      ^~~~\n",  177, true);
+    nelua_write_stderr("grammar.nelua:38:55: runtime error: assertion failed!\nlocal function out(s: cstring) assert(fputs(s,stdout) >= 0) end\n                                                      ^~~~\n",  177, true);
     nelua_abort();
   }
 }
@@ -288,7 +292,7 @@ void grammar_out(char* s) {
 }
 void nelua_assert_line_4(bool cond) {
   if(NELUA_UNLIKELY(!cond)) {
-    nelua_write_stderr("grammar.nelua:38:53: runtime error: assertion failed!\nlocal function character(c: cint) assert(putchar(c) >= 0) end\n                                                    ^~~~\n",  173, true);
+    nelua_write_stderr("grammar.nelua:39:53: runtime error: assertion failed!\nlocal function character(c: cint) assert(putchar(c) >= 0) end\n                                                    ^~~~\n",  173, true);
     nelua_abort();
   }
 }
@@ -297,7 +301,7 @@ void grammar_character(int c) {
 }
 void nelua_assert_line_5(bool cond) {
   if(NELUA_UNLIKELY(!cond)) {
-    nelua_write_stderr("grammar.nelua:40:12: runtime error: assertion failed!\n  assert(s ~= nilptr); character(34)\n           ^~~~~~~~~\n",  112, true);
+    nelua_write_stderr("grammar.nelua:41:12: runtime error: assertion failed!\n  assert(s ~= nilptr); character(34)\n           ^~~~~~~~~\n",  112, true);
     nelua_abort();
   }
 }
@@ -326,7 +330,7 @@ void grammar_text(char* s) {
 }
 void nelua_assert_line_6(bool cond) {
   if(NELUA_UNLIKELY(!cond)) {
-    nelua_write_stderr("grammar.nelua:55:12: runtime error: assertion failed!\n  assert(v >= 0)\n           ^~~~\n",  87, true);
+    nelua_write_stderr("grammar.nelua:56:12: runtime error: assertion failed!\n  assert(v >= 0)\n           ^~~~\n",  87, true);
     nelua_abort();
   }
 }
@@ -349,7 +353,7 @@ void grammar_number(int32_t v) {
 }
 void nelua_assert_line_7(bool cond) {
   if(NELUA_UNLIKELY(!cond)) {
-    nelua_write_stderr("grammar.nelua:60:32: runtime error: assertion failed!\n  assert(id > 0 and id <= used and depth <= 64)\n                               ^~~~~~~~~~~~~~~\n",  149, true);
+    nelua_write_stderr("grammar.nelua:61:32: runtime error: assertion failed!\n  assert(id > 0 and id <= used and depth <= 64)\n                               ^~~~~~~~~~~~~~~\n",  149, true);
     nelua_abort();
   }
 }
@@ -364,7 +368,7 @@ void grammar_emit(uint32_t id, uint32_t depth) {
   } else if((((n.kind == 2) || (n.kind == 3)) || (n.kind == 8))) {
     grammar_out((char*)",\"value\":");
     grammar_text(n.text);
-  } else if(((n.kind == 9) || (n.kind == 10))) {
+  } else if((((n.kind == 9) || (n.kind == 10)) || (n.kind == 13))) {
     grammar_out((char*)",\"value\":");
     grammar_number(n.priority);
   }
@@ -438,6 +442,7 @@ int nelua_main(int argc, char** argv) {
       _tmp.v[3] = grammar_literal((char*)"array");
       _tmp.v[4] = grammar_literal((char*)"pointer");
       _tmp.v[5] = grammar_literal((char*)"variant");
+      _tmp.v[6] = grammar_literal((char*)"const");
       _tmp;
     })));
     _tmp;
@@ -1347,7 +1352,13 @@ int nelua_main(int argc, char** argv) {
     _tmp.v[0] = grammar_sequence(({
       nluint32_arr32 _tmp = {0};
       _tmp.v[0] = grammar_literal((char*)"*");
-      _tmp.v[1] = grammar_sym((char*)"_type");
+      _tmp.v[1] = grammar_choice(({
+        nluint32_arr32 _tmp = {0};
+        _tmp.v[0] = grammar_literal((char*)"const");
+        _tmp.v[1] = grammar_blank();
+        _tmp;
+      }));
+      _tmp.v[2] = grammar_sym((char*)"_type");
       _tmp;
     }));
     _tmp.v[1] = grammar_sequence(({
@@ -1670,13 +1681,13 @@ int nelua_main(int argc, char** argv) {
   }))));
   grammar_define((char*)"variant_type", grammar_left(1, grammar_choice(({
     nluint32_arr32 _tmp = {0};
-    _tmp.v[0] = grammar_sequence(({
+    _tmp.v[0] = grammar_dynamic(1, grammar_sequence(({
       nluint32_arr32 _tmp = {0};
       _tmp.v[0] = grammar_sym((char*)"_type");
       _tmp.v[1] = grammar_literal((char*)"|");
       _tmp.v[2] = grammar_sym((char*)"_type");
       _tmp;
-    }));
+    })));
     _tmp.v[1] = grammar_sequence(({
       nluint32_arr32 _tmp = {0};
       _tmp.v[0] = grammar_literal((char*)"variant");
