@@ -2991,13 +2991,15 @@ it("optional types", function()
     local n1: Node = {n=1, next=&n2}
     assert(second(&n1):get().n == 2 and second(&n2) == nil and second(nilptr) == nil)
     local R = @record{b: integer}
-    function R:look(): *R? return self end
+    -- Read the temporary record during the method call. Returning self here
+    -- would let a pointer to mk(k)'s copied temporary escape look's lifetime.
+    function R:look(): integer? return self.b end
     local function mk(k: integer): R?
       if k == 1 then return R{b=5} end
       return nil
     end
-    local function look(k: integer): *R? return mk(k)?:look()? end
-    assert(look(1):get().b == 5 and look(2) == nil)
+    local function look(k: integer): integer? return mk(k)?:look()? end
+    assert(look(1):get() == 5 and look(2) == nil)
     local function viaclosure(k: integer): integer?
       local v = (function(j: integer): integer? return find(j) end)(k)?
       return v
