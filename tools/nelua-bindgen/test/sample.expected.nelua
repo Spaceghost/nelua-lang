@@ -7,6 +7,7 @@ global SAMPLE_NAME: cstring <comptime> = "sample"
 global SAMPLE_ALIAS <comptime> = SAMPLE_VERSION
 global SAMPLE_GREETING: cstring <comptime> = "hi\n\"there\"AA\t\\"
 global SAMPLE_PATH: cstring <comptime> = "a/b"
+global SAMPLE_CHAIN_C: cint <comptime> = 9
 global sample_color: type <cimport,cinclude'"sample.h"',ctypedef'sample_color'> = @enum(cuint){
   SAMPLE_RED = 0,
   SAMPLE_GREEN = 1,
@@ -29,7 +30,7 @@ global sample_value: type <cimport,cinclude'"sample.h"',ctypedef'sample_value'> 
   d: float64,
   bytes: [8]uint8,
 }
-global sample_bits: type <cimport,cinclude'"sample.h"',ctypedef,cincomplete> = @record{
+global sample_bits: type <cimport,cinclude'"sample.h"',cincomplete> = @record{
   -- bitfield `flags` omitted
   id: cint,
 }
@@ -44,7 +45,16 @@ global sample_ops: type <cimport,cinclude'"sample.h"',ctypedef'sample_ops'> = @r
   names: *const *const cchar,
 }
 global sample_log_fn: type <cimport,cinclude'"sample.h"',nodecl> = @function(*const cchar, *const sample_ops)
+global sample_handle_s: type <cimport,cinclude'"sample.h"',ctypedef'sample_handle_s'> = @record{
+  fd: cint,
+}
+global sample_handle: type <cimport,cinclude'"sample.h"',nodecl> = @sample_handle_s
+global sample_ctx_s: type <cimport,cinclude'"sample.h"',ctypedef'sample_ctx_s'> = @record{
+  n: cint,
+}
+global sample_ctx: type <cimport,cinclude'"sample.h"',nodecl> = @sample_ctx_s
 global sample_counter: cint <cimport,cinclude'"sample.h"'>
+global sample_node_root: sample_node <cimport,cinclude'"sample.h"'>
 global function sample_add(a: cint, b: cint): cint <cimport,cinclude'"sample.h"'> end
 global function sample_strlen(s: *const cchar): csize <cimport,cinclude'"sample.h"'> end
 global function sample_name(): *const cchar <cimport,cinclude'"sample.h"'> end
@@ -57,11 +67,21 @@ global function sample_close(h: *sample_opaque) <cimport,cinclude'"sample.h"'> e
 global function sample_printf(fmt: *const cchar, ...: cvarargs): cint <cimport,cinclude'"sample.h"'> end
 global function sample_copy(dst: *[0]uint8, src: *const uint8) <cimport,cinclude'"sample.h"'> end
 global function sample_run(ops: *const sample_ops, log: sample_log_fn, a: *const sample_point, b: *const sample_point): cint <cimport,cinclude'"sample.h"'> end
+global function sample_handle_open(fd: cint): *sample_handle <cimport,cinclude'"sample.h"'> end
+global function sample_handle_fd(h: *const sample_handle): cint <cimport,cinclude'"sample.h"'> end
+global function sample_handle_close(h: *sample_handle_s) <cimport,cinclude'"sample.h"'> end
+global function sample_ctx_count(c: *const sample_ctx, out: *sample_ctx_s): cint <cimport,cinclude'"sample.h"'> end
+global function sample_node_make(value: cint): sample_node <cimport,cinclude'"sample.h"'> end
+global function sample_node_value(n: sample_node): cint <cimport,cinclude'"sample.h"'> end
+global function sample_bits_id(b: *const sample_bits): cint <cimport,cinclude'"sample.h"'> end
 global SAMPLE_DEFAULT_COLOR <comptime> = sample_color.SAMPLE_GREEN
 global SAMPLE_ANON_ALIAS <comptime> = SAMPLE_ANON_ONE
+global SAMPLE_CHAIN_B <comptime> = SAMPLE_CHAIN_C
+global SAMPLE_CHAIN_A <comptime> = SAMPLE_CHAIN_B
 
 -- Not generated:
 --   SAMPLE_SQUARE (macro_definition) skipped: function-like macro
 --   SAMPLE_COMPUTED (macro_definition) skipped: macro body is not a literal: ( SAMPLE_VERSION + 1 )
 --   SAMPLE_WIDE (macro_definition) skipped: macro body is not a literal: L"wide"
 --   SAMPLE_MISSING_ALIAS (macro_definition) skipped: macro body is not a literal: SAMPLE_NOT_EMITTED
+--   SAMPLE_MISSING_CHAIN (macro_definition) skipped: macro body is not a literal: SAMPLE_MISSING_ALIAS

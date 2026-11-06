@@ -162,6 +162,7 @@ class Generator:
         self.skipped = []
         self.excludes = [re.compile(x) for x in args.exclude]
         self.opaque = set(args.opaque)
+        self.opaque_usrs = set()  # USRs of record declarations named (by tag or typedef) in --opaque
         self.prefix = (args.prefix + '.') if args.prefix else ''
         self.inputs = [os.path.abspath(h) for h in args.headers]
 
@@ -199,7 +200,28 @@ class Generator:
         return not any(x.search(name) for x in self.excludes)
 
     def is_opaque(self, decl, name):
-        return name in self.opaque or (decl.spelling and decl.spelling in self.opaque)
+        return name in self.opaque or (decl.spelling and decl.spelling in self.opaque) or decl.get_usr() in self.opaque_usrs
+
+    def is_opaque_name(self, name):
+        """True while `name` is only known as a forwarddecl record, so it cannot be used by value."""
+        return name in self.forwarded and name not in self.defined
+
+    def collect_opaque(self, cursor):
+        """Pre-pass: `--opaque foo_t` on `typedef struct foo {...} foo_t` makes the tag `foo` opaque too,
+        so the record is forward declared once and the typedef becomes an alias of it (one Nelua type)."""
+        if not self.opaque:
+            return
+        for c in cursor.get_children():
+            if not self.in_inputs(c):
+                continue
+            if c.kind == CursorKind.TYPEDEF_DECL and c.spelling in self.opaque:
+                under = c.underlying_typedef_type
+                named = under.get_named_type() if under.kind == TypeKind.ELABORATED else under
+                decl = named.get_declaration()
+                if named.kind == TypeKind.RECORD and decl.kind != CursorKind.NO_DECL_FOUND:
+                    self.opaque_usrs.add(decl.get_usr())
+            elif c.kind in (CursorKind.STRUCT_DECL, CursorKind.UNION_DECL) and c.spelling in self.opaque:
+                self.opaque_usrs.add(c.get_usr())
 
     def skip(self, cursor, why):
         self.skipped.append('%s (%s) skipped: %s' % (cursor.spelling or '<anonymous>', cursor.kind.name.lower(), why))
@@ -218,8 +240,12 @@ class Generator:
         self.tag_names[key] = nelua
         return nelua
 
-    def type_str(self, t, depth=0):
-        """Map a clang type to Nelua type syntax."""
+    def type_str(self, t, depth=0, inptr=False):
+        """Map a clang type to Nelua type syntax.
+
+        `inptr` is true below a pointer (or when aliasing a type), where an opaque record is fine;
+        a by-value use of a record that is only forward declared raises ValueError, since Nelua
+        rejects forwarddecl types in fields, parameters, returns and variables."""
         kind = t.kind
         if kind in PRIM_KINDS:
             return PRIM_KINDS[kind]
@@ -229,16 +255,18 @@ class Generator:
                 return PRIM_TYPEDEFS[name]
             decl = t.get_declaration()
             nelua = nelua_ident(name)
-            if self.in_inputs(decl) or nelua in self.defined:
+            if nelua in self.defined or (self.in_inputs(decl) and self.wanted(name)):
+                if not inptr and self.is_opaque_name(nelua):
+                    raise ValueError("opaque record '%s' used by value" % nelua)
                 return self.prefix + nelua
-            # typedef from another header: resolve it structurally unless it names a record
+            # typedef from another header, or excluded: resolve it structurally unless it names a record
             under = t.get_canonical()
-            if under.kind in (TypeKind.RECORD, TypeKind.ENUM):
+            if under.kind == TypeKind.RECORD:
                 self.referenced.setdefault(nelua, decl)
                 return self.prefix + nelua
-            return self.type_str(under, depth)
+            return self.type_str(under, depth, inptr)
         if kind == TypeKind.ELABORATED:
-            return self.type_str(t.get_named_type(), depth)
+            return self.type_str(t.get_named_type(), depth, inptr)
         if kind == TypeKind.POINTER:
             pointee = t.get_pointee()
             const = 'const ' if pointee.is_const_qualified() else ''
@@ -252,11 +280,11 @@ class Generator:
                 return '*const void' if const else 'pointer'
             if pk in (TypeKind.CHAR_S, TypeKind.CHAR_U):
                 return '*const cchar' if const else 'cstring'
-            return '*%s%s' % (const, self.type_str(pointee, depth + 1))
+            return '*%s%s' % (const, self.type_str(pointee, depth + 1, True))
         if kind == TypeKind.CONSTANTARRAY:
-            return '[%d]%s' % (t.element_count, self.type_str(t.element_type, depth + 1))
+            return '[%d]%s' % (t.element_count, self.type_str(t.element_type, depth + 1, inptr))
         if kind == TypeKind.INCOMPLETEARRAY:
-            return '[0]%s' % self.type_str(t.element_type, depth + 1)
+            return '[0]%s' % self.type_str(t.element_type, depth + 1, inptr)
         if kind in (TypeKind.FUNCTIONPROTO, TypeKind.FUNCTIONNOPROTO):
             return self.func_type_str(t)
         if kind == TypeKind.RECORD:
@@ -264,19 +292,22 @@ class Generator:
             name = self.record_name(decl)
             if name is None:
                 return self.inline_record(decl, depth)
-            if not self.in_inputs(decl) and name not in self.defined:
+            if name not in self.defined:
+                # other header, excluded, or not emitted yet: a stub is written at the end if still undefined
                 self.referenced.setdefault(name, decl)
+            if not inptr and self.is_opaque_name(name):
+                raise ValueError("opaque record '%s' used by value" % name)
             return self.prefix + name
         if kind == TypeKind.ENUM:
             decl = t.get_declaration()
             name = self.record_name(decl)
-            if name is None or (not self.in_inputs(decl) and name not in self.defined):
+            if name is None or (name not in self.defined and not (self.in_inputs(decl) and self.wanted(decl.spelling))):
                 return self.type_str(decl.enum_type, depth)
             return self.prefix + name
         if kind == TypeKind.UNEXPOSED:
-            return self.type_str(t.get_canonical(), depth)
+            return self.type_str(t.get_canonical(), depth, inptr)
         if kind == TypeKind.ATOMIC:
-            return self.type_str(t.get_canonical(), depth)
+            return self.type_str(t.get_canonical(), depth, inptr)
         raise ValueError('unsupported C type kind %s (%s)' % (kind.name, t.spelling))
 
     def param_type_str(self, t):
@@ -285,7 +316,7 @@ class Generator:
         if named.kind in (TypeKind.CONSTANTARRAY, TypeKind.INCOMPLETEARRAY):
             elem = named.element_type
             const = 'const ' if elem.is_const_qualified() else ''
-            return '*%s[0]%s' % (const, self.type_str(elem))
+            return '*%s[0]%s' % (const, self.type_str(elem, 0, True))
         return self.type_str(t)
 
     def func_type_str(self, t):
@@ -325,11 +356,19 @@ class Generator:
 
     # -- declarations --------------------------------------------------------
 
+    def ctypedef_annot(self, decl, name):
+        """`ctypedef'tag'` makes Nelua emit `typedef struct tag <codename>;`: only when the C type has a
+        tag (a tagless `typedef struct {...} name` would clash with the header's own typedef), and always
+        spelled out, since a `<cimport>` alias of the record renames its codename to the alias."""
+        tag = decl.spelling if decl.spelling and not decl.is_anonymous() else ''
+        return "ctypedef'%s'" % tag if tag else ''
+
     def emit_record(self, decl, typedef_name=None):
         name = typedef_name or self.record_name(decl)
         if name is None:
             return
         kw = 'union' if decl.kind == CursorKind.UNION_DECL else 'record'
+        ctypedef = self.ctypedef_annot(decl, name)
         defined = decl.is_definition() and not self.is_opaque(decl, name)
         if not defined:
             if name in self.defined or name in self.forwarded:
@@ -337,16 +376,11 @@ class Generator:
             # forward declaration: define opaque now, completed later if the definition shows up
             self.forwarded.add(name)
             self.names_used.add(name)
-            ctypedef = '' if typedef_name else "ctypedef'%s'" % decl.spelling
             self.emit('global %s%s: type %s = @%s{}' % (self.prefix, name, self.annots(decl, ctypedef, 'forwarddecl'), kw))
             return
         if name in self.defined:
             return
         lines, incomplete = self.fields(decl, 0)
-        ctypedef = 'ctypedef' if typedef_name or True else ''
-        if not typedef_name:
-            # plain `struct tag` without typedef: ask Nelua to emit `typedef struct tag tag;`
-            ctypedef = "ctypedef'%s'" % decl.spelling
         annots = self.annots(decl, ctypedef, 'cincomplete' if incomplete else '')
         body = '@%s{\n  %s\n}' % (kw, '\n  '.join(lines)) if lines else '@%s{}' % kw
         if name in self.forwarded:
@@ -374,7 +408,7 @@ class Generator:
             return
         if name in self.defined:
             return
-        ctypedef = 'ctypedef' if typedef_name else "ctypedef'%s'" % decl.spelling
+        ctypedef = self.ctypedef_annot(decl, name)
         using = 'using' if self.args.enum_using else ''
         self.emit('global %s%s: type %s = @enum(%s){\n  %s\n}' % (
             self.prefix, name, self.annots(decl, ctypedef, using), inttype, '\n  '.join(items)))
@@ -401,10 +435,14 @@ class Generator:
             return
         if named.kind == TypeKind.RECORD and decl.kind != CursorKind.NO_DECL_FOUND:
             tag = decl.spelling
-            if not tag or decl.is_anonymous() or tag == name or name in self.opaque:
+            if not tag or decl.is_anonymous() or tag == name:
                 self.emit_record(decl, nelua_ident(name))
                 return
             tagname = self.record_name(decl)
+            if tagname not in self.defined and tagname not in self.forwarded and self.is_opaque(decl, name) \
+                    and self.wanted(tag):
+                # `--opaque foo_t` on `typedef struct foo ... foo_t`: forward declare the tag, alias the typedef
+                self.emit_record(decl)
             if tagname in self.defined or tagname in self.forwarded:
                 self.emit('global %s%s: type <cimport,cinclude\'%s\',nodecl> = @%s%s' % (
                     self.prefix, nelua_ident(name), self.cinclude(cursor), self.prefix, tagname))
@@ -419,7 +457,7 @@ class Generator:
                 self.tag_names[(decl.kind, decl.get_usr())] = nelua_ident(name)
                 return
         try:
-            tstr = self.type_str(under)
+            tstr = self.type_str(under, 0, True)
         except ValueError as e:
             self.skip(cursor, str(e))
             return
@@ -469,19 +507,12 @@ class Generator:
     MACRO_INT = re.compile(r'^(?:\(\s*)?([+-]?(?:0[xX][0-9a-fA-F]+|0[bB][01]+|[0-9]+))([uUlL]*)(?:\s*\))?$')
     MACRO_FLOAT = re.compile(r'^(?:\(\s*)?([+-]?(?:[0-9]+\.[0-9]*|\.[0-9]+|[0-9]+)(?:[eE][+-]?[0-9]+)?)([fFlL]?)(?:\s*\))?$')
 
-    def emit_macro(self, cursor, deferred=False):
+    def emit_macro(self, cursor):
         name = cursor.spelling
         if not self.wanted(name) or name in self.names_used or name.startswith('_'):
             return
         toks = [t.spelling for t in cursor.get_tokens()]
         if len(toks) < 2 or toks[0] != name:
-            return
-        if deferred:
-            # second pass: alias of a macro or enumerator that was emitted after this macro
-            if len(toks) == 2 and toks[1] in self.comptime:
-                self.emit_alias_macro(name, toks[1])
-            else:
-                self.skip(cursor, 'macro body is not a literal: %s' % ' '.join(toks[1:])[:60])
             return
         if toks[1] == '(' and cursor.extent.start.column + len(name) == cursor.location.column + len(name) and \
                 any(t == ')' for t in toks) and self._is_function_like(cursor, toks):
@@ -522,7 +553,7 @@ class Generator:
             if toks[1] in self.comptime:
                 self.emit_alias_macro(name, toks[1])
             else:
-                self.deferred_macros.append(cursor)
+                self.deferred_macros.append((cursor, toks[1]))
             return
         self.skip(cursor, 'macro body is not a literal: %s' % ' '.join(toks[1:])[:60])
 
@@ -535,6 +566,23 @@ class Generator:
         self.emit('global %s%s <comptime> = %s' % (self.prefix, nelua_ident(name), self.comptime[target]))
         self.names_used.add(name)
         self.comptime[name] = self.prefix + nelua_ident(name)
+
+    def emit_deferred_macros(self):
+        """Alias macros whose target was not emitted yet, iterated to a fixpoint so `#define A B` /
+        `#define B C` / `#define C 1` in source order emits all three; the rest are listed as skipped."""
+        pending = self.deferred_macros
+        while pending:
+            rest = []
+            for cursor, target in pending:
+                if target in self.comptime:
+                    self.emit_alias_macro(cursor.spelling, target)
+                else:
+                    rest.append((cursor, target))
+            if len(rest) == len(pending):
+                break
+            pending = rest
+        for cursor, target in pending:
+            self.skip(cursor, 'macro body is not a literal: %s' % target)
 
     @staticmethod
     def _is_function_like(cursor, toks):
@@ -591,20 +639,24 @@ class Generator:
         if self.args.prepend:
             self.emit(self.args.prepend.rstrip('\n'))
             self.emit()
+        self.collect_opaque(tu.cursor)
+        head, self.out = self.out, []
         self.visit(tu.cursor)
-        for c in self.deferred_macros:
-            self.emit_macro(c, deferred=True)
+        self.emit_deferred_macros()
+        body, self.out = self.out, head
         if not self.args.no_stubs:
+            # stubs go before the declarations that reference them: Nelua resolves names in source order
             stubs = [(n, d) for n, d in self.referenced.items() if n not in self.defined and n not in self.forwarded]
             if stubs:
-                self.emit()
-                self.emit('-- Opaque stubs for types declared in other headers; replace with real bindings when needed.')
+                self.emit('-- Opaque stubs for types declared in other headers or excluded; replace with real bindings when needed.')
                 for n, d in stubs:
                     kw = 'union' if d.kind == CursorKind.UNION_DECL else 'record'
                     if d.kind == CursorKind.ENUM_DECL:
                         continue
                     ctypedef = "ctypedef'%s'" % d.spelling if d.kind != CursorKind.TYPEDEF_DECL and d.spelling else ''
                     self.emit('global %s%s: type %s = @%s{}' % (self.prefix, n, self.annots(d, ctypedef, 'cincomplete'), kw))
+                self.emit()
+        self.out.extend(body)
         if self.skipped:
             self.emit()
             self.emit('-- Not generated:')

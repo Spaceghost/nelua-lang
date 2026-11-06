@@ -2,6 +2,9 @@
 
 -- prepended by sample.json
 
+-- Opaque stubs for types declared in other headers or excluded; replace with real bindings when needed.
+global sample_bits: type <cimport,cinclude'"sample.h"',cincomplete> = @record{}
+
 global SAMPLE_VERSION: cint <comptime> = 3
 global SAMPLE_FLAG_A: cuint <comptime> = 0x10
 global SAMPLE_RATIO: float64 <comptime> = 1.5
@@ -9,6 +12,7 @@ global SAMPLE_NAME: cstring <comptime> = "sample"
 global SAMPLE_ALIAS <comptime> = SAMPLE_VERSION
 global SAMPLE_GREETING: cstring <comptime> = "hi\n\"there\"AA\t\\"
 global SAMPLE_PATH: cstring <comptime> = "a/b"
+global SAMPLE_CHAIN_C: cint <comptime> = 9
 global sample_color: type <cimport,cinclude'"sample.h"',ctypedef'sample_color',using> = @enum(cuint){
   SAMPLE_RED = 0,
   SAMPLE_GREEN = 1,
@@ -29,10 +33,6 @@ global sample_value: type <cimport,cinclude'"sample.h"',ctypedef'sample_value'> 
   d: float64,
   bytes: [8]uint8,
 }
-global sample_bits: type <cimport,cinclude'"sample.h"',ctypedef,cincomplete> = @record{
-  -- bitfield `flags` omitted
-  id: cint,
-}
 global sample_callback: type <cimport,cinclude'"sample.h"',nodecl> = @function(pointer, *const sample_point): cint
 global sample_node: type <cimport,cinclude'"sample.h"',ctypedef'sample_node',forwarddecl> = @record{}
 global sample_ops: type <cimport,cinclude'"sample.h"',ctypedef'sample_ops'> = @record{
@@ -41,6 +41,10 @@ global sample_ops: type <cimport,cinclude'"sample.h"',ctypedef'sample_ops'> = @r
   names: *const *const cchar,
 }
 global sample_log_fn: type <cimport,cinclude'"sample.h"',nodecl> = @function(*const cchar, *const sample_ops)
+global sample_handle_s: type <cimport,cinclude'"sample.h"',ctypedef'sample_handle_s',forwarddecl> = @record{}
+global sample_handle: type <cimport,cinclude'"sample.h"',nodecl> = @sample_handle_s
+global sample_ctx_s: type <cimport,cinclude'"sample.h"',ctypedef'sample_ctx_s',forwarddecl> = @record{}
+global sample_ctx: type <cimport,cinclude'"sample.h"',nodecl> = @sample_ctx_s
 global sample_counter: cint <cimport,cinclude'"sample.h"'>
 global function sample_add(a: cint, b: cint): cint <cimport,cinclude'"sample.h"'> end
 global function sample_strlen(s: *const cchar): csize <cimport,cinclude'"sample.h"'> end
@@ -53,13 +57,24 @@ global function sample_open(path: *const cchar, end_: cint): *sample_opaque <cim
 global function sample_close(h: *sample_opaque) <cimport,cinclude'"sample.h"'> end
 global function sample_copy(dst: *[0]uint8, src: *const uint8) <cimport,cinclude'"sample.h"'> end
 global function sample_run(ops: *const sample_ops, log: sample_log_fn, a: *const sample_point, b: *const sample_point): cint <cimport,cinclude'"sample.h"'> end
+global function sample_handle_open(fd: cint): *sample_handle <cimport,cinclude'"sample.h"'> end
+global function sample_handle_fd(h: *const sample_handle): cint <cimport,cinclude'"sample.h"'> end
+global function sample_handle_close(h: *sample_handle_s) <cimport,cinclude'"sample.h"'> end
+global function sample_ctx_count(c: *const sample_ctx, out: *sample_ctx_s): cint <cimport,cinclude'"sample.h"'> end
+global function sample_bits_id(b: *const sample_bits): cint <cimport,cinclude'"sample.h"'> end
 global SAMPLE_DEFAULT_COLOR <comptime> = sample_color.SAMPLE_GREEN
+global SAMPLE_CHAIN_B <comptime> = SAMPLE_CHAIN_C
+global SAMPLE_CHAIN_A <comptime> = SAMPLE_CHAIN_B
 
 -- Not generated:
 --   SAMPLE_SQUARE (macro_definition) skipped: function-like macro
 --   SAMPLE_COMPUTED (macro_definition) skipped: macro body is not a literal: ( SAMPLE_VERSION + 1 )
 --   SAMPLE_WIDE (macro_definition) skipped: macro body is not a literal: L"wide"
+--   sample_node_root (var_decl) skipped: opaque record 'sample_node' used by value
+--   sample_node_make (function_decl) skipped: opaque record 'sample_node' used by value
+--   sample_node_value (function_decl) skipped: opaque record 'sample_node' used by value
 --   SAMPLE_MISSING_ALIAS (macro_definition) skipped: macro body is not a literal: SAMPLE_NOT_EMITTED
+--   SAMPLE_MISSING_CHAIN (macro_definition) skipped: macro body is not a literal: SAMPLE_MISSING_ALIAS
 
 -- appended by sample.json
 global SAMPLE_CONFIG_OK: boolean <comptime> = true

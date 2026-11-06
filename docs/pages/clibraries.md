@@ -4196,8 +4196,9 @@ tools/nelua-bindgen/nelua-bindgen.py zlib.h --include-as '<zlib.h>' -o zlib.nelu
 tools/nelua-bindgen/nelua-bindgen.py --config zlib.json   # same options as a JSON file
 ```
 
-`--exclude REGEX` skips declarations, `--opaque NAME` forces a record to an
-opaque `<forwarddecl>` record, and `--enum-using` marks named enums `<using>`
+`--exclude REGEX` skips declarations (types still referenced become opaque
+stubs), `--opaque NAME` forces a record, named by tag or typedef, to one opaque
+`<forwarddecl>` record (its by-value uses are skipped), and `--enum-using` marks named enums `<using>`
 so their enumerators are bare globals as well. A `--config FILE` JSON object
 mirrors every flag plus `prepend`/`append` text written around the generated
 declarations; command-line flags override the file.
