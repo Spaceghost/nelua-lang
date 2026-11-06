@@ -1,4 +1,4 @@
-# Optional types and `?` propagation for Spaceghost/nelua-lang (final design, not implemented)
+# Optional types and `?` propagation for Spaceghost/nelua-lang (final design, slices 1-4 implemented)
 
 Base: Design 1 (judge average 6.75 vs 6.5 and 4.25). `T?` is sugar for a preprocessor generic `optional(T)` in
 `lib/optional.nelua`, built like `lib/variant.nelua` (record + `__convert` concept + `<nickname>`) and wired like
@@ -271,6 +271,24 @@ two pre-existing generator limits it made reachable: an expression owning a scop
 a numeric `for` range bound ("broken scope chain", the loop scope is now pushed after the range expressions are
 emitted) and an immediately invoked capturing closure `(function() ... end)()` outside the top scope (its
 closure record was emitted twice, once by the forced callee declaration, defining `__call` twice).
+
+Slice 4 (comptime wrapping, bindgen `--nullable-returns`, editor grammars) is implemented on top of slice 3:
+`visitor_convert` rewrites a conversion into `T?` whose value is comptime, `nil`, `nilptr` (niche) or an
+address-of expression (`&g`, so the fork's static-address rule applies) into the init list
+`(@T?){some = true, v = <value>}` / `{v = <value>}` / `{}` instead of a `__convert` call, so top-scope constant
+optionals are C static initializers (`static optional_int64 x = {.some = true, .v = 3};`, `{0}` for empty) and
+nothing is left in `nelua_main` under `noentrypoint`; values that `T` cannot take (`3.5 -> integer?`) still go
+through `__convert` and keep its error, runtime values (`f()`, a variable) still go through `__convert` in
+`nelua_main`, and `opt == nil` is never constant-folded. Spec'd in `analyzer_spec`/`cgenerator_spec` "optional
+static initializers". `tools/nelua-bindgen/nelua-bindgen.py --nullable-returns REGEX` (JSON `nullable_returns`)
+emits `local function name__c(...) <cimport'name'>` plus `global function name(...): *T? <inline>`, requires
+`optional`, leaves non-pointer and variadic matches as they are under `-- Notes:`, and is covered by
+`test/nullable.h` / `test/use_nullable.nelua` and the `sample.json` config run. The Tree-sitter grammar
+(`optional_type` postfix, `try_expression`, `try_statement`, `orelse` at precedence 4 between comparison and `|`,
+`if_local`; corpus "Optional type suffix", "Try expression suffix", "Try statement", "orelse operator",
+"if local binding"; highlights) is regenerated from the `b8ea333e` pin, and the TextMate grammar adds
+`keyword.operator.type.optional`, `keyword.operator.try`, `keyword.operator.orelse` and `meta.if-local`
+(`test.cjs`).
 
 Smallest shippable subset, useful alone: `T?` types over `lib/optional.nelua`, `==`/`~=` against `nil`/`nilptr`,
 truthiness, and `expr?` for optional/pointer operands inside optional/pointer-returning functions. No `orelse`,

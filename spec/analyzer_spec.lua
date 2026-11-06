@@ -3217,6 +3217,39 @@ it("optional try kinds", function()
   ]], "`?` requires the enclosing function to declare its return types")
 end)
 
+it("optional static initializers", function()
+  expect.analyze_ast([[
+    require 'optional'
+    local R = @record{x: integer}
+    local g: R = {x = 1}
+    local x: integer? = 3
+    local y: integer? = nil
+    local p: *R? = nilptr
+    local q: *R? = &g
+    local function f(): integer return 1 end
+    local z: integer? = f()
+    ## static_assert(x.type == y.type and z.type == x.type)
+    ## static_assert(p.type == q.type)
+  ]])
+  expect.analyze_error([[
+    require 'optional'
+    local x: integer? = 3.5
+  ]], "no viable conversion from 'float64' to 'optional(int64)'")
+  expect.analyze_error([[
+    require 'optional'
+    local x: integer? = 'a'
+  ]], "no viable conversion from 'string' to 'optional(int64)'")
+  expect.analyze_error([[
+    require 'optional'
+    local x: integer? = nilptr
+  ]], "no viable conversion from 'nilptr'")
+  expect.analyze_error([[
+    require 'optional'
+    local x: boolean? = nil
+    if x then end
+  ]], "test a boolean optional")
+end)
+
 it("side effects detection", function()
   expect.analyze_ast([[
     local X: integer

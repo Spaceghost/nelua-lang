@@ -217,6 +217,32 @@ local function visitor_convert(context, parent, parentindex, vartype, valnode, v
   if not mtsym then
     return valnode, valtype
   end
+  if objtype.is_optional and vartype == objtype and not valtype.is_optional then
+    -- comptime wrapping: build the optional as an initializer list instead of calling
+    -- `__convert`, so constant optionals at the top scope become C static initializers
+    local valattr = valnode.attr
+    local subtype = objtype.subtype
+    local newvalnode
+    if valtype.is_niltype or (valtype.is_nilptr and objtype.is_niche) then -- empty
+      newvalnode = aster.InitList{}
+    elseif (valattr.comptime or (valnode.is_UnaryOp and valnode[1] == 'ref')) and
+           not valattr.sideeffect and subtype:is_convertible_from_attr(valattr) then
+      if objtype.is_niche then
+        newvalnode = aster.InitList{aster.Pair{'v', valnode}}
+      else
+        newvalnode = aster.InitList{aster.Pair{'some', aster.Boolean{true}}, aster.Pair{'v', valnode}}
+      end
+    end
+    if newvalnode then
+      newvalnode.src = valnode.src
+      newvalnode.pos = valnode.pos
+      newvalnode.endpos = valnode.endpos
+      parent[parentindex] = newvalnode
+      context:traverse_node(newvalnode, {desiredtype=objtype})
+      assert(newvalnode.attr.type == objtype)
+      return newvalnode, objtype
+    end
+  end
   objsym = objtype.symbol
   local idnode = aster.Id{objsym.name, pattr={forcesymbol=objsym}}
   local newvalnode = aster.Call{{valnode}, aster.DotIndex{'__convert', idnode}}

@@ -3469,6 +3469,104 @@ it("optional under freestanding", function()
   assert(not code:find('int main(', 1, true), 'unexpected main')
 end)
 
+it("optional static initializers", function()
+  -- constant optionals are built as initializer lists, so at the top scope they are C static initializers
+  expect.generate_c([[
+    require 'optional'
+    local R = @record{x: integer}
+    local g: R = {x = 1}
+    local x: integer? = 3
+    local y: integer? = nil
+    local p: *R? = nilptr
+    local q: *R? = &g
+    local s: string? = 'abc'
+    local b: boolean? = false
+  ]], {
+    "static nelua_optional_int64_ x = {.some = true, .v = 3};",
+    "static nelua_optional_int64_ y = {0};",
+    "static nelua_optional_pointer_R__ p = {0};",
+    "static nelua_optional_pointer_R__ q = {.v = (&g)};",
+    "static nelua_optional_string_ s = {.some = true, .v = {(uint8_t*)\"abc\", 3}};",
+    "static nelua_optional_boolean_ b = {.some = true, .v = false};",
+  })
+  do -- nothing is left for `nelua_main` under `noentrypoint`
+    local _, context = expect.analyze_ast([[
+      ## pragmas.noentrypoint = true
+      require 'optional'
+      local R = @record{x: integer}
+      local g: R = {x = 1}
+      local x: integer? = 3
+      local y: integer? = nil
+      local p: *R? = nilptr
+      local q: *R? = &g
+      local function f(): integer? <cexport, codename 'f'> return x end
+      local function h(): *R? <cexport, codename 'h'> if y or p then return p end return q end
+    ]], nil, 'c')
+    local code = assert(require('nelua.cgenerator').generate(context))
+    assert(not code:find('nelua_main', 1, true), 'unexpected nelua_main')
+    assert(not code:find('__convert', 1, true), 'unexpected __convert')
+    assert(code:find('static nelua_optional_int64_ x = {.some = true, .v = 3};', 1, true), 'missing x')
+    assert(code:find('static nelua_optional_int64_ y = {0};', 1, true), 'missing y')
+    assert(code:find('static nelua_optional_pointer_R__ p = {0};', 1, true), 'missing p')
+    assert(code:find('static nelua_optional_pointer_R__ q = {.v = (&g)};', 1, true), 'missing q')
+  end
+  -- runtime values still convert in `nelua_main`
+  expect.generate_c([[
+    require 'optional'
+    local function f(): integer return 1 end
+    local n: integer = 2
+    local pn: *integer = &n
+    local y: integer? = f()
+    local z: integer? = n
+    local w: *integer? = pn
+  ]], {
+    "static nelua_optional_int64_ y;",
+    "y = nelua_optional_int64____convert_1(f());",
+    "z = nelua_optional_int64____convert_1(n);",
+    "w = nelua_optional_pointer_int64_____convert_1(pn);",
+  })
+  expect.run_c([[
+    require 'optional'
+    local R = @record{x: integer}
+    local g: R = {x = 1}
+    local x: integer? = 3
+    local y: integer? = nil
+    local p: *R? = nilptr
+    local q: *R? = &g
+    local s: string? = 'abc'
+    local n: integer = 2
+    local z: integer? = n
+    assert(x == 3 and x:get() == 3 and x ~= nil)
+    assert(y == nil and not y)
+    assert(p == nil and p == nilptr and not p)
+    assert(q ~= nil and q:get() == &g and q:get().x == 1)
+    assert(s == 'abc' and #s:get() == 3)
+    assert(z == 2)
+    -- the same conversions inside a function
+    local function f(k: integer): integer?
+      local a: integer? = 3
+      local b: integer? = nil
+      local c: *R? = nilptr
+      local d: *R? = &g
+      if k == 1 then return a end
+      if k == 2 then return b end
+      assert(c == nil and d:get() == &g)
+      return k
+    end
+    assert(f(1) == 3 and f(2) == nil and f(5) == 5)
+    -- comptime wrapping in call arguments, init lists, assignments and returns
+    local function opt(v: integer?): integer? return v end
+    assert(opt(4) == 4 and opt(nil) == nil)
+    local P = @record{o: integer?, r: *R?}
+    local pr: P = {o = 5, r = nilptr}
+    assert(pr.o == 5 and pr.r == nil)
+    x = nil
+    assert(x == nil)
+    x = 6
+    assert(x == 6)
+  ]])
+end)
+
 it("static initializers at top scope", function()
   -- constant initializers become C static initializers instead of statements in `nelua_main`
   expect.generate_c([[

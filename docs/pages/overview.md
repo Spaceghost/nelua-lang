@@ -899,7 +899,11 @@ assert(p == &n and p ~= nilptr)
 A value of `T` and `nil` convert implicitly to `T?` in declarations, assignments, call
 arguments, initializer lists and returns, the other way needs `get` (checked, it raises a
 runtime error when empty), `getptr` (`nilptr` when empty) or `get_or`; `set` and `clear`
-write the optional. `opt == nil` and `opt ~= nil` test for emptiness, `opt == v` compares the
+write the optional. A constant initializer (`3`, `nil`, `nilptr`, `'abc'`, the address of a
+static object such as `&g`) builds the optional as an initializer list, so at the top scope
+`local x: integer? = 3` and `local p: *R? = nilptr` are C static initializers with no
+statement in `nelua_main` (they hold under `noentrypoint` too); a runtime initializer such
+as `f()` is still converted in `nelua_main`. `opt == nil` and `opt ~= nil` test for emptiness, `opt == v` compares the
 held value and two optionals of the same type compare equal when both are empty or both
 hold equal values. `boolean?` cannot be used as a boolean (`if b then`), test it with
 `~= nil` or `get_or` instead.
