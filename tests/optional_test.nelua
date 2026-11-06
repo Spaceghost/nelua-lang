@@ -153,6 +153,62 @@ do -- `?` over the stdlib `(value, errmsg, errcode)` triples
   assert(second_line(path) == nil)
 end
 
+do -- `orelse` evaluates the default only when empty
+  local calls = 0
+  local function dflt(): integer calls = calls + 1 return 7 end
+  local function find(k: integer): integer?
+    if k == 1 then return 10 end
+    return nil
+  end
+  assert((find(1) orelse dflt()) == 10 and calls == 0)
+  assert((find(2) orelse dflt()) == 7 and calls == 1)
+  assert((find(2) orelse 3) == 3)
+  local c: integer? = find(2) orelse find(1) -- chaining keeps the optional
+  assert(c == 10)
+  assert((find(2) orelse find(2) orelse 5) == 5)
+  assert(find(2) orelse 1 == 1) -- `(find(2) orelse 1) == 1`
+  local s: string? = nil
+  assert((s orelse 'none') == 'none')
+  local n = 4
+  local p: *integer? = nilptr
+  assert($(p orelse &n) == 4) -- a pointer optional yields the pointer
+  local function word(k: integer): string?
+    if k == 1 then return 'one' end
+    return nil
+  end
+  assert((word(2) orelse word(1) orelse 'none') == 'one')
+  assert((word(2) orelse word(2) orelse 'none') == 'none')
+  assert(#(word(1) orelse '') == 3)
+end
+
+do -- `if local` binds the held value in the then block
+  local function find(k: integer): integer?
+    if k == 1 then return 10 end
+    return nil
+  end
+  local seen = 0
+  if local x = find(1) then
+    seen = x
+  end
+  assert(seen == 10)
+  if local x = find(2) then
+    assert(false)
+  elseif local y: float64 = find(1) then
+    assert(y == 10.0)
+    seen = 20
+  else
+    assert(false)
+  end
+  assert(seen == 20)
+  local function g(k: integer): integer?
+    if local v = find(k)? then return v + 1 end
+    return nil
+  end
+  assert(g(1) == 11 and g(2) == nil)
+  local s: string? = 'a'
+  if local t = s then assert(t == 'a') else assert(false) end
+end
+
 do -- optionals in records and arrays
   local R = @record{id: integer, parent: integer?}
   local r: R = {id = 1}

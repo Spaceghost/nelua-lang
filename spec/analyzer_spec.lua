@@ -2759,6 +2759,187 @@ it("optional types", function()
   ]])
 end)
 
+it("optional orelse", function()
+  expect.analyze_ast([[
+    require 'optional'
+    local function find(k: integer): integer?
+      if k == 1 then return 10 end
+      return nil
+    end
+    local function dflt(): integer return 7 end
+    local a: integer = find(1) orelse 3 -- comptime default
+    local b: integer = find(2) orelse dflt() -- lazy default
+    local c: integer? = find(2) orelse find(1) -- chaining keeps the optional
+    local d: integer = find(2) orelse find(1) orelse 5 -- nested chain
+    local e: integer = (find(1) orelse 2) + 1
+    local f: boolean = find(1) orelse 2 == 10 -- `a orelse b == c` is `(a orelse b) == c`
+    local u: uint8? = nil
+    local v: uint8 = u orelse 2
+    local n = 1
+    local p: *integer? = nilptr
+    local q: *integer = p orelse &n -- niche optional yields the pointer
+    local s: string? = nil
+    local t: string = s orelse 'none'
+    local R = @record{x: integer}
+    local r: R? = nil
+    local rr: R = r orelse {x = 1}
+    local bo: boolean? = false
+    local bb: boolean = bo orelse true
+    local function g(k: integer): integer
+      local x = find(k) orelse (do in 1 end)
+      return x
+    end
+  ]])
+  expect.analyze_error([[
+    require 'optional'
+    local n = 1
+    local y = n orelse 2
+  ]], "`orelse` expects an optional on the left, got 'int64'")
+  expect.analyze_error([[
+    require 'optional'
+    local p: *integer = nilptr
+    local y = p orelse nilptr
+  ]], "`orelse` expects an optional on the left, got 'pointer(int64)'")
+  expect.analyze_error([[
+    require 'optional'
+    local x: integer? = 1
+    local y = x orelse 'a'
+  ]], "in `orelse` default: no viable type conversion from 'string' to 'int64'")
+  expect.analyze_error([[
+    require 'optional'
+    local x: integer? = 1
+    local y = x orelse nil
+  ]], "in `orelse` default: no viable type conversion from 'niltype' to 'int64'")
+  expect.analyze_error([[
+    require 'optional'
+    local x: integer? = 1
+    local y: string? = nil
+    local z = x orelse y
+  ]], "`orelse` default of type 'optional(string)' does not match the optional 'optional(int64)'")
+  expect.analyze_error([[
+    require 'optional'
+    local function f(): integer?
+      local x: integer? = 1
+      return x? orelse 3 -- `x?` already unwraps
+    end
+  ]], "`orelse` expects an optional on the left, got 'int64'")
+  -- `or` and `and` never promote an optional to `any`
+  expect.analyze_error([[
+    require 'optional'
+    local x: integer? = 1
+    local y = x or 3
+  ]], "in binary operation `or`: use `orelse` to provide a default for an optional")
+  expect.analyze_error([[
+    require 'optional'
+    local x: integer? = 1
+    local y = x and 3
+  ]], "in binary operation `and`: use `orelse` to provide a default for an optional")
+  expect.analyze_error([[
+    require 'optional'
+    local x: integer? = 1
+    local y = 3 or x
+  ]], "in binary operation `or`: use `orelse` to provide a default for an optional")
+  expect.analyze_error([[
+    require 'optional'
+    local x: integer?
+    local p: *integer?
+    local j = x and p -- two different optionals
+  ]], "in binary operation `and`: use `orelse` to provide a default for an optional")
+  expect.analyze_error([[
+    require 'optional'
+    local x: integer? = 1
+    local y = x or nil
+  ]], "in binary operation `or`: use `orelse` to provide a default for an optional")
+  expect.analyze_ast([[
+    require 'optional'
+    local x: integer? = 1
+    local y: integer? = 2
+    local z: integer? = x or y -- same optional type stays allowed
+    local w: integer? = x and y
+    local b: boolean = x and true
+    local c: boolean = x or false
+    local n: integer = x and 1 or 2 -- ternary idiom tests the optional
+    if x and y then end
+    if x or 3 == 3 then end
+  ]])
+end)
+
+it("optional if local", function()
+  expect.analyze_ast([[
+    require 'optional'
+    local function find(k: integer): integer?
+      if k == 1 then return 10 end
+      return nil
+    end
+    if local x = find(1) then
+      local y: integer = x -- `x` is the held value
+    end
+    if local x: float64 = find(1) then -- annotation converts from the held type
+      local y: float64 = x
+    elseif local z = find(2) then
+      local w: integer = z
+    elseif find(3) then
+    else
+    end
+    local function f(k: integer): integer?
+      if local v = find(k)? then return v + 1 end -- `?` operand
+      return nil
+    end
+    local n = 1
+    local p: *integer? = &n
+    if local q = p then local r: *integer = q end
+    local s: string? = nil
+    if local t = s then local u: string = t end
+    local function g(): integer
+      if local x = find(1) then return x end
+      return 0
+    end
+    local function h(k: integer): integer
+      local r = 0
+      while true do
+        if local x = find(k) then r = x break else k = 1 continue end
+      end
+      return r
+    end
+  ]])
+  expect.analyze_error([[
+    require 'optional'
+    local x: integer? = 1
+    if local s = x then else local t = s end
+  ]], "undeclared symbol 's'")
+  expect.analyze_error([[
+    require 'optional'
+    local x: integer? = 1
+    if local s = x then end
+    local t = s
+  ]], "undeclared symbol 's'")
+  expect.analyze_error([[
+    require 'optional'
+    local x: integer? = 1
+    if x then elseif local s = x then else local t = s end
+  ]], "undeclared symbol 's'")
+  expect.analyze_error([[
+    require 'optional'
+    local x: integer? = 1
+    if local s: string = x then end
+  ]], "in variable 's' declaration: no viable type conversion from 'int64' to 'string'")
+  expect.analyze_error([[
+    require 'optional'
+    local p: *integer = nilptr
+    if local x = p then end
+  ]], "`if local` expects an optional, got 'pointer(int64)', test a pointer with `if p then`")
+  expect.analyze_error([[
+    require 'optional'
+    local n = 1
+    if local x = n then end
+  ]], "`if local` expects an optional, got 'int64'")
+  expect.analyze_error([[
+    require 'optional'
+    local b: integer? = 1
+    if b then elseif local x = 1 then end
+  ]], "`if local` expects an optional, got 'int64'")
+end)
+
 it("optional try kinds", function()
   -- errmsg kind: the value is the first return, the message is tested with `.size`
   expect.analyze_ast([[

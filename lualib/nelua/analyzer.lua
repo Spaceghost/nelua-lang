@@ -2116,8 +2116,101 @@ local function visitor_boolean_context(node)
   end
 end
 
+--[[
+Desugars an `if` holding `if local x = e then` conditions. The whole `if` is replaced:
+`if local x = e then B1 elseif c then B2 else B3 end` becomes
+`do local __o = e  if __o:has() then local x = __o.v  B1 else if c then B2 else B3 end end end`
+and an `elseif local` nests the same way inside the `else` of the previous condition.
+`e` must be an optional, `x` holds the unwrapped value and is visible only in the then block.
+Returns false when some condition still waits for its type.
+]]
+local function visitor_if_local(context, node)
+  local ifpairs, elsenode = node[1], node[2]
+  local rewrite = node.iflocalrewrite
+  if not rewrite then
+    local entries = {}
+    -- builds the statement for the conditions starting at `i`, `chain` lists the blocks that
+    -- will enclose it so the optional expressions can be checked under their final scopes
+    local function build(i, chain)
+      if i > #ifpairs then
+        return elsenode
+      end
+      local condnode = ifpairs[i]
+      if condnode.is_IfLocal then
+        local declnode, exprnode = condnode[1], condnode[2]
+        local thenblock = ifpairs[i+1]
+        local oname = context.scope:generate_name('__iflocal')
+        local doblock = aster.Block{}
+        local nextchain = {}
+        for j=1,#chain do nextchain[j] = chain[j] end
+        nextchain[#nextchain+1] = doblock
+        entries[#entries+1] = {exprnode = exprnode, chain = nextchain}
+        local valdecl = aster.VarDecl{'local', {declnode}, {aster.DotIndex{'v', aster.Id{oname}}}}
+        valdecl:recursive_update_location(condnode.src, condnode.pos, condnode.endpos)
+        table.insert(thenblock, 1, valdecl)
+        local restnode = build(i+2, nextchain)
+        local restblock = restnode
+        if restnode and not restnode.is_Block then
+          restblock = aster.Block{restnode}
+        end
+        doblock[1] = aster.VarDecl{'local', {aster.IdDecl{oname}}, {exprnode}}
+        doblock[1]:recursive_update_location(condnode.src, condnode.pos, condnode.endpos)
+        doblock[2] = aster.If{{aster.CallMethod{'has', {}, aster.Id{oname}}, thenblock}, restblock or false}
+        doblock[2]:recursive_update_location(node.src, node.pos, node.endpos)
+        return aster.Do{doblock}
+      end
+      -- plain conditions up to the next `if local`
+      local newpairs = {}
+      local j = i
+      while j <= #ifpairs and not ifpairs[j].is_IfLocal do
+        newpairs[#newpairs+1] = ifpairs[j]
+        newpairs[#newpairs+1] = ifpairs[j+1]
+        j = j + 2
+      end
+      local restnode = build(j, chain)
+      if restnode and not restnode.is_Block then
+        restnode = aster.Block{restnode}
+      end
+      return aster.If{newpairs, restnode or false}
+    end
+    local newnode = build(1, {})
+    newnode:recursive_update_location(node.src, node.pos, node.endpos)
+    rewrite = {newnode = newnode, entries = entries}
+    node.iflocalrewrite = rewrite
+  end
+  -- check every optional expression before rewriting, under the scopes it will be traversed in
+  for _,entry in ipairs(rewrite.entries) do
+    local chain = entry.chain
+    for j=1,#chain do
+      context:push_forked_cleaned_scope(chain[j])
+    end
+    context:traverse_node(entry.exprnode)
+    for _=1,#chain do
+      context:pop_scope()
+    end
+    local exprtype = entry.exprnode.attr.type
+    if not exprtype then
+      return false -- wait for the type
+    end
+    if not exprtype.is_optional then
+      if exprtype.is_pointer then
+        entry.exprnode:raisef("`if local` expects an optional, got '%s', test a pointer with `if p then`", exprtype)
+      end
+      entry.exprnode:raisef("`if local` expects an optional, got '%s'", exprtype)
+    end
+  end
+  context:transform_and_traverse_node(node, rewrite.newnode)
+  return true
+end
+
 function visitors.If(context, node)
   local ifpairs, elsenode = node[1], node[2]
+  for i=1,#ifpairs,2 do
+    if ifpairs[i].is_IfLocal then
+      visitor_if_local(context, node)
+      return
+    end
+  end
   local done = true
   for i=1,#ifpairs,2 do
     local ifcondnode, ifblocknode = ifpairs[i], ifpairs[i+1]
@@ -3783,8 +3876,76 @@ local function override_binary_op(context, node, opname, lnode, rnode, ltype, rt
   return true
 end
 
+--[[
+Rewrites `x orelse d`: `x` must be an optional, `d` is evaluated only when `x` is empty.
+With `d` convertible to the held type `T` the result is `T`, with `d` another `T?` the
+result is `T?` (chaining). The rewrite is a do expression:
+`(do local __o = x  if __o:has() then in __o.v end  local __r: T = d  in __r end)`
+where the typed `__r` declaration converts the default and fixes the result type.
+]]
+local function visitor_orelse(context, node)
+  local lnode, rnode = node[1], node[3]
+  -- the operands are traversed under the scopes the do block will own,
+  -- so scopes created inside them keep a valid parent after the rewrite
+  local blocknode = node.orelseblock
+  if not blocknode then
+    blocknode = aster.Block{}
+    node.orelseblock = blocknode
+  end
+  context:push_forked_cleaned_scope(node)
+  context:push_forked_cleaned_scope(blocknode)
+  context:traverse_node(lnode)
+  local ltype = lnode.attr.type
+  if ltype and not ltype.is_optional then
+    lnode:raisef("`orelse` expects an optional on the left, got '%s'", ltype)
+  end
+  local rtype
+  if ltype then
+    context:traverse_node(rnode, {desiredtype=ltype.subtype})
+    rtype = rnode.attr.type
+  end
+  context:pop_scope()
+  context:pop_scope()
+  if not ltype or not rtype then return end -- wait for the operand types
+  local restype, valuenode
+  local oname = context.scope:generate_name('__orelse')
+  local rname = context.scope:generate_name('__orelsed')
+  if rtype.is_optional then
+    if rtype ~= ltype then
+      rnode:raisef("`orelse` default of type '%s' does not match the optional '%s'", rtype, ltype)
+    end
+    restype = ltype -- chaining keeps the optional
+    valuenode = aster.Id{oname}
+  else
+    restype = ltype.subtype
+    valuenode = aster.DotIndex{'v', aster.Id{oname}}
+    -- records with `__convert` are converted by the `__r` declaration below
+    local objtype = restype:implicit_deref_type()
+    if not (objtype.is_record and objtype.metafields.__convert) then
+      local ok, err = restype:is_convertible_from(rnode)
+      if not ok then
+        rnode:raisef("in `orelse` default: %s", err)
+      end
+    end
+  end
+  local odecl = aster.VarDecl{'local', {aster.IdDecl{oname}}, {}}
+  local rdecl = aster.VarDecl{'local', {aster.IdDecl{rname, aster.Type{aster.value(restype)}}}, {}}
+  blocknode[1] = odecl
+  blocknode[2] = aster.If{{aster.CallMethod{'has', {}, aster.Id{oname}}, aster.Block{aster.In{valuenode}}}, false}
+  blocknode[3] = rdecl
+  blocknode[4] = aster.In{aster.Id{rname}}
+  local newnode = aster.DoExpr{blocknode}
+  newnode:recursive_update_location(node.src, node.pos, node.endpos)
+  odecl[3][1] = lnode -- the operands keep their own locations
+  rdecl[3][1] = rnode
+  context:transform_and_traverse_node(node, newnode)
+end
+
 function visitors.BinaryOp(context, node, opts)
   local lnode, opname, rnode = node[1], node[2], node[3]
+  if opname == 'orelse' then
+    return visitor_orelse(context, node)
+  end
   local attr = node.attr
   local isor = opname == 'or'
   local isbinaryconditional = isor or opname == 'and'
@@ -3825,6 +3986,12 @@ function visitors.BinaryOp(context, node, opts)
     end
     if not wantsboolean and isbinaryconditional and
       (not rtype.is_boolean or not ltype.is_boolean) then
+      -- an optional mixed with a non boolean value would be promoted to `any`
+      if (ltype.is_optional or rtype.is_optional) and ltype ~= rtype and
+         not ltype.is_boolean and not rtype.is_boolean and
+         not attr.ternaryand then -- `opt and a or b` keeps testing the optional
+        node:raisef("in binary operation `%s`: use `orelse` to provide a default for an optional", opname)
+      end
       attr.dynamic_conditional = true
     end
     if override_binary_op(context, node, opname, lnode, rnode, ltype, rtype) then

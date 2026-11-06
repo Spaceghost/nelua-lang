@@ -3034,12 +3034,160 @@ it("optional types", function()
     w = 2
     assert(w:is(@integer) and w:get(@integer) == 2)
   ]])
-  expect.run_error_c([[
+end)
+
+it("optional orelse", function()
+  expect.run_c([[
     require 'optional'
-    local x: integer?
-    local p: *integer?
-    local j = x and p
-  ]], "deduced type 'any'")
+    local calls = 0
+    local function dflt(): integer calls = calls + 1 return 7 end
+    local function find(k: integer): integer?
+      if k == 1 then return 10 end
+      return nil
+    end
+    -- the default is evaluated only when the optional is empty
+    assert((find(1) orelse dflt()) == 10 and calls == 0)
+    assert((find(2) orelse dflt()) == 7 and calls == 1)
+    assert((find(2) orelse 3) == 3)
+    -- chaining keeps the optional, the first value wins
+    local c: integer? = find(2) orelse find(1)
+    assert(c == 10)
+    local d: integer? = find(2) orelse find(2)
+    assert(d == nil)
+    assert((find(2) orelse find(2) orelse dflt()) == 7 and calls == 2)
+    assert((find(2) orelse find(1) orelse dflt()) == 10 and calls == 2)
+    assert((find(1) orelse find(2) orelse dflt()) == 10 and calls == 2)
+    -- precedence: `orelse` binds tighter than comparison and looser than `|`
+    assert(find(2) orelse 1 | 2 == 3)
+    assert((find(1) orelse 2) + 1 == 11)
+    -- a niche optional yields the pointer
+    local n = 4
+    local p: *integer? = nilptr
+    local q = p orelse &n
+    assert($q == 4)
+    p = &n
+    local m = 5
+    assert($(p orelse &m) == 4)
+    -- typed defaults and records
+    local u: uint8? = nil
+    local v = u orelse 2
+    assert(v == 2)
+    local s: string? = nil
+    assert((s orelse 'none') == 'none')
+    s = 'some'
+    assert((s orelse 'none') == 'some')
+    local R = @record{x: integer}
+    local r: R? = nil
+    local rr = r orelse {x = 1}
+    assert(rr.x == 1)
+    r = R{x = 2}
+    assert((r orelse {x = 1}).x == 2)
+    local bo: boolean? = false
+    assert((bo orelse true) == false)
+    bo = nil
+    assert((bo orelse true) == true)
+    -- `orelse` inside a closure and in a loop
+    local sum = 0
+    local acc = function(k: integer): integer return find(k) orelse 1 end
+    for k=1,3 do sum = sum + acc(k) end
+    assert(sum == 12)
+    -- the ternary idiom keeps testing the optional
+    assert((find(1) and 1 or 2) == 1 and (find(2) and 1 or 2) == 2)
+    -- `or` between the same optionals
+    local z: integer? = find(2) or find(1)
+    assert(z == 10)
+  ]])
+  expect.generate_c([[
+    require 'optional'
+    local x: integer? = 3
+    local y = x orelse 4
+  ]], {"int64_t _expr;", "__orelse_1.v;", "int64_t __orelsed_1 = 4;"})
+end)
+
+it("optional if local", function()
+  expect.run_c([[
+    require 'optional'
+    local trace: [16]integer
+    local n = 0
+    local function find(k: integer): integer?
+      n = n + 1
+      trace[n] = k
+      if k == 1 then return 10 end
+      return nil
+    end
+    local function classify(a: integer, b: integer, c: integer): integer
+      if local x = find(a) then
+        return x
+      elseif local y: float64 = find(b) then
+        return (@integer)(y) + 1
+      elseif c == 1 then
+        return 100
+      elseif local z = find(c) then
+        return z + 2
+      else
+        return -1
+      end
+    end
+    assert(classify(1, 1, 1) == 10 and n == 1 and trace[1] == 1)
+    n = 0
+    assert(classify(2, 1, 1) == 11 and n == 2 and trace[1] == 2 and trace[2] == 1)
+    n = 0
+    assert(classify(2, 2, 1) == 100 and n == 2)
+    n = 0
+    assert(classify(2, 2, 1) == 100 and n == 2)
+    n = 0
+    assert(classify(2, 2, 3) == -1 and n == 3 and trace[3] == 3)
+    n = 0
+    assert(classify(2, 2, 1) == 100 and n == 2)
+    -- inside a closure
+    local f = function(k: integer): integer
+      if local x = find(k) then return x * 2 end
+      return 0
+    end
+    assert(f(1) == 20 and f(2) == 0)
+    -- inside a loop with break and continue
+    local hits, misses = 0, 0
+    for k=1,5 do
+      if local x = find(k % 2) then
+        hits = hits + x
+        if hits > 20 then break end
+        continue
+      else
+        misses = misses + 1
+      end
+      misses = misses + 10
+    end
+    assert(hits == 30 and misses == 22)
+    -- over a `?` operand
+    local function g(k: integer): integer?
+      if local v = find(k)? then return v + 1 end
+      return nil
+    end
+    assert(g(1) == 11 and g(2) == nil)
+    -- the bound variable shadows and is scoped to the then block
+    local x = 1
+    if local x = find(1) then assert(x == 10) end
+    assert(x == 1)
+    -- niche optional
+    local p: *integer? = &x
+    if local q = p then assert($q == 1) else assert(false) end
+    p = nilptr
+    if local q = p then assert(false) end
+    -- defer in scope runs when leaving the block
+    local closed = 0
+    do
+      if local v = find(1) then
+        defer closed = closed + v end
+        assert(closed == 0)
+      end
+      assert(closed == 10)
+    end
+  ]])
+  expect.generate_c([[
+    require 'optional'
+    local x: integer? = 3
+    if local y = x then end
+  ]], {"__iflocal_1 = x;", "if(nelua_optional_int64__has((&__iflocal_1)))", "int64_t y = __iflocal_1.v;"})
 end)
 
 it("optional try kinds", function()
@@ -3261,6 +3409,7 @@ it("optional under freestanding", function()
   local _, context = expect.analyze_ast([[
     ## pragmas.freestanding = true
     ## pragmas.abort = 'trap'
+    ## pragmas.nogc = true
     require 'optional'
     local function find(k: int64): int64?
       if k == 1 then return 10 end
@@ -3273,9 +3422,18 @@ it("optional under freestanding", function()
     local function get(k: int64): int64 <cexport, codename 'get'>
       return twice(k):get() -- traps when empty
     end
+    local function get_or(k: int64, d: int64): int64 <cexport, codename 'get_or'>
+      return twice(k) orelse d
+    end
+    local function get_if(k: int64): int64 <cexport, codename 'get_if'>
+      if local v = twice(k) then return v end
+      return -1
+    end
   ]], nil, 'c')
   local code = assert(require('nelua.cgenerator').generate(context))
   assert(code:find('int64_t get(int64_t k)', 1, true), 'missing get')
+  assert(code:find('int64_t get_or(int64_t k, int64_t d)', 1, true), 'missing get_or')
+  assert(code:find('int64_t get_if(int64_t k)', 1, true), 'missing get_if')
   assert(code:find('__builtin_trap();', 1, true), 'missing trap')
   assert(not code:find('<stdlib.h>', 1, true), 'unexpected stdlib.h')
   assert(not code:find('<stdio.h>', 1, true), 'unexpected stdio.h')
