@@ -590,6 +590,19 @@ function visitors.Annotation(context, node, opts)
 
   if name == 'cimport' then
     objattr.cimport = true
+    -- a single field struct is not ABI-identical to a C pointer in portable C,
+    -- so optionals never cross a <cimport> boundary
+    if objattr._type then
+      if objattr.is_record and objattr.fields then
+        for _,field in ipairs(objattr.fields) do
+          if types.type_has_optional(field.type) then
+            node:raisef("optional types cannot be used in a <cimport> record field, use a plain pointer")
+          end
+        end
+      end
+    elseif symboltype and types.type_has_optional(symboltype) then
+      node:raisef("optional types cannot be used in a <cimport> variable, use a plain pointer")
+    end
     local codename
     if luatype(params) == 'string' then
       codename = params
@@ -990,10 +1003,21 @@ functions returning an optional or a pointer.
 ]]
 function visitors.Try(context, node)
   local exprnode = node[1]
+  local funcscope = context.scope:get_up_function_scope()
+  -- the operand is traversed under the scopes the do expression and its block will own,
+  -- so scopes created inside it (a nested `?`, a closure) keep a valid parent after the rewrite
+  local blocknode = node.tryblock
+  if not blocknode then
+    blocknode = aster.Block{}
+    node.tryblock = blocknode
+  end
+  context:push_forked_cleaned_scope(node)
+  context:push_forked_cleaned_scope(blocknode)
   context:traverse_node(exprnode)
+  context:pop_scope()
+  context:pop_scope()
   local exprtype = exprnode.attr.type
   if not exprtype then return end -- wait for the operand type
-  local funcscope = context.scope:get_up_function_scope()
   local rettypes = funcscope and funcscope.rettypes
   if not rettypes or not types.are_types_resolved(rettypes) then
     node:raisef("`?` requires the enclosing function to declare its return types")
@@ -1019,11 +1043,10 @@ function visitors.Try(context, node)
     fillnodes[i] = aster.Call{{}, aster.Paren{aster.Type{aster.value(rettypes[i])}}}
   end
   local declnode = aster.VarDecl{'local', {aster.IdDecl{tname}}, {}}
-  local newnode = aster.DoExpr{aster.Block{
-    declnode,
-    aster.If{{failnode, aster.Block{aster.Return(fillnodes)}}, false},
-    aster.In{valuenode},
-  }}
+  blocknode[1] = declnode
+  blocknode[2] = aster.If{{failnode, aster.Block{aster.Return(fillnodes)}}, false}
+  blocknode[3] = aster.In{valuenode}
+  local newnode = aster.DoExpr{blocknode}
   newnode:recursive_update_location(node.src, node.pos, node.endpos)
   declnode[3][1] = exprnode -- the operand keeps its own location
   context:transform_and_traverse_node(node, newnode)
@@ -2383,6 +2406,8 @@ function visitors.VarDecl(context, node)
   if #varnodes < #valnodes then
     node:raisef("extra expressions in declaration, expected at most %d but got %d",
     #varnodes, #valnodes)
+  elseif #varnodes > #valnodes and #valnodes > 0 and valnodes[#valnodes].is_Try then
+    valnodes[#valnodes]:raisef("`?` yields a single value, but %d values are expected", #varnodes)
   end
   local done = true
   for i,varnode,valnode,valtype in izipargnodes(varnodes, valnodes) do
@@ -2520,6 +2545,8 @@ function visitors.Assign(context, node)
   local varnodes, valnodes = node[1], node[2]
   if #varnodes < #valnodes then
     node:raisef("extra expressions in assign, expected at most %d but got %d", #varnodes, #valnodes)
+  elseif #varnodes > #valnodes and valnodes[#valnodes].is_Try then
+    valnodes[#valnodes]:raisef("`?` yields a single value, but %d values are expected", #varnodes)
   end
   local last_call_node
   local last_node = valnodes[#valnodes]

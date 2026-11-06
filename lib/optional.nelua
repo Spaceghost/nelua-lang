@@ -31,6 +31,18 @@ Remarks: `get` is checked, it raises a runtime error when the optional is empty.
   -- pointers and functions have a niche: the null value marks the empty optional
   local is_niche = (T.is_pointer or T.is_function) and true or false
   local nickname = 'optional('..tostring(T)..')'
+  -- a value converts to `T` directly, or through `T.__convert` (variant members, user records)
+  local function converts_to_T(x)
+    if T:is_convertible_from_attr(x) then return true end
+    local convertsym = T.is_record and T.metafields and T.metafields.__convert
+    if convertsym and convertsym.type then
+      local argtype = convertsym.type.argtypes[1]
+      if argtype and argtype.is_concept and argtype:get_convertible_from_attr(x) then
+        return true
+      end
+    end
+    return false
+  end
   ]]
 
   -- Optional record defined when instantiating the generic `optional` with type `T`.
@@ -66,7 +78,7 @@ Remarks: `get` is checked, it raises a runtime error when the optional is empty.
       if is_niche then return true end
       return false, string.format("no viable conversion from 'nilptr' to '%s'", optionalT)
     end
-    if not xtype.is_optional and T:is_convertible_from_attr(x) then
+    if not xtype.is_optional and converts_to_T(x) then
       return T
     end
     return false, string.format("no viable conversion from '%s' to '%s'", xtype, optionalT)
@@ -82,7 +94,7 @@ Remarks: `get` is checked, it raises a runtime error when the optional is empty.
       if is_niche then return true end
       return false, string.format("cannot compare '%s' with 'nilptr'", optionalT)
     end
-    if not xtype.is_optional and T:is_convertible_from_attr(x) then
+    if not xtype.is_optional and converts_to_T(x) then
       return T
     end
     return false, string.format("cannot compare '%s' with '%s'", optionalT, xtype)
@@ -169,9 +181,9 @@ Remarks: `get` is checked, it raises a runtime error when the optional is empty.
       end
       return not a.some or a.v == b.v
       ## end
-    ## else -- bare value
+    ## else -- bare value, `opt == v` is false when empty, even for a null `v`
       ## if is_niche then
-      return a.v == b
+      return a.v ~= nilptr and a.v == b
       ## else
       return a.some and a.v == b
       ## end

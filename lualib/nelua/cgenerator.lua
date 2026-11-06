@@ -1072,7 +1072,12 @@ function visitors.DoExpr(context, node, emitter)
   end
   local blocknode = node[1]
   if blocknode[1] and blocknode[1].is_In then -- single statement
+    -- the expression may own scopes (a nested do expression), keep the chain valid
+    context:push_forked_scope(node)
+    context:push_forked_scope(blocknode)
     emitter:add(blocknode[1][1])
+    context:pop_scope()
+    context:pop_scope()
   elseif not attr.type then
     assert(isstatement)
     emitter:add_ln("{") emitter:inc_indent()

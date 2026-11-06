@@ -2622,6 +2622,16 @@ ConceptType.is_nilable = true
 ConceptType.is_concept = true
 
 -- Create a concept from a lua function defined in the preprocessor.
+-- Checks whether `type` is an optional or an array holding optionals (any depth).
+function types.type_has_optional(type)
+  while type do
+    if type.is_optional then return true end
+    if not type.is_array then return false end
+    type = type.subtype
+  end
+  return false
+end
+
 function ConceptType:_init(func, desiredfunc)
   self.codename = types.gencodename('concept')
   Type._init(self, 'concept', 0)

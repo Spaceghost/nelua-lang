@@ -2664,7 +2664,6 @@ it("optional types", function()
     local g: boolean = 3 == x
     local h: boolean = x == x
     local i: boolean = not x
-    local j = x and p
     local k: boolean = x and true
   ]])
   expect.analyze_error([[
@@ -2702,6 +2701,62 @@ it("optional types", function()
     require 'optional'
     local function f(): *integer? <cimport,nodecl> end
   ]], "optional types cannot be used in a <cimport> function")
+  expect.analyze_error([[
+    require 'optional'
+    local R <cimport,nodecl> = @record{p: *integer?}
+  ]], "optional types cannot be used in a <cimport> record field")
+  expect.analyze_error([[
+    require 'optional'
+    local R <cimport,nodecl> = @record{a: [2]integer?}
+  ]], "optional types cannot be used in a <cimport> record field")
+  expect.analyze_error([[
+    require 'optional'
+    local x: integer? <cimport,nodecl>
+  ]], "optional types cannot be used in a <cimport> variable")
+  expect.analyze_error([[
+    require 'optional'
+    local p: *integer? <cimport,nodecl>
+  ]], "optional types cannot be used in a <cimport> variable")
+  expect.analyze_ast([[
+    require 'optional'
+    local R <cimport,nodecl> = @record{p: *integer}
+    local x: integer <cimport,nodecl>
+    local r: R? = R{p=&x}
+  ]])
+  expect.analyze_error([[
+    require 'optional'
+    local function find(k: integer): integer? return nil end
+    local function f(k: integer): integer?
+      local a, b = find(k)?
+      return a
+    end
+  ]], "`?` yields a single value, but 2 values are expected")
+  expect.analyze_error([[
+    require 'optional'
+    local function find(k: integer): integer? return nil end
+    local function f(k: integer): integer?
+      local a, b: integer
+      a, b = find(k)?
+      return a
+    end
+  ]], "`?` yields a single value, but 2 values are expected")
+  expect.analyze_ast([[
+    require 'optional'
+    local function find(k: integer): integer? return nil end
+    local function wrap(v: integer): integer? return v end
+    local Node = @record{n: integer, next: *Node}
+    local function f(k: integer): integer?
+      local a, b = find(k)?, 2 -- `?` is one value among others
+      return wrap(find(a)?)? + b -- nested `?`
+    end
+    local function second(n: *Node): *Node?
+      return n?.next? -- chained `?`
+    end
+    local function g(k: integer): integer?
+      local v = (function(j: integer): integer? return find(j) end)(k)? -- `?` on a closure call
+      return (do in find(v)? end) -- `?` as the sole `in` expression
+    end
+  ]])
 end)
 
 it("side effects detection", function()

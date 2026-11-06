@@ -2974,6 +2974,70 @@ it("optional types", function()
     assert(find(1):get() == 10 and find(2) == nil)
     assert(twice(1):get() == 20 and twice(2) == nil)
   ]])
+  expect.run_c([[
+    require 'optional'
+    local function find(k: integer): integer?
+      if k == 1 then return 10 end
+      return nil
+    end
+    local function wrap(v: integer): integer? return v + 1 end
+    local function nested(k: integer): integer? return wrap(find(k)?)? end
+    assert(nested(1) == 11 and nested(2) == nil)
+    local function twiceover(k: integer): integer? return find(find(k)? - 9)? end
+    assert(twiceover(1) == 10 and twiceover(2) == nil)
+    local Node = @record{n: integer, next: *Node}
+    local function second(n: *Node): *Node? return n?.next? end
+    local n2: Node = {n=2}
+    local n1: Node = {n=1, next=&n2}
+    assert(second(&n1):get().n == 2 and second(&n2) == nil and second(nilptr) == nil)
+    local R = @record{b: integer}
+    function R:look(): *R? return self end
+    local function mk(k: integer): R?
+      if k == 1 then return R{b=5} end
+      return nil
+    end
+    local function look(k: integer): *R? return mk(k)?:look()? end
+    assert(look(1):get().b == 5 and look(2) == nil)
+    local function viaclosure(k: integer): integer?
+      local v = (function(j: integer): integer? return find(j) end)(k)?
+      return v
+    end
+    assert(viaclosure(1) == 10 and viaclosure(2) == nil)
+    local function viadoexpr(k: integer): integer?
+      return (do in find(k)? end)
+    end
+    assert(viadoexpr(1) == 10 and viadoexpr(2) == nil)
+  ]])
+  expect.run_c([[
+    require 'optional'
+    local e: *integer?
+    local i: integer = 3
+    local s: *integer? = &i
+    local np: *integer = nilptr
+    assert(not (e == np) and e ~= np) -- `opt == v` is false when empty, even for a null `v`
+    assert(e == nilptr and s ~= nilptr)
+    assert(s == &i and not (s == np))
+  ]])
+  expect.run_c([[
+    require 'variant'
+    require 'optional'
+    local V = @variant(integer, string)
+    local ov: V? = 'x' -- converts through `V.__convert`
+    assert(ov:get():is(@string) and ov:get():get(@string) == 'x')
+    assert(ov == (@V)('x') and ov ~= (@V)('y'))
+    ov = 3
+    assert(ov:get():is(@integer) and ov:get():get(@integer) == 3)
+    local w: integer|string? = 'y' -- converts through `optional(string).__convert`
+    assert(w:is(@string?) and w:get(@string?):get() == 'y')
+    w = 2
+    assert(w:is(@integer) and w:get(@integer) == 2)
+  ]])
+  expect.run_error_c([[
+    require 'optional'
+    local x: integer?
+    local p: *integer?
+    local j = x and p
+  ]], "deduced type 'any'")
 end)
 
 it("optional under freestanding", function()

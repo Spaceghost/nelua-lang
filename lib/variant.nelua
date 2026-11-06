@@ -65,6 +65,20 @@ require 'stringbuilder'
   -- Concept matching values of any member type, choosing the member exactly matching
   -- the value type first and otherwise the single member it can convert to.
   -- A `boolean` member only matches boolean values, although any value converts to a boolean.
+  ##[[
+  -- a value converts to a member `T` directly, or through `T.__convert` (optionals, user records)
+  local function converts_to(T, x)
+    if T:is_convertible_from_attr(x) then return true end
+    local convertsym = T.is_record and T.metafields and T.metafields.__convert
+    if convertsym and convertsym.type then
+      local argtype = convertsym.type.argtypes[1]
+      if argtype and argtype.is_concept and argtype:get_convertible_from_attr(x) then
+        return true
+      end
+    end
+    return false
+  end
+  ]]
   local variantT_member_concept: type = #[concept(function(x)
     local xtype = x.type
     if xtype.is_variant and xtype == variantT then
@@ -75,7 +89,7 @@ require 'stringbuilder'
     end
     local matched
     for _,T in ipairs(Ts) do
-      if T:is_convertible_from_attr(x) and not (T.is_boolean and not xtype.is_boolean) then
+      if converts_to(T, x) and not (T.is_boolean and not xtype.is_boolean) then
         if matched then
           return false, string.format("ambiguous conversion from '%s' to '%s': convertible to '%s' and '%s'",
             xtype, variantT, matched, T)

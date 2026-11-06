@@ -133,9 +133,9 @@ Two layouts chosen in the preprocessor by `is_niche`:
 ```c
 /* general: local x: integer? = 3 ; if x then print(x:get()) end  (top scope: static initializer) */
 typedef struct optional_int64_ optional_int64_;
-struct optional_int64_ { bool has; int64_t v; };               /* 16 bytes, align 8 on x86-64 */
+struct optional_int64_ { bool some; int64_t v; };              /* 16 bytes, align 8 on x86-64 */
 static optional_int64_ x = {true, 3};                          /* comptime wrapping -> init list */
-if(x.has) { ... }                                              /* add_val2boolean: has() call or .has */
+if(x.some) { ... }                                             /* add_val2boolean: has() call or .some */
 
 /* niche: local function open(p: cstring): *FILE?  return fopen(p, "r") end */
 struct optional__FILE_ { FILE* v; };                           /* size == sizeof(FILE*); empty == NULL */
@@ -151,15 +151,16 @@ static optional_nlstring_ first_line(nlstring p) {
 }
 
 /* orelse is lazy */
-int64_t y = ({ optional_int64_ _o = find(1); _o.has ? _o.v : compute_default(); });   /* as a DoExpr with `in` */
+int64_t y = ({ optional_int64_ _o = find(1); _o.some ? _o.v : compute_default(); });  /* as a DoExpr with `in` */
 ```
 
 Codenames as `choose_codename` forms them from the nickname; real output carries the unit prefix and dedup counter.
 The `return` inside `({ ... })` is the GNU statement expression the cgenerator already emits for `DoExpr` with
 statements; gcc 12, clang and `zig cc` accept it.
 
-`<cimport>`: optional types never appear in a `<cimport>` signature or imported record field (compile error in
-`visitors.OptionalType` when the enclosing declaration is a cimport): a single-field struct is not ABI-identical to
+`<cimport>`: optional types never appear in a `<cimport>` signature, imported record field or imported variable
+(compile error raised where the `cimport` annotation is applied, in `visitor_function_annotations` for functions and
+in `visitors.Annotation` for records and variables): a single-field struct is not ABI-identical to
 `T*` in portable C. Nullable C pointers keep binding as `*T`; the boundary idioms are the implicit `*T -> *T?`
 conversion (`local f: *FILE? = fopen(...)`) and `?` on the raw pointer. bindgen (graft, regex opt-in because
 python3-clang 14 does not expose `Type.nullability`): `--nullable-returns REGEX` emits, for each matched
@@ -218,7 +219,7 @@ in the Nelua signature; `run.sh` gains one sample. No automatic `_Nullable` dete
    `visitors.Try`/`TryStat` (classification table, fill builder, DoExpr/Do rewrite, 80); `orelse` branch in
    `visitors.BinaryOp` and the `or`/`and` refusal (30); `IfLocal` desugar in `visitors.If` (30); comptime wrapping
    in `visitor_convert` (15).
-5. `lualib/nelua/cemitter.lua` `add_val2boolean`: `elseif valtype.is_optional` -> `.has` / `(v != NULL)` (≈6).
+5. `lualib/nelua/cemitter.lua` `add_val2boolean`: `elseif valtype.is_optional` -> `.some` / `(v != NULL)` (≈6).
 6. `tools/nelua-bindgen/nelua-bindgen.py` `--nullable-returns` (≈25) + README paragraph; tree-sitter/textmate
    tokens (≈10).
 7. Docs: `docs/pages/overview.md` `### Optional` after `### Variant` (layout alert, `?`, `orelse`, `if local`,
@@ -270,7 +271,7 @@ Specs to write first, in this order (all red until the analyzer and lib land):
 7. analyzer `expect.analyze_error`: `?` on an `integer` value -> "expects an optional or pointer value"; `(@integer)?` -> error.
 8. analyzer `expect.analyze_ast`: `if x then end`, `while x do break end`, `local b = x == nil`, `local c = p == nilptr`.
 9. analyzer `expect.analyze_error`: `local b: boolean? = false if b then end` -> "test a boolean optional".
-10. cgenerator `expect.generate_c`: `struct ... { bool has; int64_t v; }` for `integer?` and `{ int64_t* v; }` for `*integer?`; `if(` uses `.has` / `!= NULL`.
+10. cgenerator `expect.generate_c`: `struct ... { bool some; int64_t v; }` for `integer?` and `{ int64_t* v; }` for `*integer?`; `if(` uses `.some` / `!= NULL`.
 11. cgenerator `expect.run_c`: `local function find(k: integer): integer? if k == 1 then return 10 end return nil end`; `find(1):get() == 10`, `find(2) == nil`, `find(1) ~= nil`, `find(1) == 10`.
 12. cgenerator `expect.run_c`: `local function twice(k: integer): integer? local v = find(k)? return v * 2 end`; `twice(1):get() == 20`, `twice(2) == nil`.
 13. cgenerator `expect.run_c`: `*Node?` from a `nilptr`-returning function, `?` on a raw `*Node` operand, `== nilptr` as the empty test, a NULL `*Node` converting to empty.
