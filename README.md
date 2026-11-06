@@ -49,7 +49,7 @@ each with specs in `spec/` and docs under `docs/pages/`:
 - **Closures**: anonymous functions capture upvalues by value as closure records.
 - **Editor grammars**: `tools/tree-sitter-nelua` and `tools/textmate-nelua` know
   `*const T`, `A|B` variants and anonymous `function` expressions
-  ([installing](docs/pages/installing.md#editor-support)); Tree-sitter parser regeneration is pending.
+  ([installing](docs/pages/installing.md#editor-support)); the Tree-sitter parser is regenerated from the `1ad3d5ce` pin.
 - **Static initializers**: top-scope variables initialized with `nilptr`, the
   address of a static object (`&g`, `&arr[3]`, `&rec.field`), casts of those,
   or record/array literals built from them are emitted as C static initializers

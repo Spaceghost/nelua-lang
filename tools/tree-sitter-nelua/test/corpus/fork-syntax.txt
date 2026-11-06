@@ -107,3 +107,46 @@ each(function() end)
       (arguments
         (function_expression
           (function_body))))))
+
+==================
+Const stays a name in expressions; variants nest in type arguments
+==================
+local y = x * const
+local F = @function(integer|string): void
+local V = @variant(integer|string, boolean)
+local q: *const function(integer): void = nilptr
+---
+
+(source_file
+  (variable_declaration
+    (parameter
+      (identifier))
+    (binary_expression
+      (identifier)
+      (identifier)))
+  (variable_declaration
+    (parameter
+      (identifier))
+    (type_expression
+      (function_type
+        (variant_type
+          (identifier)
+          (identifier))
+        (identifier))))
+  (variable_declaration
+    (parameter
+      (identifier))
+    (type_expression
+      (variant_type
+        (variant_type
+          (identifier)
+          (identifier))
+        (identifier))))
+  (variable_declaration
+    (parameter
+      (identifier)
+      (pointer_type
+        (function_type
+          (identifier)
+          (identifier))))
+    (nilptr)))
