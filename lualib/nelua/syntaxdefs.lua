@@ -93,11 +93,12 @@ KeyIndex        <== `[` @expr @`]`
 
 indexsuffix     <-- DotIndex / KeyIndex
 callsuffix      <-- Call / CallMethod
+Try             <== `?`
 
 var             <-- (exprprim (indexsuffix / callsuffix+ indexsuffix)+)~>rfoldright /
                     id / deref
 call            <-- (exprprim (callsuffix / indexsuffix+ callsuffix)+)~>rfoldright
-exprsuffixed    <-- (exprprim (indexsuffix / callsuffix)*)~>rfoldright
+exprsuffixed    <-- (exprprim (indexsuffix / callsuffix / Try)*)~>rfoldright
 idsuffixed      <-- (id DotIndex+)~>rfoldright
 funcname        <-- (id DotIndex* ColonIndex?)~>rfoldright
 
@@ -177,11 +178,11 @@ typeopvar : VariantType   <== typevaris
 typeopgen : GenericType   <== `(` @typeargs @`)` / &`{` {| InitList |}
 typevaris : VariantType   <== `|` @typeexprunary (`|` @typeexprunary)*
 
-typeopunary     <-- typeopptr / typeopopt / typeoparr
+typeopunary     <-- typeopptr / typeoparr
 
 -- Type expressions
 typeexpr        <-- (typeexprunary typevaris?)~>foldleft
-typeexprunary   <-- (typeopunary* typexprsimple)->rfoldleft
+typeexprunary   <-- ((typeopunary* typexprsimple)->rfoldleft typeopopt?)~>foldleft
 typexprsimple   <-- RecordType / UnionType / EnumType / FuncType / ArrayType / PointerType /
                     VariantType / (typeexprprim typeopgen?)~>foldleft
 typeexprprim    <-- idsuffixed / id

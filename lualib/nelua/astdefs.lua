@@ -187,9 +187,14 @@ aster.register('PointerType', {
   shaper.boolean + shaper.falsy, -- whether the pointee is const
 })
 
--- Optional type.
+-- Optional type (e.g. `T?`).
 aster.register('OptionalType', {
   shaper.Node -- subtype type expr
+})
+
+-- Try expression (e.g. `expr?`), early return from the enclosing function when empty.
+aster.register('Try', {
+  shaper.Node -- expr
 })
 
 -- Generic type.

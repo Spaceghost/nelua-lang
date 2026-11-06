@@ -1299,16 +1299,76 @@ describe("type expression", function()
     }})
   end)
   it("optional type", function()
-    expect_ast("local u: ?integer",
+    expect_ast("local u: integer?",
       n.Block{
         n.VarDecl{'local',
           { n.IdDecl{'u', n.OptionalType{n.Id{'integer'}}}}
     }})
-    expect_ast("local u: ?*integer",
+    expect_ast("local u: *integer?",
       n.Block{
         n.VarDecl{'local',
           { n.IdDecl{'u', n.OptionalType{n.PointerType{n.Id{'integer'}}}}}
     }})
+    expect_ast("local u: *const integer?",
+      n.Block{
+        n.VarDecl{'local',
+          { n.IdDecl{'u', n.OptionalType{n.PointerType{n.Id{'integer'}, true}}}}
+    }})
+    expect_ast("local u: [4]integer?",
+      n.Block{
+        n.VarDecl{'local',
+          { n.IdDecl{'u', n.OptionalType{n.ArrayType{n.Id{'integer'}, n.Number{'4'}}}}}
+    }})
+    expect_ast("local u: integer|string?",
+      n.Block{
+        n.VarDecl{'local',
+          { n.IdDecl{'u', n.VariantType{n.Id{'integer'}, n.OptionalType{n.Id{'string'}}}}}
+    }})
+    expect_ast("local u: optional(integer)?",
+      n.Block{
+        n.VarDecl{'local',
+          { n.IdDecl{'u', n.OptionalType{n.GenericType{n.Id{'optional'}, {n.Id{'integer'}}}}}}
+    }})
+    expect_ast("local u = @integer?",
+      n.Block{
+        n.VarDecl{'local',
+          { n.IdDecl{'u', false}},
+          { n.Type{n.OptionalType{n.Id{'integer'}}}}
+    }})
+    expect_ast_error("local u: ?integer", 'Expected_typeexpr')
+    expect_ast_error("local u: integer??", 'UnexpectedSyntax')
+  end)
+  it("try expression", function()
+    expect_ast("local u = x?",
+      n.Block{
+        n.VarDecl{'local',
+          { n.IdDecl{'u', false}},
+          { n.Try{n.Id{'x'}}}
+    }})
+    expect_ast("local u = f()?.v",
+      n.Block{
+        n.VarDecl{'local',
+          { n.IdDecl{'u', false}},
+          { n.DotIndex{'v', n.Try{n.Call{{}, n.Id{'f'}}}}}
+    }})
+    expect_ast("local u = a?.b?:c()",
+      n.Block{
+        n.VarDecl{'local',
+          { n.IdDecl{'u', false}},
+          { n.CallMethod{'c', {}, n.Try{n.DotIndex{'b', n.Try{n.Id{'a'}}}}}}
+    }})
+    expect_ast("local u = (@integer)?",
+      n.Block{
+        n.VarDecl{'local',
+          { n.IdDecl{'u', false}},
+          { n.Try{n.Paren{n.Type{n.Id{'integer'}}}}}
+    }})
+    expect_ast("return x? + 1",
+      n.Block{
+        n.Return{n.BinaryOp{n.Try{n.Id{'x'}}, 'add', n.Number{'1'}}}
+    })
+    expect_ast_error("x? = 1", 'UnexpectedSyntax')
+    expect_ast_error("f()?", 'UnexpectedSyntax')
   end)
   it("enum type", function()
     expect_ast("local e: enum{a}",
