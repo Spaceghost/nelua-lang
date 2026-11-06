@@ -51,8 +51,9 @@ each with specs in `spec/` and docs under `docs/pages/`:
   with `==` (also against bare member values), `tostring` and `visit` ([overview](docs/pages/overview.md#variant)).
 - **Optionals**: `T?` / `optional(T)` through `require 'optional'`, `nil` and `T` convert
   to it, `== nil` tests emptiness, `*T?` keeps the pointer size with `nilptr` as empty, and
-  the postfix `expr?` propagates empty optionals and null pointers as an early return
-  ([overview](docs/pages/overview.md#optional)).
+  the postfix `expr?` propagates empty optionals, null pointers and the stdlib
+  `(value, errmsg)` / boolean call failures as an early return, also as the statement
+  `f()?` ([overview](docs/pages/overview.md#optional)).
 - **Closures**: anonymous and local nested functions capture upvalues by value as
   closure records; `<byref>` captures them by pointer so the closure can mutate the
   enclosing locals ([overview](docs/pages/overview.md#closures)).

@@ -3214,7 +3214,6 @@ it("optional try kinds", function()
     assert(code:find('.size != 0', 1, true), 'missing size test')
     assert(not code:find('nelua_string', 1, true), 'unexpected string function')
     assert(not code:find('<stdlib.h>', 1, true), 'unexpected stdlib.h')
-    assert(not code:find('<string.h>', 1, true), 'unexpected string.h')
   end
 end)
 

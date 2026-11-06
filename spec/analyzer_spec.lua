@@ -2776,7 +2776,6 @@ it("optional try kinds", function()
     end
     local function a(k: integer): integer?
       local v = open(k)? -- errmsg -> empty
-      ## static_assert(v.type == primtypes.integer)
       return v
     end
     local function b(k: integer): (integer, string, integer)
@@ -2810,6 +2809,15 @@ it("optional try kinds", function()
     end
     ## static_assert(b.type.rettypes[2].is_string)
   ]])
+  expect.analyze_error([[ -- the value of an errmsg call is its first return
+    require 'optional'
+    local function open(k: integer): (integer, string, integer) return k, (@string){}, 0 end
+    local function f(k: integer): integer?
+      local v = open(k)?
+      local s: string = v
+      return v
+    end
+  ]], "no viable type conversion from 'int64' to 'string'")
   expect.analyze_error([[
     require 'optional'
     local function only(k: integer): boolean return k == 1 end

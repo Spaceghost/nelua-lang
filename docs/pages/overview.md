@@ -935,11 +935,63 @@ local function second(n: *Node): *Node
 end
 ```
 
-The enclosing function must declare its return types and the first one must be an optional
-or a pointer, every return is zero initialized on the early return (empty, `nilptr`, `0`),
-so `?` also works in functions returning `(T?, integer)`. `?` runs the `defer` blocks in
-scope and, inside a closure, returns from the closure. The operand is copied, so `?` is not
+The enclosing function must declare its return types. When the first one is an optional or
+a pointer every return is zero initialized on the early return (empty, `nilptr`, `0`), so
+`?` also works in functions returning `(T?, integer)`. `?` runs the `defer` blocks in scope
+and, inside a closure, returns from the closure. The operand is copied, so `?` is not
 available for `nocopy` types.
+
+`?` also understands the two shapes of fallible call used by the standard library:
+
+* `(value, errmsg: string, ...)` (`io.open`, `filestream:read`, `filestream:write`,
+  `os.remove`, ...): the call fails when the message is not empty, `?` yields the first
+  return and drops the rest (the *errmsg* kind).
+* a call returning only a `boolean`: it fails when `false` and yields no value, so it is only
+  allowed as a statement (the *ok* kind).
+
+The statement form `f()?` discards the value and only propagates the failure (the `?` must
+end the statement, bind the value first to chain a method on it).
+
+```nelua
+require 'optional'
+require 'io'
+
+local function first_line(path: string): string?
+  local f = io.open(path)? -- `f` is a `filestream`, empty when the open fails
+  defer f:close() end
+  return f:read('l')? -- the read error becomes empty too
+end
+
+local function copy_line(src: string, dst: string): (boolean, string)
+  local line = first_line(src)
+  if not line then return false, 'no line' end -- optionals carry no message: write the `if`
+  local f = io.open(dst, 'w')?    -- the open error message is returned unchanged
+  f:write(line:get(), '\n')?      -- statement form
+  f:close()?
+  return true, (@string){}
+end
+
+local function copied(src: string, dst: string): boolean
+  copy_line(src, dst)? -- `(ok, errmsg)` into a boolean function: `false`, message dropped
+  return true
+end
+```
+
+What the early return carries depends on the enclosing function's return types, the first
+matching row applies:
+
+| enclosing returns | operand | early return |
+| --- | --- | --- |
+| optional or pointer first | any kind | every return zero initialized (empty, `nilptr`, `0`, `false`) |
+| `(value, errmsg: string, ...)` | errmsg call | `(@R1)(), errmsg, (@R3)()...`: the callee message, the rest zero (the errcode too) |
+| `(value, errmsg: string, ...)` | optional, pointer or boolean call | compile error, there is no message to propagate |
+| `(boolean, ...)` | any kind | `false, (@R2)()...`: an errmsg operand loses its message |
+| anything else | | compile error |
+
+An errmsg call whose failure is reported with an empty message counts as a success, which is
+how the standard library behaves. `?` never guesses on other shapes: a `(integer, integer)`
+call is rejected.
+{:.alert.alert-info}
 
 ### Pointer
 

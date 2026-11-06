@@ -249,6 +249,10 @@ in the Nelua signature; `run.sh` gains one sample. No automatic `_Nullable` dete
 
 ## First implementation slice
 
+Slice 2 (the `errmsg` and `ok` operand kinds, the `errmsg`/`ok` enclosing kinds with the propagation table above,
+and the statement form `f()?` as `TryStat`) is implemented on top of slice 1 and spec'd in `syntaxdefs_spec`,
+`analyzer_spec`/`cgenerator_spec` "optional try kinds" and `tests/optional_test.nelua`.
+
 Smallest shippable subset, useful alone: `T?` types over `lib/optional.nelua`, `==`/`~=` against `nil`/`nilptr`,
 truthiness, and `expr?` for optional/pointer operands inside optional/pointer-returning functions. No `orelse`,
 `if local`, errmsg kind, statement form, comptime wrapping, bindgen or grammar-tool changes (each is an additive
