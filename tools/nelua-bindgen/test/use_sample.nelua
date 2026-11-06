@@ -4,6 +4,9 @@ require 'sample'
 
 assert(SAMPLE_VERSION == 3 and SAMPLE_FLAG_A == 0x10 and SAMPLE_RATIO == 1.5 and SAMPLE_NAME == 'sample')
 assert(SAMPLE_ALIAS == 3)
+assert(SAMPLE_CHAIN_A == 9 and SAMPLE_CHAIN_B == 9 and SAMPLE_CHAIN_C == 9) -- alias chain in source order
+assert(SAMPLE_GREETING == 'hi\n"there"AA\t\\' and SAMPLE_PATH == 'a/b')
+assert(SAMPLE_DEFAULT_COLOR == sample_color.SAMPLE_GREEN and SAMPLE_ANON_ALIAS == 1)
 assert(sample_color.SAMPLE_BLUE == 2 and SAMPLE_ANON_TWO == 2)
 assert(sample_add(2, 3) == 5)
 assert(sample_strlen('hello') == 5)
@@ -38,4 +41,26 @@ local dst: [16]uint8
 sample_copy(&dst, &src[0])
 assert(dst[2] == 3)
 assert(sample_printf('%d\n', 42_cint) == 3)
+-- function pointer fields and callback typedefs keep `*const T` parameters
+global logged: cint = 0
+local function cmp(a: *const sample_point, b: *const sample_point): cint return a.x - b.x end
+local function logf(msg: *const cchar, ops: *const sample_ops) logged = logged + #msg end
+local names: [2]*const cchar = {'x', 'y'}
+local ops: sample_ops = {compare = cmp, names = &names[0]}
+local pa: sample_point = {5, 0}
+local pb: sample_point = {2, 0}
+assert(sample_run(&ops, logf, &pa, &pb) == 3 and logged == 3)
+assert(ops.names ~= nilptr and #($ops.names) == 1)
+-- typedef'd tags: the typedef is an alias of the tag, so both pointer spellings interoperate
+local hd = sample_handle_open(4)
+assert(sample_handle_fd(hd) == 4)
+sample_handle_close(hd) -- takes *sample_handle_s
+local hs: sample_handle_s = {fd = 2}
+assert(sample_handle_fd(&hs) == 2)
+local c: sample_ctx = {n = 3}
+local c2: sample_ctx_s
+assert(sample_ctx_count(&c, &c2) == 3 and c2.n == 3)
+local nd = sample_node_make(11)
+assert(sample_node_value(nd) == 11 and sample_node_root.value == 1)
+assert(sample_bits_id(nilptr) == -1)
 print('bindgen ok')

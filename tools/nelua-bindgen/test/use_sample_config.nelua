@@ -1,0 +1,29 @@
+-- Smoke test for the `--config sample.json` output: <using> enums, opaque records, prepend/append text.
+## cfile 'sample.c'
+require 'sample_config'
+
+assert(SAMPLE_RED == 0 and SAMPLE_BLUE == 2) -- enum_using: enumerators are bare globals too
+assert(SAMPLE_DEFAULT_COLOR == sample_color.SAMPLE_GREEN)
+assert(SAMPLE_CONFIG_OK) -- from "append"
+assert(SAMPLE_GREETING == 'hi\n"there"AA\t\\' and SAMPLE_PATH == 'a/b')
+local head: *const sample_node = nilptr -- sample_node is opaque here: only usable through pointers
+assert(sample_each(head, nilptr, nilptr) == 0)
+local a: sample_point = {5, 0}
+local b: sample_point = {2, 0}
+local ops: sample_ops = {compare = function(a: *const sample_point, b: *const sample_point): cint return a.x - b.x end}
+assert(sample_run(&ops, nilptr, &a, &b) == 3)
+-- --opaque on the typedef name of `typedef struct sample_handle_s {...} sample_handle`: one forwarddecl record,
+-- the typedef is its alias, so *sample_handle and *sample_handle_s are the same pointer type
+## static_assert(sample_handle.value == sample_handle_s.value and sample_handle_s.value.forwarddecl)
+## static_assert(sample_ctx.value == sample_ctx_s.value and sample_ctx_s.value.forwarddecl)
+local hd: *sample_handle = sample_handle_open(4)
+assert(sample_handle_fd(hd) == 4)
+sample_handle_close(hd) -- takes *sample_handle_s
+local cp: *const sample_ctx = nilptr
+assert(sample_ctx_count(cp, nilptr) == 0)
+-- sample_bits is excluded but still referenced: bound through an opaque stub
+## static_assert(sample_bits.value.cincomplete)
+assert(sample_bits_id(nilptr) == -1)
+-- by-value uses of the opaque sample_node are not generated
+## static_assert(not symbols.sample_node_make and not symbols.sample_node_value and not symbols.sample_node_root)
+print('bindgen config ok')
