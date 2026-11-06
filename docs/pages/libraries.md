@@ -3786,6 +3786,118 @@ Argument `Allocator` is an allocator type for the container storage,
 in case absent then then `DefaultAllocator` is used.
 
 ---
+## optional
+
+The optional library provides the optional generic, a value that may be empty.
+
+An optional holds either one value of type `T` or nothing.
+It can be written as `optional(T)` or with the shorthand `T?`, after `require 'optional'`.
+A default initialized optional is empty, a `T` value converts to it implicitly and
+`nil` converts to an empty optional. The held value is read back with `get`, `getptr`
+or `get_or`, and `has` tells whether there is one.
+
+Optionals of pointers and functions use a niche layout: the record holds just the pointer
+and `nilptr` is the empty value, so `*T?` has the size of `*T`,
+`nilptr` converts to the empty optional and so does a `*T` value that is null.
+
+In a boolean context (`if opt then`) an optional is true when it holds a value.
+`opt == nil` and `opt ~= nil` test for emptiness, `opt == v` compares the held value.
+The postfix `expr?` operator unwraps an optional (or a pointer) and returns empty from the
+enclosing function when there is no value.
+
+Remarks: `get` is checked, it raises a runtime error when the optional is empty.
+
+### optionalT
+
+```nelua
+local optionalT: type <nickname(#[nickname]#)> = @record{
+    some: boolean,
+    v: T
+  }
+```
+
+Optional record defined when instantiating the generic `optional` with type `T`.
+Pointer and function optionals hold only `v: T` and use the null value as the empty marker.
+
+### optionalT.__convert
+
+```nelua
+function optionalT.__convert(value: optionalT_value_concept): optionalT
+```
+
+Initializes an optional holding `value`, used when implicitly converting values.
+`nil` gives an empty optional, and so does `nilptr` for pointer and function optionals.
+
+### optionalT:has
+
+```nelua
+function optionalT:has(): boolean
+```
+
+Checks whether the optional holds a value.
+
+### optionalT:get
+
+```nelua
+function optionalT:get(): T
+```
+
+Returns the held value, raises a runtime error when the optional is empty.
+
+### optionalT:getptr
+
+```nelua
+function optionalT:getptr(): *T
+```
+
+Returns a pointer to the held value, or nilptr when the optional is empty.
+
+### optionalT:get_or
+
+```nelua
+function optionalT:get_or(default: T): T
+```
+
+Returns the held value, or `default` when the optional is empty.
+
+### optionalT:set
+
+```nelua
+function optionalT:set(value: T)
+```
+
+Sets the optional to hold `value`.
+
+### optionalT:clear
+
+```nelua
+function optionalT:clear()
+```
+
+Clears the optional, making it empty.
+
+### optionalT.__eq
+
+```nelua
+function optionalT.__eq(a: optionalT_eq_concept, b: optionalT_eq_concept): boolean
+```
+
+Compares an optional with another optional of the same type, with `nil`,
+with `nilptr` (pointer and function optionals only) or with a bare `T` value.
+`opt == nil` and `opt == nilptr` are true when `opt` is empty,
+`opt == v` is true when `opt` holds a value equal to `v`, and
+two optionals are equal when both are empty or both hold equal values.
+Comparing with any other type is a compile error.
+
+### optional
+
+```nelua
+global optional: type = #[generalize(make_optionalT)]#
+```
+
+Generic used to instantiate optional types in the form of `optional(T)` or `T?`.
+
+---
 ## allocators.default
 
 The default allocator library provides the default allocator used by the standard libraries.

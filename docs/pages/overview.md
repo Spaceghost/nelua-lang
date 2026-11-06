@@ -870,6 +870,77 @@ declaring a variant never compiles a comparison of its members. In the
 preprocessor, `V.value.types` lists the member types in declaration order.
 {:.alert.alert-info}
 
+### Optional
+
+An optional holds one value of a type or nothing. Optionals are provided by the
+`optional` library and can be written as `optional(T)` or with the shorthand `T?`:
+
+```nelua
+require 'optional'
+
+local function find(k: integer): integer?
+  if k == 1 then return 10 end
+  return nil -- empty
+end
+
+local x = find(1) -- `integer?`
+if x then -- true when holding a value
+  print(x:get()) -- outputs: 10
+end
+assert(find(2) == nil and find(1) ~= nil and find(1) == 10)
+print(find(2):get_or(0)) -- outputs: 0
+
+local p: *integer? = nilptr -- empty
+local n = 1
+p = &n
+assert(p == &n and p ~= nilptr)
+```
+
+A value of `T` and `nil` convert implicitly to `T?` in declarations, assignments, call
+arguments, initializer lists and returns, the other way needs `get` (checked, it raises a
+runtime error when empty), `getptr` (`nilptr` when empty) or `get_or`; `set` and `clear`
+write the optional. `opt == nil` and `opt ~= nil` test for emptiness, `opt == v` compares the
+held value and two optionals of the same type compare equal when both are empty or both
+hold equal values. `boolean?` cannot be used as a boolean (`if b then`), test it with
+`~= nil` or `get_or` instead.
+
+`T?` is a record `{some: boolean, v: T}`, except for pointers and functions, which use
+their null value as the empty marker: `*T?` is a record `{v: *T}` with the size of `*T`,
+`nilptr` converts to the empty optional, a null `*T` converts to empty too and `p == nilptr`
+is the emptiness test. Optional types cannot appear in a `<cimport>` function, keep
+nullable C pointers as `*T` and convert them at the boundary.
+{:.alert.alert-info}
+
+The postfix `expr?` operator unwraps an optional or a pointer, or returns empty from the
+enclosing function when there is no value:
+
+```nelua
+require 'optional'
+
+local Node = @record{value: integer, next: *Node}
+
+local function find(k: integer): integer?
+  if k == 1 then return 10 end
+  return nil
+end
+
+local function twice(k: integer): integer?
+  local v = find(k)? -- `v` is an `integer`, `twice` returns empty when `find` does
+  return v * 2
+end
+assert(twice(1) == 20 and twice(2) == nil)
+
+local function second(n: *Node): *Node
+  return n?.next -- `?` on a pointer returns `nilptr` when `n` is null
+end
+```
+
+The enclosing function must declare its return types and the first one must be an optional
+or a pointer, every return is zero initialized on the early return (empty, `nilptr`, `0`),
+so `?` also works in functions returning `(T?, integer)`. `?` runs the `defer` blocks in
+scope and, inside a closure, returns from the closure. The operand is copied, so `?` is not
+available for `nocopy` types.
+
 ### Pointer
 
 A pointer points to a region in memory of a specific type:
