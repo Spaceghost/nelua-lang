@@ -111,6 +111,13 @@ assert.equal(require(path.join(modules, 'node_modules/vscode-oniguruma/package.j
   assert(scopeAt(result, s.indexOf('?'), 'keyword.operator.type.optional.nelua'), 'optional array pointer');
   s = 'local z = x? + 1'; result = line(s);
   assert(scopeAt(result, s.indexOf('?'), 'keyword.operator.try.nelua'), '? after a name is the try suffix');
+  s = 'local v = x??'; result = line(s);
+  assert(scopeAt(result, s.indexOf('?'), 'keyword.operator.try.nelua') && scopeAt(result, s.indexOf('?') + 1, 'keyword.operator.try.nelua'), 'both ? of x?? are try suffixes');
+  s = 'local v = x ? + 1'; result = line(s);
+  assert(scopeAt(result, s.indexOf('?'), 'keyword.operator.try.nelua'), 'a spaced ? is still the try suffix');
+  s = 'local w: integer ? = 1'; result = line(s);
+  assert(scopeAt(result, s.indexOf('?'), 'keyword.operator.type.optional.nelua'), 'a spaced ? after a type is the optional suffix');
+  assert(!scopeAt(result, s.indexOf('?'), 'keyword.operator.try.nelua'));
   s = 'local d = find(2) orelse 0'; result = line(s);
   assert(scopeAt(result, s.indexOf('orelse'), 'keyword.operator.orelse.nelua'));
   assert(!scopeAt(result, s.indexOf('orelse'), 'keyword.operator.nelua'), 'orelse is not the or operator');

@@ -1,18 +1,19 @@
 tree-sitter=0.25.10
-abi=14
+abi=15
 nelua-repository=https://github.com/Spaceghost/nelua-lang
 nelua=b8ea333eca77eabc8add419f88f9ce5a4d0d00f5
 grammar-flags=-c -C -r -P nogc --cc gcc
 scanner-flags=-c -C -r -P nogc -P noentrypoint --cc gcc --cflags=-Isrc
 normalization=compile-command-and-compile-hash-comments-only
-input grammar.nelua sha256=34c824a2ba5b149e5002fd1c88e857c55a8154d84453a2ca313bef104c128234
+input grammar.nelua sha256=2711c9c1084e9c42797a49ce6fb32f4092dd518f37aa702adbfa5d01c98a8a20
 input src/scanner.nelua sha256=e1ab917396f0ca0f08d290c071a7df8346036b4e52c2b657bd7bc2041fa37a5b
-input generate.lua sha256=e7f6aaa2046ce9b083c7294fef50e02eb38d112287fae2bde1d30677944e1526
-output src/parser.c sha256=5e18c6eafb6bdd19a0ae271bf688090a76cc0704755117e0cfbd8175426d1415
-output src/grammar.json sha256=ff0555a540db43e6209da7726922834f4967d5a6398ba8a00b653eaf10a8b216
-output src/node-types.json sha256=b640ab9cb2da629615eef9f49088ebef60d14e21c1941f81e83c91655c3055d1
+input generate.lua sha256=61bfad3a00d377ebb8bfff02b43d378dd2b6895fa5ab15142689b0fcc65e1265
+input tree-sitter.json sha256=67023c4e02c4f15a0e6a9994aa7aae309fb10ae92ca5abb0f04249ad5c6de60c
+output src/parser.c sha256=8aa0d3d8f141a8625a3865a3b6369b52e4bd20748b660ee3f7c52c4819e60700
+output src/grammar.json sha256=5cd8f8594ceae81b726e9508e6536935b490256163d7ab95d998018351c2a1d6
+output src/node-types.json sha256=1ade3b4513ff76ca2c5ddd6220a074023e29e4e8a16d06519be8cf44789e392b
 output src/tree_sitter/parser.h sha256=180b893c8734778fd32f372dfbc27bd6ad1cd2221f26150b31256ff6716320d2
 output src/tree_sitter/alloc.h sha256=b29c1c9fb7cc82f58c84b376df1297d6e2737a1d655fd356db0859e3c29c2fea
 output src/tree_sitter/array.h sha256=5bdf6ed1a78e3409fd443e085ca967a64c188a5d082aaf7f819bccd53a471c94
 output src/scanner.c sha256=3e8980d07097763b011dddb2b694253a8bb0cd3ae8046930da699da22787fbd8
-output src/grammar_generator.c sha256=5af1676a41b5f8141ebd16ed216f006c5c03ed74f984a9512371da77610bc30d
+output src/grammar_generator.c sha256=70eb8b1d377fc5397604351e147de5e80861a00a5313c26c6fa2b1472cef38e4

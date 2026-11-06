@@ -194,6 +194,14 @@ static NELUA_INLINE int32_t nelua_idiv_nlint32(int32_t a, int32_t b);
 static NELUA_INLINE int32_t nelua_imod_nlint32(int32_t a, int32_t b);
 static void grammar_emit(uint32_t id, uint32_t depth);
 static void nelua_assert_line_7(bool cond);
+typedef struct NELUA_MAYALIAS nlcstring_arr2_arr10 {char* v[10][2];} nlcstring_arr2_arr10;
+typedef union NELUA_MAYALIAS nlcstring_arr2_arr10_cast {nlcstring_arr2_arr10 a; char* p[10][2];} nlcstring_arr2_arr10_cast;
+NELUA_STATIC_ASSERT(sizeof(nlcstring_arr2_arr10) == 160 && NELUA_ALIGNOF(nlcstring_arr2_arr10) == 8, "Nelua and C disagree on type size or align");
+static nlcstring_arr2_arr10 grammar_conflicts = {.v = {{(char*)"_stat_prefix", (char*)"_expression"}, {(char*)"_stat_prefix", (char*)"call_statement"}, {(char*)"_name", (char*)"record_type"}, {(char*)"_name", (char*)"union_type"}, {(char*)"_name", (char*)"enum_type"}, {(char*)"_name", (char*)"variant_type"}, {(char*)"function_body", (char*)"function_type"}, {(char*)"parameter", (char*)"type_field"}, {(char*)"_expression", (char*)"_type_simple"}, {(char*)"parameter", (char*)"_type_simple"}}};
+typedef struct NELUA_MAYALIAS nlcstring_arr30 {char* v[30];} nlcstring_arr30;
+typedef union NELUA_MAYALIAS nlcstring_arr30_cast {nlcstring_arr30 a; char* p[30];} nlcstring_arr30_cast;
+NELUA_STATIC_ASSERT(sizeof(nlcstring_arr30) == 240 && NELUA_ALIGNOF(nlcstring_arr30) == 8, "Nelua and C disagree on type size or align");
+static nlcstring_arr30 grammar_keywords = {.v = {(char*)"and", (char*)"break", (char*)"case", (char*)"continue", (char*)"defer", (char*)"do", (char*)"else", (char*)"elseif", (char*)"end", (char*)"fallthrough", (char*)"false", (char*)"for", (char*)"function", (char*)"global", (char*)"goto", (char*)"if", (char*)"in", (char*)"local", (char*)"nil", (char*)"nilptr", (char*)"not", (char*)"or", (char*)"orelse", (char*)"repeat", (char*)"return", (char*)"switch", (char*)"then", (char*)"true", (char*)"until", (char*)"while"}};
 static int nelua_main(int argc, char** argv);
 /* ------------------------------ DEFINITIONS ------------------------------- */
 void nelua_write_stderr(const char* msg, uintptr_t len, bool flush) {
@@ -734,10 +742,61 @@ int nelua_main(int argc, char** argv) {
     }));
     _tmp;
   })));
-  grammar_define((char*)"call_statement", grammar_sym((char*)"call_expression"));
+  grammar_define((char*)"_stat_prefix", grammar_choice(({
+    nluint32_arr32 _tmp = {0};
+    _tmp.v[0] = grammar_sym((char*)"_name");
+    _tmp.v[1] = grammar_sym((char*)"parenthesized_expression");
+    _tmp.v[2] = grammar_sym((char*)"do_expression");
+    _tmp.v[3] = grammar_sym((char*)"preprocess_expression");
+    _tmp.v[4] = grammar_sym((char*)"preprocess_name");
+    _tmp.v[5] = grammar_alias_named((char*)"member_expression", grammar_sym((char*)"_stat_member"));
+    _tmp.v[6] = grammar_alias_named((char*)"index_expression", grammar_sym((char*)"_stat_index"));
+    _tmp.v[7] = grammar_alias_named((char*)"call_expression", grammar_sym((char*)"_stat_call"));
+    _tmp;
+  })));
+  grammar_define((char*)"_stat_member", grammar_left(15, grammar_sequence(({
+    nluint32_arr32 _tmp = {0};
+    _tmp.v[0] = grammar_sym((char*)"_stat_prefix");
+    _tmp.v[1] = grammar_choice(({
+      nluint32_arr32 _tmp = {0};
+      _tmp.v[0] = grammar_literal((char*)".");
+      _tmp.v[1] = grammar_literal((char*)":");
+      _tmp;
+    }));
+    _tmp.v[2] = grammar_sym((char*)"_name");
+    _tmp;
+  }))));
+  grammar_define((char*)"_stat_index", grammar_left(15, grammar_sequence(({
+    nluint32_arr32 _tmp = {0};
+    _tmp.v[0] = grammar_sym((char*)"_stat_prefix");
+    _tmp.v[1] = grammar_literal((char*)"[");
+    _tmp.v[2] = grammar_sym((char*)"_expression");
+    _tmp.v[3] = grammar_literal((char*)"]");
+    _tmp;
+  }))));
+  grammar_define((char*)"_stat_call", grammar_left(15, grammar_sequence(({
+    nluint32_arr32 _tmp = {0};
+    _tmp.v[0] = grammar_sym((char*)"_stat_prefix");
+    _tmp.v[1] = grammar_choice(({
+      nluint32_arr32 _tmp = {0};
+      _tmp.v[0] = grammar_literal((char*)"!");
+      _tmp.v[1] = grammar_blank();
+      _tmp;
+    }));
+    _tmp.v[2] = grammar_choice(({
+      nluint32_arr32 _tmp = {0};
+      _tmp.v[0] = grammar_sym((char*)"arguments");
+      _tmp.v[1] = grammar_sym((char*)"string");
+      _tmp.v[2] = grammar_sym((char*)"long_string");
+      _tmp.v[3] = grammar_sym((char*)"table_constructor");
+      _tmp;
+    }));
+    _tmp;
+  }))));
+  grammar_define((char*)"call_statement", grammar_alias_named((char*)"call_expression", grammar_sym((char*)"_stat_call")));
   grammar_define((char*)"try_statement", grammar_left(16, grammar_sequence(({
     nluint32_arr32 _tmp = {0};
-    _tmp.v[0] = grammar_sym((char*)"call_expression");
+    _tmp.v[0] = grammar_alias_named((char*)"call_expression", grammar_sym((char*)"_stat_call"));
     _tmp.v[1] = grammar_literal((char*)"?");
     _tmp;
   }))));
@@ -1373,17 +1432,33 @@ int nelua_main(int argc, char** argv) {
   })));
   grammar_define((char*)"_type", grammar_choice(({
     nluint32_arr32 _tmp = {0};
+    _tmp.v[0] = grammar_sym((char*)"_type_unary");
+    _tmp.v[1] = grammar_alias_named((char*)"variant_type", grammar_sym((char*)"_variant_infix"));
+    _tmp;
+  })));
+  grammar_define((char*)"_type_unary", grammar_choice(({
+    nluint32_arr32 _tmp = {0};
+    _tmp.v[0] = grammar_sym((char*)"_type_prefixed");
+    _tmp.v[1] = grammar_sym((char*)"optional_type");
+    _tmp;
+  })));
+  grammar_define((char*)"_type_prefixed", grammar_choice(({
+    nluint32_arr32 _tmp = {0};
+    _tmp.v[0] = grammar_sym((char*)"_type_simple");
+    _tmp.v[1] = grammar_sym((char*)"pointer_type");
+    _tmp.v[2] = grammar_sym((char*)"array_type");
+    _tmp;
+  })));
+  grammar_define((char*)"_type_simple", grammar_choice(({
+    nluint32_arr32 _tmp = {0};
     _tmp.v[0] = grammar_sym((char*)"_name");
     _tmp.v[1] = grammar_sym((char*)"declaration_name");
-    _tmp.v[2] = grammar_sym((char*)"pointer_type");
-    _tmp.v[3] = grammar_sym((char*)"optional_type");
-    _tmp.v[4] = grammar_sym((char*)"array_type");
-    _tmp.v[5] = grammar_sym((char*)"record_type");
-    _tmp.v[6] = grammar_sym((char*)"union_type");
-    _tmp.v[7] = grammar_sym((char*)"enum_type");
-    _tmp.v[8] = grammar_sym((char*)"function_type");
-    _tmp.v[9] = grammar_sym((char*)"generic_type");
-    _tmp.v[10] = grammar_sym((char*)"variant_type");
+    _tmp.v[2] = grammar_sym((char*)"record_type");
+    _tmp.v[3] = grammar_sym((char*)"union_type");
+    _tmp.v[4] = grammar_sym((char*)"enum_type");
+    _tmp.v[5] = grammar_sym((char*)"function_type");
+    _tmp.v[6] = grammar_sym((char*)"generic_type");
+    _tmp.v[7] = grammar_sym((char*)"variant_type");
     _tmp;
   })));
   grammar_define((char*)"pointer_type", grammar_right(4, grammar_choice(({
@@ -1397,7 +1472,7 @@ int nelua_main(int argc, char** argv) {
         _tmp.v[1] = grammar_blank();
         _tmp;
       }));
-      _tmp.v[2] = grammar_sym((char*)"_type");
+      _tmp.v[2] = grammar_sym((char*)"_type_prefixed");
       _tmp;
     }));
     _tmp.v[1] = grammar_sequence(({
@@ -1419,12 +1494,12 @@ int nelua_main(int argc, char** argv) {
     }));
     _tmp;
   }))));
-  grammar_define((char*)"optional_type", grammar_left(3, grammar_sequence(({
+  grammar_define((char*)"optional_type", grammar_left(3, grammar_dynamic(1, grammar_sequence(({
     nluint32_arr32 _tmp = {0};
-    _tmp.v[0] = grammar_sym((char*)"_type");
+    _tmp.v[0] = grammar_sym((char*)"_type_prefixed");
     _tmp.v[1] = grammar_literal((char*)"?");
     _tmp;
-  }))));
+  })))));
   grammar_define((char*)"array_type", grammar_right(4, grammar_choice(({
     nluint32_arr32 _tmp = {0};
     _tmp.v[0] = grammar_sequence(({
@@ -1437,7 +1512,7 @@ int nelua_main(int argc, char** argv) {
         _tmp;
       }));
       _tmp.v[2] = grammar_literal((char*)"]");
-      _tmp.v[3] = grammar_sym((char*)"_type");
+      _tmp.v[3] = grammar_sym((char*)"_type_prefixed");
       _tmp;
     }));
     _tmp.v[1] = grammar_sequence(({
@@ -1718,43 +1793,39 @@ int nelua_main(int argc, char** argv) {
     _tmp.v[3] = grammar_literal((char*)")");
     _tmp;
   }))));
-  grammar_define((char*)"variant_type", grammar_left(1, grammar_choice(({
+  grammar_define((char*)"_variant_infix", grammar_left(1, grammar_dynamic(1, grammar_sequence(({
     nluint32_arr32 _tmp = {0};
-    _tmp.v[0] = grammar_dynamic(1, grammar_sequence(({
+    _tmp.v[0] = grammar_sym((char*)"_type");
+    _tmp.v[1] = grammar_literal((char*)"|");
+    _tmp.v[2] = grammar_sym((char*)"_type_unary");
+    _tmp;
+  })))));
+  grammar_define((char*)"variant_type", grammar_dynamic(1, grammar_sequence(({
+    nluint32_arr32 _tmp = {0};
+    _tmp.v[0] = grammar_literal((char*)"variant");
+    _tmp.v[1] = grammar_literal((char*)"(");
+    _tmp.v[2] = grammar_sequence(({
       nluint32_arr32 _tmp = {0};
-      _tmp.v[0] = grammar_sym((char*)"_type");
-      _tmp.v[1] = grammar_literal((char*)"|");
-      _tmp.v[2] = grammar_sym((char*)"_type");
-      _tmp;
-    })));
-    _tmp.v[1] = grammar_sequence(({
-      nluint32_arr32 _tmp = {0};
-      _tmp.v[0] = grammar_literal((char*)"variant");
-      _tmp.v[1] = grammar_literal((char*)"(");
-      _tmp.v[2] = grammar_sequence(({
+      _tmp.v[0] = grammar_choice(({
         nluint32_arr32 _tmp = {0};
-        _tmp.v[0] = grammar_choice(({
+        _tmp.v[0] = grammar_sym((char*)"_type");
+        _tmp.v[1] = grammar_sym((char*)"_expression");
+        _tmp;
+      }));
+      _tmp.v[1] = grammar_repeated(grammar_sequence(({
+        nluint32_arr32 _tmp = {0};
+        _tmp.v[0] = grammar_literal((char*)",");
+        _tmp.v[1] = grammar_choice(({
           nluint32_arr32 _tmp = {0};
           _tmp.v[0] = grammar_sym((char*)"_type");
           _tmp.v[1] = grammar_sym((char*)"_expression");
           _tmp;
         }));
-        _tmp.v[1] = grammar_repeated(grammar_sequence(({
-          nluint32_arr32 _tmp = {0};
-          _tmp.v[0] = grammar_literal((char*)",");
-          _tmp.v[1] = grammar_choice(({
-            nluint32_arr32 _tmp = {0};
-            _tmp.v[0] = grammar_sym((char*)"_type");
-            _tmp.v[1] = grammar_sym((char*)"_expression");
-            _tmp;
-          }));
-          _tmp;
-        })));
         _tmp;
-      }));
-      _tmp.v[3] = grammar_literal((char*)")");
+      })));
       _tmp;
     }));
+    _tmp.v[3] = grammar_literal((char*)")");
     _tmp;
   }))));
   grammar_define((char*)"preprocess_expression", grammar_sequence(({
@@ -1794,102 +1865,25 @@ int nelua_main(int argc, char** argv) {
   grammar_emit(grammar_sym((char*)"preprocessor"), 0U);
   grammar_character(93);
   grammar_out((char*)",\"conflicts\":[");
-  grammar_character(91);
-  grammar_text((char*)"_name");
-  grammar_character(44);
-  grammar_text((char*)"record_type");
+  for(uint32_t i = 0U; i < 10U; i += 1) {
+    if((i > 0)) {
+      grammar_character(44);
+    }
+    grammar_character(91);
+    grammar_text(grammar_conflicts.v[i][0]);
+    grammar_character(44);
+    grammar_text(grammar_conflicts.v[i][1]);
+    grammar_character(93);
+  }
   grammar_character(93);
-  grammar_character(44);
-  grammar_character(91);
-  grammar_text((char*)"_name");
-  grammar_character(44);
-  grammar_text((char*)"union_type");
-  grammar_character(93);
-  grammar_character(44);
-  grammar_character(91);
-  grammar_text((char*)"_name");
-  grammar_character(44);
-  grammar_text((char*)"enum_type");
-  grammar_character(93);
-  grammar_character(44);
-  grammar_character(91);
-  grammar_text((char*)"_name");
-  grammar_character(44);
-  grammar_text((char*)"array_type");
-  grammar_character(93);
-  grammar_character(44);
-  grammar_character(91);
-  grammar_text((char*)"_name");
-  grammar_character(44);
-  grammar_text((char*)"pointer_type");
-  grammar_character(93);
-  grammar_character(44);
-  grammar_character(91);
-  grammar_text((char*)"_name");
-  grammar_character(44);
-  grammar_text((char*)"variant_type");
-  grammar_character(93);
-  grammar_character(44);
-  grammar_character(91);
-  grammar_text((char*)"function_body");
-  grammar_character(44);
-  grammar_text((char*)"function_type");
-  grammar_character(93);
-  grammar_character(44);
-  grammar_character(91);
-  grammar_text((char*)"parameter");
-  grammar_character(44);
-  grammar_text((char*)"type_field");
-  grammar_character(93);
-  grammar_character(44);
-  grammar_character(91);
-  grammar_text((char*)"_expression");
-  grammar_character(44);
-  grammar_text((char*)"_type");
-  grammar_character(93);
-  grammar_character(44);
-  grammar_character(91);
-  grammar_text((char*)"_name");
-  grammar_character(44);
-  grammar_text((char*)"_type");
-  grammar_character(93);
-  grammar_character(44);
-  grammar_character(91);
-  grammar_text((char*)"parameter");
-  grammar_character(44);
-  grammar_text((char*)"_type");
-  grammar_character(93);
-  grammar_character(44);
-  grammar_character(91);
-  grammar_text((char*)"call_expression");
-  grammar_character(44);
-  grammar_text((char*)"_type");
-  grammar_character(93);
-  grammar_character(44);
-  grammar_character(91);
-  grammar_text((char*)"field");
-  grammar_character(44);
-  grammar_text((char*)"_expression");
-  grammar_character(93);
-  grammar_character(44);
-  grammar_character(91);
-  grammar_text((char*)"call_statement");
-  grammar_character(44);
-  grammar_text((char*)"_expression");
-  grammar_character(93);
-  grammar_character(44);
-  grammar_character(91);
-  grammar_text((char*)"parameter");
-  grammar_character(44);
-  grammar_text((char*)"_expression");
-  grammar_character(93);
-  grammar_character(44);
-  grammar_character(91);
-  grammar_text((char*)"function_declaration");
-  grammar_character(44);
-  grammar_text((char*)"_expression");
-  grammar_character(93);
-  grammar_out((char*)"]}\n");
+  grammar_out((char*)",\"reserved\":{\"global\":[");
+  for(uint32_t i = 0U; i < 30U; i += 1) {
+    if((i > 0)) {
+      grammar_character(44);
+    }
+    grammar_emit(grammar_literal(grammar_keywords.v[i]), 0U);
+  }
+  grammar_out((char*)"]}}\n");
   return 0;
 }
 int main(int argc, char** argv) {

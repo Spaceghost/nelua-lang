@@ -47,7 +47,7 @@ return {
     -- preprocessor code and strings (`t:insert[[...]]`) keep their own scope.
     typecontexts={patterns={
       {name='meta.type.annotation.nelua',
-        begin='(?<=[\\p{L}\\p{N}_\\)\\]])\\s*(:)(?!:)(?=\\s*[\\p{L}_*?\\[@(#])',
+        begin='(?<=[\\p{L}\\p{N}_\\)\\]])\\s*(:)(?!:)(?=\\s*[\\p{L}_*\\[@(#])',
         ['end']='(?=[=,;)\\]}<]|\\s*\\b(?:end|return|do|then|else|elseif|local|global|if|for|while|repeat|until|in|defer|break|continue|goto)\\b|$)',
         beginCaptures={['1']={name='punctuation.separator.type.nelua'}},
         patterns={{include='#typecontents'}}},
@@ -61,10 +61,11 @@ return {
       {include='#comments'}, {include='#preprocessor'}, {include='#strings'},
       {match='(\\*)\\s*(const)\\b',captures={['1']={name='keyword.operator.nelua'},['2']={name='storage.modifier.const.nelua'}}},
       {name='keyword.operator.type.variant.nelua',match='\\|'},
-      -- `?` after a type name is the optional suffix; after `)` or `]` it falls
-      -- through to the try operator, so a method call that opened the context
-      -- (`f:write(x)?`) keeps its try suffix (`variant(A, B)?` is the price).
-      {name='keyword.operator.type.optional.nelua',match='(?<=[\\p{L}\\p{N}_])\\?'},
+      -- `?` after a type name (spaces allowed, `integer ?`) is the optional
+      -- suffix; after `)` or `]` it falls through to the try operator, so a
+      -- method call that opened the context (`f:write(x)?`) keeps its try
+      -- suffix (`variant(A, B)?` is the price).
+      {match='(?<=[\\p{L}\\p{N}_])\\s*(\\?)',captures={['1']={name='keyword.operator.type.optional.nelua'}}},
       {name='storage.type.nelua',match='\\b(?:record|union|enum|array|pointer|variant)\\b(?=\\s*[({])'},
       {begin='\\(',['end']='\\)',patterns={{include='#typecontents'}}},
       {begin='\\[',['end']='\\]',patterns={{include='#typecontents'}}},
@@ -87,10 +88,11 @@ return {
       {name='keyword.operator.orelse.nelua',match='\\borelse\\b'},
       {name='keyword.operator.nelua',match='\\b(?:and|or|not)\\b'},
     }},
-    -- `?` after a name, a call or an index is the try suffix (`f()?`, `x?`);
-    -- `?` after a type inside a type context is the optional suffix above.
+    -- every other `?` is the try suffix (`f()?`, `x?`, `x??`, `x ?`; the
+    -- language has no other use for it); `?` after a type inside a type
+    -- context is the optional suffix above.
     operators={patterns={
-      {name='keyword.operator.try.nelua',match='(?<=[\\p{L}\\p{N}_\\)\\]])\\?'},
+      {name='keyword.operator.try.nelua',match='\\?'},
       {name='keyword.operator.nelua',match='>>>|<<|>>|///|//|%%%|~=|==|<=|>=|\\.\\.|[+*/%&|~^#$@<>=-]'},
     }},
   },

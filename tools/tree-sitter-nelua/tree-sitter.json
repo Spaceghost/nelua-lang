@@ -1,0 +1,18 @@
+{
+  "grammars": [
+    {
+      "name": "nelua",
+      "camelcase": "Nelua",
+      "scope": "source.nelua",
+      "path": ".",
+      "file-types": ["nelua"],
+      "highlights": ["queries/highlights.scm"]
+    }
+  ],
+  "metadata": {
+    "version": "0.1.0",
+    "license": "MIT",
+    "description": "Tree-sitter grammar for the Nelua fork (Spaceghost/nelua-lang)",
+    "links": {"repository": "https://github.com/Spaceghost/nelua-lang"}
+  }
+}

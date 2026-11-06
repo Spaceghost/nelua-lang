@@ -93,8 +93,15 @@ define("function_declaration",sequence{choice{choice{literal("local"),literal("g
 define("function_body",sequence{literal("("),choice{sequence{choice{sym("parameter"),sym("vararg")},repeated(sequence{literal(","),choice{sym("parameter"),sym("vararg")}})},blank()},literal(")"),choice{sequence{literal(":"),choice{sym("_type"),sequence{literal("("),sequence{sym("_type"),repeated(sequence{literal(","),sym("_type")})},literal(")")}}},blank()},choice{sym("annotations"),blank()},choice{sym("block"),blank()},literal("end")})
 define("vararg",right(0,sequence{literal("..."),choice{sequence{literal(":"),sym("_name")},blank()}}))
 define("assignment_statement",sequence{sequence{choice{sym("_name"),sym("member_expression"),sym("index_expression"),sym("unary_expression"),sym("preprocess_expression")},repeated(sequence{literal(","),choice{sym("_name"),sym("member_expression"),sym("index_expression"),sym("unary_expression"),sym("preprocess_expression")}})},literal("="),sequence{sym("_expression"),repeated(sequence{literal(","),sym("_expression")})}})
-define("call_statement",sym("call_expression"))
-define("try_statement",left(16,sequence{sym("call_expression"),literal("?")}))
+-- Statement-level calls mirror the compiler's `call` rule: a chain of `.`/`:`/`[]`/call
+-- suffixes over a primary, ending in a call, with no `?` inside (`TryStat <== call ?`).
+-- (the hidden chain rules are aliased to the expression node names where they are used)
+define("_stat_prefix",choice{sym("_name"),sym("parenthesized_expression"),sym("do_expression"),sym("preprocess_expression"),sym("preprocess_name"),alias_named("member_expression",sym("_stat_member")),alias_named("index_expression",sym("_stat_index")),alias_named("call_expression",sym("_stat_call"))})
+define("_stat_member",left(15,sequence{sym("_stat_prefix"),choice{literal("."),literal(":")},sym("_name")}))
+define("_stat_index",left(15,sequence{sym("_stat_prefix"),literal("["),sym("_expression"),literal("]")}))
+define("_stat_call",left(15,sequence{sym("_stat_prefix"),choice{literal("!"),blank()},choice{sym("arguments"),sym("string"),sym("long_string"),sym("table_constructor")}}))
+define("call_statement",alias_named("call_expression",sym("_stat_call")))
+define("try_statement",left(16,sequence{alias_named("call_expression",sym("_stat_call")),literal("?")}))
 define("return_statement",right(0,sequence{literal("return"),choice{sequence{sym("_expression"),repeated(sequence{literal(","),sym("_expression")})},blank()}}))
 define("in_statement",sequence{literal("in"),sym("_expression")})
 define("break_statement",literal("break"))
@@ -129,10 +136,16 @@ define("arguments",sequence{literal("("),choice{sequence{sym("_expression"),repe
 define("unary_expression",right(13,sequence{choice{literal("not"),literal("-"),literal("#"),literal("~"),literal("&"),literal("$")},sym("_expression")}))
 define("binary_expression",choice{left(1,sequence{field("left",sym("_expression")),field("operator",literal("or")),field("right",sym("_expression"))}),left(2,sequence{field("left",sym("_expression")),field("operator",literal("and")),field("right",sym("_expression"))}),left(3,sequence{field("left",sym("_expression")),field("operator",choice{literal("=="),literal("~="),literal("<"),literal("<="),literal(">"),literal(">=")}),field("right",sym("_expression"))}),left(4,sequence{field("left",sym("_expression")),field("operator",literal("orelse")),field("right",sym("_expression"))}),left(5,sequence{field("left",sym("_expression")),field("operator",literal("|")),field("right",sym("_expression"))}),left(6,sequence{field("left",sym("_expression")),field("operator",literal("~")),field("right",sym("_expression"))}),left(7,sequence{field("left",sym("_expression")),field("operator",literal("&")),field("right",sym("_expression"))}),left(8,sequence{field("left",sym("_expression")),field("operator",choice{literal("<<"),literal(">>"),literal(">>>")}),field("right",sym("_expression"))}),right(9,sequence{field("left",sym("_expression")),field("operator",literal("..")),field("right",sym("_expression"))}),left(10,sequence{field("left",sym("_expression")),field("operator",choice{literal("+"),literal("-")}),field("right",sym("_expression"))}),left(11,sequence{field("left",sym("_expression")),field("operator",choice{literal("*"),literal("/"),literal("//"),literal("///"),literal("%"),literal("%%%")}),field("right",sym("_expression"))}),right(14,sequence{field("left",sym("_expression")),field("operator",literal("^")),field("right",sym("_expression"))})})
 define("type_expression",sequence{literal("@"),sym("_type")})
-define("_type",choice{sym("_name"),sym("declaration_name"),sym("pointer_type"),sym("optional_type"),sym("array_type"),sym("record_type"),sym("union_type"),sym("enum_type"),sym("function_type"),sym("generic_type"),sym("variant_type")})
-define("pointer_type",right(4,choice{sequence{literal("*"),choice{literal("const"),blank()},sym("_type")},sequence{literal("pointer"),choice{sequence{literal("("),sym("_type"),literal(")")},blank()}}}))
-define("optional_type",left(3,sequence{sym("_type"),literal("?")}))
-define("array_type",right(4,choice{sequence{literal("["),choice{sym("_expression"),blank()},literal("]"),sym("_type")},sequence{literal("array"),literal("("),sym("_type"),choice{sequence{literal(","),sym("_expression")},blank()},literal(")")}}))
+-- Types follow the compiler's layering: `|` is outermost over unary types, a unary type is a
+-- `*`/`[n]`-prefixed simple type with at most one `?` suffix (`T??` is an error).
+define("_type",choice{sym("_type_unary"),alias_named("variant_type",sym("_variant_infix"))})
+define("_type_unary",choice{sym("_type_prefixed"),sym("optional_type")})
+define("_type_prefixed",choice{sym("_type_simple"),sym("pointer_type"),sym("array_type")})
+define("_type_simple",choice{sym("_name"),sym("declaration_name"),sym("record_type"),sym("union_type"),sym("enum_type"),sym("function_type"),sym("generic_type"),sym("variant_type")})
+define("pointer_type",right(4,choice{sequence{literal("*"),choice{literal("const"),blank()},sym("_type_prefixed")},sequence{literal("pointer"),choice{sequence{literal("("),sym("_type"),literal(")")},blank()}}}))
+-- dynamic precedence: `T?` as a generic argument is an `optional_type`, not a `try_expression`
+define("optional_type",left(3,dynamic(1,sequence{sym("_type_prefixed"),literal("?")})))
+define("array_type",right(4,choice{sequence{literal("["),choice{sym("_expression"),blank()},literal("]"),sym("_type_prefixed")},sequence{literal("array"),literal("("),sym("_type"),choice{sequence{literal(","),sym("_expression")},blank()},literal(")")}}))
 define("record_type",sequence{literal("record"),literal("{"),choice{sequence{sym("type_field"),repeated(sequence{choice{literal(","),literal(";")},sym("type_field")}),choice{choice{literal(","),literal(";")},blank()}},blank()},literal("}")})
 define("union_type",sequence{literal("union"),literal("{"),choice{sequence{choice{sym("type_field"),sym("_type")},repeated(sequence{choice{literal(","),literal(";")},choice{sym("type_field"),sym("_type")}}),choice{choice{literal(","),literal(";")},blank()}},blank()},literal("}")})
 define("type_field",sequence{sym("_name"),literal(":"),sym("_type")})
@@ -140,7 +153,8 @@ define("enum_type",sequence{literal("enum"),choice{sequence{literal("("),sym("_t
 define("enum_field",sequence{sym("_name"),choice{sequence{literal("="),sym("_expression")},blank()}})
 define("function_type",right(0,sequence{literal("function"),literal("("),choice{sequence{choice{sym("type_field"),sym("_type"),sym("vararg")},repeated(sequence{literal(","),choice{sym("type_field"),sym("_type"),sym("vararg")}})},blank()},literal(")"),choice{sequence{literal(":"),choice{sym("_type"),sequence{literal("("),sequence{sym("_type"),repeated(sequence{literal(","),sym("_type")})},literal(")")}}},blank()}}))
 define("generic_type",left(3,sequence{choice{sym("_name"),sym("declaration_name")},literal("("),sequence{choice{sym("_type"),sym("_expression")},repeated(sequence{literal(","),choice{sym("_type"),sym("_expression")}})},literal(")")}))
-define("variant_type",left(1,choice{dynamic(1,sequence{sym("_type"),literal("|"),sym("_type")}),sequence{literal("variant"),literal("("),sequence{choice{sym("_type"),sym("_expression")},repeated(sequence{literal(","),choice{sym("_type"),sym("_expression")}})},literal(")")}}))
+define("_variant_infix",left(1,dynamic(1,sequence{sym("_type"),literal("|"),sym("_type_unary")})))
+define("variant_type",dynamic(1,sequence{literal("variant"),literal("("),sequence{choice{sym("_type"),sym("_expression")},repeated(sequence{literal(","),choice{sym("_type"),sym("_expression")}})},literal(")")}))
 define("preprocess_expression",sequence{literal("#["),sym("_expression"),literal("]#")})
 define("preprocess_name",sequence{literal("#|"),sym("_expression"),literal("|#")})
 out('{"name":"nelua","word":"identifier","rules":{')
@@ -159,68 +173,33 @@ character(44); emit(sym("comment"),0)
 character(44); emit(sym("preprocessor"),0)
 character(93)
 out(',"conflicts":[')
-character(91)
-text("_name")
-character(44); text("record_type")
+-- GLR forks (`tree-sitter generate` warns about any that becomes unnecessary): statement-level call
+-- chains run parallel to expressions until the chain ends in a call or `=`; contextual type names;
+-- simple types against expressions in generic/variant arguments.
+local conflicts: [10][2]cstring = {
+  {'_stat_prefix','_expression'},
+  {'_stat_prefix','call_statement'},
+  {'_name','record_type'},
+  {'_name','union_type'},
+  {'_name','enum_type'},
+  {'_name','variant_type'},
+  {'function_body','function_type'},
+  {'parameter','type_field'},
+  {'_expression','_type_simple'},
+  {'parameter','_type_simple'}}
+for i: uint32 = 0, < 10 do
+  if i > 0 then character(44) end
+  character(91); text(conflicts[i][0]); character(44); text(conflicts[i][1]); character(93)
+end
 character(93)
-character(44); character(91)
-text("_name")
-character(44); text("union_type")
-character(93)
-character(44); character(91)
-text("_name")
-character(44); text("enum_type")
-character(93)
-character(44); character(91)
-text("_name")
-character(44); text("array_type")
-character(93)
-character(44); character(91)
-text("_name")
-character(44); text("pointer_type")
-character(93)
-character(44); character(91)
-text("_name")
-character(44); text("variant_type")
-character(93)
-character(44); character(91)
-text("function_body")
-character(44); text("function_type")
-character(93)
-character(44); character(91)
-text("parameter")
-character(44); text("type_field")
-character(93)
-character(44); character(91)
-text("_expression")
-character(44); text("_type")
-character(93)
-character(44); character(91)
-text("_name")
-character(44); text("_type")
-character(93)
-character(44); character(91)
-text("parameter")
-character(44); text("_type")
-character(93)
-character(44); character(91)
-text("call_expression")
-character(44); text("_type")
-character(93)
-character(44); character(91)
-text("field")
-character(44); text("_expression")
-character(93)
-character(44); character(91)
-text("call_statement")
-character(44); text("_expression")
-character(93)
-character(44); character(91)
-text("parameter")
-character(44); text("_expression")
-character(93)
-character(44); character(91)
-text("function_declaration")
-character(44); text("_expression")
-character(93)
-out(']}\n')
+-- Reserved words: the compiler's keywords (`local orelse = 1` is a syntax error there too);
+-- `record`/`union`/`enum`/`array`/`pointer`/`variant`/`const` stay contextual names.
+out(',"reserved":{"global":[')
+local keywords: [30]cstring = {'and','break','case','continue','defer','do','else','elseif','end','fallthrough',
+  'false','for','function','global','goto','if','in','local','nil','nilptr','not','or','orelse','repeat','return',
+  'switch','then','true','until','while'}
+for i: uint32 = 0, < 30 do
+  if i > 0 then character(44) end
+  emit(literal(keywords[i]),0)
+end
+out(']}}\n')

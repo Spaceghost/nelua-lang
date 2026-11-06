@@ -13,7 +13,7 @@ local pin='b8ea333eca77eabc8add419f88f9ce5a4d0d00f5'
 assert(run('git -C '..q(assert(compiler:match('^(.*)/[^/]+$')))..' rev-parse HEAD'):match('%w+')==pin,'wrong compiler pin')
 assert(run(q(treesitter)..' --version'):match('tree%-sitter 0%.25%.10'),'wrong Tree-sitter pin')
 local root=run('pwd'):gsub('%s+$','')
-local inputs={'grammar.nelua','src/scanner.nelua','generate.lua'}
+local inputs={'grammar.nelua','src/scanner.nelua','generate.lua','tree-sitter.json'}
 local outputs={'src/parser.c','src/grammar.json','src/node-types.json',
   'src/tree_sitter/parser.h','src/tree_sitter/alloc.h','src/tree_sitter/array.h','src/scanner.c','src/grammar_generator.c'}
 local temp=os.tmpname();assert(os.remove(temp));run('mkdir '..q(temp))
@@ -31,14 +31,14 @@ local function build(dir)
     ' -c -C -r -P nogc --cc gcc --cache-dir '..q(dir..'/grammar-cache')..' -o src/grammar_generator.c grammar.nelua')
   normalize(dir..'/src/grammar_generator.c')
   run('cd '..q(dir)..' && gcc -std=gnu11 -O2 -Wall -Wextra -Werror src/grammar_generator.c -o grammar-generator && ./grammar-generator > grammar.json')
-  run('cd '..q(dir)..' && '..q(treesitter)..' generate --abi 14 grammar.json')
+  run('cd '..q(dir)..' && '..q(treesitter)..' generate --abi 15 grammar.json')
   write(dir..'/src/grammar.json',read(dir..'/grammar.json'))
   run('cd '..q(dir)..' && env -u CFLAGS -u LDFLAGS -u NELUA_PATH -u LUA_PATH -u LUA_CPATH HOME='..q(dir)..
     ' XDG_CONFIG_HOME='..q(dir..'/config')..' '..q(compiler)..
     ' -c -C -r -P nogc -P noentrypoint --cc gcc --cflags=-Isrc --cache-dir '..q(dir..'/cache')..' -o src/scanner.c src/scanner.nelua')
   normalize(dir..'/src/scanner.c')
   local result={};for _,p in ipairs(outputs) do result[p]=read(dir..'/'..p) end
-  local manifest={'tree-sitter=0.25.10\nabi=14\nnelua-repository=https://github.com/Spaceghost/nelua-lang\nnelua='..pin..'\n',
+  local manifest={'tree-sitter=0.25.10\nabi=15\nnelua-repository=https://github.com/Spaceghost/nelua-lang\nnelua='..pin..'\n',
     'grammar-flags=-c -C -r -P nogc --cc gcc\nscanner-flags=-c -C -r -P nogc -P noentrypoint --cc gcc --cflags=-Isrc\nnormalization=compile-command-and-compile-hash-comments-only\n'}
   for _,p in ipairs(inputs) do manifest[#manifest+1]='input '..p..' sha256='..input_hash[p]..'\n' end
   for _,p in ipairs(outputs) do manifest[#manifest+1]='output '..p..' sha256='..digest(dir..'/'..p)..'\n' end

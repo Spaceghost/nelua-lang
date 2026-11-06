@@ -47,3 +47,17 @@ and this README. The compiler directory handed to `generate.lua` must be a
 checkout whose `git rev-parse HEAD` equals the pin. After the bump run
 `generate.lua --generate`, `tree-sitter test`, and commit every changed file
 under `src/` plus `PROVENANCE.txt`.
+
+## Shape and ABI
+
+The grammar follows the compiler's `syntaxdefs.lua` shapes: types are layered
+like `typeexpr` (`|` outermost over unary types; a unary type is a `*`/`[n]`
+prefixed simple type with at most one `?` suffix, so `T??` is an error), `T?`
+inside generic arguments is an `optional_type` (dynamic precedence over
+`try_expression`), and a call statement is a try-free chain ending in a call
+(`call` / `TryStat <== call ?`), so `a?.b()` is an error as a statement and fine
+as an expression. The compiler's keywords are reserved words (`local orelse = 1`
+is an error); Tree-sitter emits reserved-word tables only at ABI 15, which is
+why `generate.lua` passes `--abi 15` with `tree-sitter.json` and the parser needs
+a Tree-sitter runtime of 0.25 or newer. `tree-sitter generate` warns about
+conflicts that became unnecessary; keep the list in `grammar.nelua` warning-free.

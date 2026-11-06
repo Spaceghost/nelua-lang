@@ -294,3 +294,184 @@ end
         (identifier)
         (arguments
           (number))))))
+
+==================
+Optional type in generic arguments
+==================
+local a: span(integer?)
+local b: span(integer?, 4)
+local c: vector(*integer?)
+---
+
+(source_file
+  (variable_declaration
+    (parameter
+      (identifier)
+      (generic_type
+        (identifier)
+        (optional_type
+          (identifier)))))
+  (variable_declaration
+    (parameter
+      (identifier)
+      (generic_type
+        (identifier)
+        (optional_type
+          (identifier))
+        (number))))
+  (variable_declaration
+    (parameter
+      (identifier)
+      (generic_type
+        (identifier)
+        (optional_type
+          (pointer_type
+            (identifier)))))))
+
+==================
+Type layering: one optional suffix over prefixed types, variants outermost
+==================
+local a: *T?
+local b: variant(A, B)?
+local c: A?|B?
+local d: *[0]cchar?
+local e: function(cint): cint?
+---
+
+(source_file
+  (variable_declaration
+    (parameter
+      (identifier)
+      (optional_type
+        (pointer_type
+          (identifier)))))
+  (variable_declaration
+    (parameter
+      (identifier)
+      (optional_type
+        (variant_type
+          (identifier)
+          (identifier)))))
+  (variable_declaration
+    (parameter
+      (identifier)
+      (variant_type
+        (optional_type
+          (identifier))
+        (optional_type
+          (identifier)))))
+  (variable_declaration
+    (parameter
+      (identifier)
+      (optional_type
+        (pointer_type
+          (array_type
+            (number)
+            (identifier))))))
+  (variable_declaration
+    (parameter
+      (identifier)
+      (function_type
+        (identifier)
+        (optional_type
+          (identifier))))))
+
+==================
+Optional type takes exactly one suffix
+==================
+local a: T??
+---
+
+(source_file
+  (variable_declaration
+    (parameter
+      (identifier)
+      (optional_type
+        (identifier))))
+  (ERROR))
+
+==================
+Try suffix inside a call-statement chain is an error
+==================
+a?.b?:c()
+---
+
+(source_file
+  (ERROR
+    (call_expression
+      (member_expression
+        (try_expression
+          (member_expression
+            (try_expression
+              (identifier))
+            (identifier)))
+        (identifier))
+      (arguments))))
+
+==================
+Try suffix before the call of a call statement is an error
+==================
+t[1]?()
+---
+
+(source_file
+  (ERROR
+    (call_expression
+      (try_expression
+        (index_expression
+          (identifier)
+          (number)))
+      (arguments))))
+
+==================
+Try suffix inside a call chain is fine as an expression
+==================
+local x = a?.b?:c()
+local y = t[1]?()
+---
+
+(source_file
+  (variable_declaration
+    (parameter
+      (identifier))
+    (call_expression
+      (member_expression
+        (try_expression
+          (member_expression
+            (try_expression
+              (identifier))
+            (identifier)))
+        (identifier))
+      (arguments)))
+  (variable_declaration
+    (parameter
+      (identifier))
+    (call_expression
+      (try_expression
+        (index_expression
+          (identifier)
+          (number)))
+      (arguments))))
+
+==================
+Keywords are reserved words
+==================
+local orelse = 1
+---
+
+(source_file
+  (ERROR
+    (number)))
+
+==================
+Keywords are reserved words after a dot
+==================
+local v = t.orelse
+---
+
+(source_file
+  (variable_declaration
+    (parameter
+      (identifier))
+    (identifier))
+  (ERROR))
