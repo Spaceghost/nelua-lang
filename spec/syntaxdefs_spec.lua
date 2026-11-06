@@ -486,13 +486,13 @@ describe("statement", function()
       expect_ast("if local x = e then end",
         n.Block{
           n.If{{
-            n.IfLocal{n.IdDecl{'x'}, n.Id{'e'}}, n.Block{}
+            n.IfLocal{n.IdDecl{'x', false}, n.Id{'e'}}, n.Block{}
       }}})
       expect_ast("if local x: integer = f()? then return x elseif local y = g then return y elseif c then return z else return w end",
         n.Block{
           n.If{{
             n.IfLocal{n.IdDecl{'x', n.Id{'integer'}}, n.Try{n.Call{{}, n.Id{'f'}}}}, n.Block{n.Return{ n.Id{'x'} }},
-            n.IfLocal{n.IdDecl{'y'}, n.Id{'g'}}, n.Block{n.Return{ n.Id{'y'} }},
+            n.IfLocal{n.IdDecl{'y', false}, n.Id{'g'}}, n.Block{n.Return{ n.Id{'y'} }},
             n.Id{'c'}, n.Block{n.Return{ n.Id{'z'} }},
           },
           n.Block{n.Return{ n.Id{'w'} }}

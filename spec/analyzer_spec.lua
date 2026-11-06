@@ -2881,8 +2881,12 @@ it("optional if local", function()
     elseif find(3) then
     else
     end
+    local function wrap(k: integer): integer?
+      if k < 3 then return k end
+      return nil
+    end
     local function f(k: integer): integer?
-      if local v = find(k)? then return v + 1 end -- `?` operand
+      if local v = find(wrap(k)?) then return v + 1 end -- `?` inside the operand
       return nil
     end
     local n = 1
@@ -2937,6 +2941,14 @@ it("optional if local", function()
     require 'optional'
     local b: integer? = 1
     if b then elseif local x = 1 then end
+  ]], "`if local` expects an optional, got 'int64'")
+  expect.analyze_error([[
+    require 'optional'
+    local function find(k: integer): integer? return nil end
+    local function f(k: integer): integer?
+      if local v = find(k)? then return v end -- `?` already unwraps
+      return nil
+    end
   ]], "`if local` expects an optional, got 'int64'")
 end)
 

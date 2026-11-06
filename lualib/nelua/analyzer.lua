@@ -2129,33 +2129,40 @@ local function visitor_if_local(context, node)
   local rewrite = node.iflocalrewrite
   if not rewrite then
     local entries = {}
-    -- builds the statement for the conditions starting at `i`, `chain` lists the blocks that
-    -- will enclose it so the optional expressions can be checked under their final scopes
-    local function build(i, chain)
+    local function extend(chain, blocknode)
+      local nextchain = {}
+      for j=1,#chain do nextchain[j] = chain[j] end
+      nextchain[#nextchain+1] = blocknode
+      return nextchain
+    end
+    local build
+    -- builds the else block for the conditions starting at `i` (false when there is none),
+    -- `chain` lists the blocks enclosing it so the optional expressions can be
+    -- checked under their final scopes
+    local function build_rest(i, chain)
       if i > #ifpairs then
-        return elsenode
+        return elsenode or false
       end
+      local restblock = aster.Block{}
+      restblock[1] = build(i, extend(chain, restblock))
+      return restblock
+    end
+    -- builds the statement for the conditions starting at `i`
+    build = function(i, chain)
       local condnode = ifpairs[i]
       if condnode.is_IfLocal then
         local declnode, exprnode = condnode[1], condnode[2]
         local thenblock = ifpairs[i+1]
         local oname = context.scope:generate_name('__iflocal')
         local doblock = aster.Block{}
-        local nextchain = {}
-        for j=1,#chain do nextchain[j] = chain[j] end
-        nextchain[#nextchain+1] = doblock
-        entries[#entries+1] = {exprnode = exprnode, chain = nextchain}
+        local dochain = extend(chain, doblock)
+        entries[#entries+1] = {exprnode = exprnode, chain = dochain}
         local valdecl = aster.VarDecl{'local', {declnode}, {aster.DotIndex{'v', aster.Id{oname}}}}
         valdecl:recursive_update_location(condnode.src, condnode.pos, condnode.endpos)
         table.insert(thenblock, 1, valdecl)
-        local restnode = build(i+2, nextchain)
-        local restblock = restnode
-        if restnode and not restnode.is_Block then
-          restblock = aster.Block{restnode}
-        end
         doblock[1] = aster.VarDecl{'local', {aster.IdDecl{oname}}, {exprnode}}
         doblock[1]:recursive_update_location(condnode.src, condnode.pos, condnode.endpos)
-        doblock[2] = aster.If{{aster.CallMethod{'has', {}, aster.Id{oname}}, thenblock}, restblock or false}
+        doblock[2] = aster.If{{aster.CallMethod{'has', {}, aster.Id{oname}}, thenblock}, build_rest(i+2, dochain)}
         doblock[2]:recursive_update_location(node.src, node.pos, node.endpos)
         return aster.Do{doblock}
       end
@@ -2167,11 +2174,7 @@ local function visitor_if_local(context, node)
         newpairs[#newpairs+1] = ifpairs[j+1]
         j = j + 2
       end
-      local restnode = build(j, chain)
-      if restnode and not restnode.is_Block then
-        restnode = aster.Block{restnode}
-      end
-      return aster.If{newpairs, restnode or false}
+      return aster.If{newpairs, build_rest(j, chain)}
     end
     local newnode = build(1, {})
     newnode:recursive_update_location(node.src, node.pos, node.endpos)

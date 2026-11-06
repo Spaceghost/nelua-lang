@@ -3158,12 +3158,16 @@ it("optional if local", function()
       misses = misses + 10
     end
     assert(hits == 30 and misses == 22)
-    -- over a `?` operand
-    local function g(k: integer): integer?
-      if local v = find(k)? then return v + 1 end
+    -- with a `?` inside the operand, the early return leaves the function
+    local function wrap(k: integer): integer?
+      if k < 3 then return k end
       return nil
     end
-    assert(g(1) == 11 and g(2) == nil)
+    local function g(k: integer): integer?
+      if local v = find(wrap(k)?) then return v + 1 end
+      return -1
+    end
+    assert(g(1) == 11 and g(2) == -1 and g(3) == nil)
     -- the bound variable shadows and is scoped to the then block
     local x = 1
     if local x = find(1) then assert(x == 10) end

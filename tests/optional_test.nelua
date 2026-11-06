@@ -153,9 +153,11 @@ do -- `?` over the stdlib `(value, errmsg, errcode)` triples
   assert(second_line(path) == nil)
 end
 
+-- top scope: a nested function would capture `calls` by value
+local calls = 0
+local function dflt(): integer calls = calls + 1 return 7 end
+
 do -- `orelse` evaluates the default only when empty
-  local calls = 0
-  local function dflt(): integer calls = calls + 1 return 7 end
   local function find(k: integer): integer?
     if k == 1 then return 10 end
     return nil
@@ -200,11 +202,15 @@ do -- `if local` binds the held value in the then block
     assert(false)
   end
   assert(seen == 20)
-  local function g(k: integer): integer?
-    if local v = find(k)? then return v + 1 end
+  local function wrap(k: integer): integer?
+    if k < 3 then return k end
     return nil
   end
-  assert(g(1) == 11 and g(2) == nil)
+  local function g(k: integer): integer?
+    if local v = find(wrap(k)?) then return v + 1 end -- `?` inside the operand
+    return -1
+  end
+  assert(g(1) == 11 and g(2) == -1 and g(3) == nil)
   local s: string? = 'a'
   if local t = s then assert(t == 'a') else assert(false) end
 end

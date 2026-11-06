@@ -53,7 +53,8 @@ each with specs in `spec/` and docs under `docs/pages/`:
   to it, `== nil` tests emptiness, `*T?` keeps the pointer size with `nilptr` as empty, and
   the postfix `expr?` propagates empty optionals, null pointers and the stdlib
   `(value, errmsg)` / boolean call failures as an early return, also as the statement
-  `f()?` ([overview](docs/pages/overview.md#optional)).
+  `f()?`; `x orelse d` unwraps or lazily evaluates a default and `if local x = e then`
+  binds the held value ([overview](docs/pages/overview.md#optional)).
 - **Closures**: anonymous and local nested functions capture upvalues by value as
   closure records; `<byref>` captures them by pointer so the closure can mutate the
   enclosing locals ([overview](docs/pages/overview.md#closures)).

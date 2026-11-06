@@ -998,6 +998,46 @@ including pairs that are not an error convention such as `(name, ext)`, where a 
 second string counts as a failure: bind such calls with `local a, b = f()` instead of `?`.
 {:.alert.alert-info}
 
+The `orelse` operator unwraps an optional or evaluates a default, and `if local` binds the
+held value for the then block:
+
+```nelua
+require 'optional'
+
+local function find(k: integer): integer?
+  if k == 1 then return 10 end
+  return nil
+end
+
+local function compute_default(): integer print('computing') return 0 end
+
+local a = find(1) orelse compute_default() -- 10, `compute_default` is not called
+local b = find(2) orelse compute_default() -- outputs: computing, `b` is 0
+local c = find(2) orelse 3 -- 3
+local d = find(2) orelse find(1) -- still an `integer?`, holding 10
+
+if local x = find(1) then
+  print(x) -- `x` is an `integer`, outputs: 10
+elseif local y: float64 = find(2) then -- an annotation converts the held value
+  print(y)
+else
+  print('none')
+end
+```
+
+`x orelse d` requires an optional on the left (a pointer or an already unwrapped value is
+an error) and evaluates `d` only when `x` is empty. `d` converts to the held type and the
+result is that type, or `d` is the same optional type and the result stays optional, so
+defaults chain left to right. `orelse` binds tighter than the comparison operators and
+looser than `|`: `a == b orelse c` is `a == (b orelse c)` and `a orelse b == c` is
+`(a orelse b) == c`, parenthesize when in doubt. `if local x = e then` requires an
+optional `e` (test a pointer with `if p then`), `x` is visible only in the then block and
+`elseif local` nests the same way. `opt or v` and `opt and v` with a value that is neither
+a boolean nor the same optional type are compile errors pointing to `orelse`, as they
+would otherwise be promoted to `any`; the ternary idiom `opt and a or b` keeps testing
+the optional for a value.
+{:.alert.alert-info}
+
 ### Pointer
 
 A pointer points to a region in memory of a specific type:

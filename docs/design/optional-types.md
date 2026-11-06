@@ -258,6 +258,13 @@ Slice 2 (the `errmsg` and `ok` operand kinds, the `errmsg`/`ok` enclosing kinds 
 and the statement form `f()?` as `TryStat`) is implemented on top of slice 1 and spec'd in `syntaxdefs_spec`,
 `analyzer_spec`/`cgenerator_spec` "optional try kinds" and `tests/optional_test.nelua`.
 
+Slice 3 (`orelse`, `if local`/`elseif local` and the `opt or v`/`opt and v` refusal) is implemented on top of
+slice 2 and spec'd in `syntaxdefs_spec` ("`orelse`", "if local"), `analyzer_spec`/`cgenerator_spec` "optional
+orelse" and "optional if local", and `tests/optional_test.nelua`; the `orelse` rewrite declares a typed result
+local for the default (`local __r: T = d  in __r`) so the do expression resolves to `T` instead of a promoted
+type, the refusal also covers two different optional types and exempts the ternary idiom `opt and a or b`, and
+`?` inside `if local x = e` unwraps `e` itself (so `if local v = f()? then` is refused, `?` belongs inside `e`).
+
 Smallest shippable subset, useful alone: `T?` types over `lib/optional.nelua`, `==`/`~=` against `nil`/`nilptr`,
 truthiness, and `expr?` for optional/pointer operands inside optional/pointer-returning functions. No `orelse`,
 `if local`, errmsg kind, statement form, comptime wrapping, bindgen or grammar-tool changes (each is an additive
