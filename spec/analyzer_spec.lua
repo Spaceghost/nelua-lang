@@ -2045,14 +2045,6 @@ it("record equality with field metamethods", function()
     local x = a == b
     ## static_assert(not primtypes.string.eqsym)
   ]])
-  -- an error instantiating a field `__eq` points at the `==`
-  expect.analyze_error([[
-    local P = @record{x: integer}
-    function P.__eq(a: auto, b: auto): boolean return a.x == b.nope end
-    local R = @record{p: P}
-    local r1: R, r2: R
-    local x = r1 == r2
-  ]], {"cannot index field 'nope'", ":6:15: from: polymorphic function instantiation"})
 end)
 
 it("const pointers", function()

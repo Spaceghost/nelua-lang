@@ -1797,6 +1797,14 @@ it("record comparisons with field metamethods", function()
     assert(pz1 ~= pz2) assert(not (pz1 == pz2))
     assert(pz1 == &z1)
   ]])
+  -- an error instantiating a field `__eq` points at the `==`
+  expect.run_error_c([[
+    local P = @record{x: integer}
+    function P.__eq(a: auto, b: auto): boolean return a.x == b.nope end
+    local R = @record{p: P}
+    local r1: R, r2: R
+    local x = r1 == r2
+  ]], {"cannot index field 'nope'", ":6:15: from: polymorphic function instantiation"})
   -- string fields compare by content, with or without the 'string' module
   expect.run_c([[
     local R = @record{s: string, ss: [2]string, n: integer}
