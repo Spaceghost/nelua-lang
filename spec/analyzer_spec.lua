@@ -4230,8 +4230,8 @@ it("comptime evaluation", function()
     local inf <comptime> = comptime(h())
     local function u(): uint64 return 0xFFFFFFFFFFFFFFFF end
     local um <comptime> = comptime(u())
-    local function big(): int32 return 65536 * 65536 end
-    local w <comptime> = comptime(big())
+    local function big(a: int32): int32 return a * 65536 end
+    local w <comptime> = comptime(big(65536))
     comptime(f()) -- results of a statement are discarded
     ## after_inference(function()
       assert(F.value == 6765 and F.type == primtypes.integer)
@@ -4419,9 +4419,11 @@ it("comptime evaluation errors", function()
     local x = comptime(f())
   ]], "annotation 'static' cannot be used at compile time")
   expect.analyze_error([[
+    local C = @record{}
+    function C:__close() end
     local function f(): integer
-      local x: integer <close> = 1
-      return x
+      local c: C <close>
+      return 1
     end
     local x = comptime(f())
   ]], "annotation 'close' cannot be used at compile time")
