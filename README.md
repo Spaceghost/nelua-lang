@@ -50,6 +50,10 @@ each with specs in `spec/` and docs under `docs/pages/`:
   and a JSON `--config` with `prepend`/`append` text ([tool README](tools/nelua-bindgen/README.md)).
 - **Variants**: tagged unions as `variant(A, B)` or `A|B` through `require 'variant'`,
   with `==` (also against bare member values), `tostring` and `visit` ([overview](docs/pages/overview.md#variant)).
+- **`match` statement**: `match v do case local n: integer then ... case string, nil then ... end`
+  dispatches on the held type of a variant or an optional with exhaustiveness checking
+  (every member and `nil`, or an `else`), lowered to a `switch` on the tag; `match` is a
+  contextual word, `string.match` keeps working ([overview](docs/pages/overview.md#variant)).
 - **Optionals**: `T?` / `optional(T)` through `require 'optional'`, `nil` and `T` convert
   to it, `== nil` tests emptiness, `*T?` keeps the pointer size with `nilptr` as empty, and
   the postfix `expr?` propagates empty optionals, null pointers and the stdlib
@@ -62,8 +66,8 @@ each with specs in `spec/` and docs under `docs/pages/`:
   enclosing locals ([overview](docs/pages/overview.md#closures)).
 - **Editor grammars**: `tools/tree-sitter-nelua` and `tools/textmate-nelua` know
   `*const T`, `A|B` variants, anonymous `function` expressions, the optional suffix `T?`,
-  the try suffix `expr?` / `f()?`, `orelse` and `if local`
-  ([installing](docs/pages/installing.md#editor-support)); the Tree-sitter parser is regenerated from the `b8ea333e` pin.
+  the try suffix `expr?` / `f()?`, `orelse`, `if local` and the `match` statement
+  ([installing](docs/pages/installing.md#editor-support)); the Tree-sitter parser is regenerated from the pin named in its README.
 - **Static initializers**: top-scope variables initialized with `nilptr`, the
   address of a static object (`&g`, `&arr[3]`, `&rec.field`), casts of those,
   or record/array literals built from them are emitted as C static initializers

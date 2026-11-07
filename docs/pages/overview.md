@@ -882,6 +882,37 @@ declaring a variant never compiles a comparison of its members. In the
 preprocessor, `V.value.types` lists the member types in declaration order.
 {:.alert.alert-info}
 
+The `match` statement dispatches on the held type and binds the held value:
+
+```nelua
+require 'variant'
+
+local v: integer|string|boolean = 3
+match v do
+case local n: integer then print('int', n) -- `n` is an `integer`, outputs: int 3
+case local s: string then print('str', s)
+case boolean then print('bool') -- no binding needed
+case nil then print('empty') -- the default initialized state
+end
+
+match v do
+case integer, boolean then print('scalar') -- several types share a block
+else print('other')
+end
+```
+
+`match e do case ... end` requires a variant or an optional subject, which is evaluated once and
+copied; `case local x: T then` binds a copy of the held value for its block (one type per binding),
+`case T then` and `case T, U then` test without binding, and `case nil then` is the empty state.
+Every case type must be a member type (the error lists the members), a type or `nil` may appear
+in one case only, and without an `else` block every member and `nil` must be covered, so adding a
+member to the variant makes each `match` without `else` a compile error until the new case is
+written. `fallthrough` is not allowed. `match` is lowered to a `switch` on the tag, so `break` and
+`continue` reach the enclosing loop as they do from a `switch`. `match` is a contextual word, not a
+reserved one: `string.match`, `s:match(p)` and `local match = 1` keep working, the statement is
+taken only when a `case` follows the subject.
+{:.alert.alert-info}
+
 ### Optional
 
 An optional holds one value of a type or nothing. Optionals are provided by the
@@ -1056,6 +1087,34 @@ optional `e` (test a pointer with `if p then`), `x` is visible only in the then 
 a boolean nor the same optional type are compile errors pointing to `orelse`, as they
 would otherwise be promoted to `any`; the ternary idiom `opt and a or b` keeps testing
 the optional for a value.
+{:.alert.alert-info}
+
+The `match` statement handles both states of an optional, binding the held value:
+
+```nelua
+require 'optional'
+
+local function find(k: integer): integer?
+  if k == 1 then return 10 end
+  return nil
+end
+
+match find(1) do
+case local x: integer then print(x) -- outputs: 10
+case nil then print('none')
+end
+
+local p: *integer? = nilptr
+match p do
+case local q: *integer then print($q)
+else print('null')
+end
+```
+
+The case type must be the held type itself (`case local x: float64` on an `integer?` is an
+error, convert inside the block), `case nil then` is the empty state, `case T, nil then` covers
+both without binding, and without `else` both states must be covered. The same statement works
+on variants, see [Variant](#variant).
 {:.alert.alert-info}
 
 ### Pointer
