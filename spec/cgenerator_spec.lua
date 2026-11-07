@@ -3120,6 +3120,46 @@ it("optional orelse", function()
   ]], {"int64_t _expr;", "__orelse_1.v;", "int64_t __orelsed_1 = 4;"})
 end)
 
+it("optional and/or with a boolean", function()
+  expect.run_c([[
+    require 'optional'
+    local x: integer? = 1
+    local e: integer? = nil
+    local n = 3
+    local p: *integer? = &n
+    local q: *integer? = nilptr
+    local calls = 0
+    local function t(): boolean calls = calls + 1 return true end
+    local function f(): boolean calls = calls + 1 return false end
+    local a = x and true   assert(a == true)
+    local b = e and true   assert(b == false)
+    local c = x or false   assert(c == true)
+    local d = e or false   assert(d == false)
+    local g = e or true    assert(g == true)
+    local h = true and x   assert(h == true)
+    local i = true and e   assert(i == false)
+    local j = false and x  assert(j == false)
+    local k = false or x   assert(k == true)
+    local l = false or e   assert(l == false)
+    local m = p and true   assert(m == true)
+    local o = q or false   assert(o == false)
+    local r = x and f()    assert(r == false)
+    -- the right side is evaluated only when the optional decides nothing
+    assert((x or t()) == true and calls == 1)
+    assert((e and t()) == false and calls == 1)
+    assert((e or t()) == true and calls == 2)
+    assert((x and t()) == true and calls == 3)
+    assert((e or f()) == false and calls == 4)
+    assert((x and f()) == false and calls == 5)
+    assert((e and f()) == false and calls == 5)
+    -- the ternary idiom keeps testing the optional
+    assert((x and true or false) == true)
+    assert((e and true or false) == false)
+    local s: integer? = x or e
+    assert(s == 1)
+  ]])
+end)
+
 it("optional if local", function()
   expect.run_c([[
     require 'optional'

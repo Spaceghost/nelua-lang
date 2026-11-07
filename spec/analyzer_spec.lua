@@ -2864,6 +2864,46 @@ it("optional orelse", function()
   ]])
 end)
 
+it("optional and/or with a boolean", function()
+  expect.analyze_ast([[
+    require 'optional'
+    local x: integer? = 1
+    local p: *integer? = nilptr
+    local function t(): boolean return true end
+    local a = x and true   ## assert(a.type.is_boolean)
+    local b = x or true    ## assert(b.type.is_boolean)
+    local c = x or false   ## assert(c.type.is_boolean)
+    local d = true and x   ## assert(d.type.is_boolean)
+    local e = false or x   ## assert(e.type.is_boolean)
+    local f = x and t()    ## assert(f.type.is_boolean)
+    local g = p or t()     ## assert(g.type.is_boolean)
+    local h = x and true or false ## assert(h.type.is_boolean)
+    local y: integer? = 2
+    local z = x or y       ## assert(z.type == x.type)
+    local w = x and y      ## assert(w.type == x.type)
+  ]])
+  expect.analyze_error([[
+    require 'optional'
+    local x: integer? = 1
+    local a = x and 1
+  ]], "in binary operation `and`: use `orelse` to provide a default for an optional")
+  expect.analyze_error([[
+    require 'optional'
+    local x: integer? = 1
+    local a = x or 'd'
+  ]], "in binary operation `or`: use `orelse` to provide a default for an optional")
+  expect.analyze_error([[
+    require 'optional'
+    local b: boolean? = false
+    local c = b or true
+  ]], "test a boolean optional")
+  expect.analyze_error([[
+    require 'optional'
+    local b: boolean? = false
+    local c = true and b
+  ]], "test a boolean optional")
+end)
+
 it("optional if local", function()
   expect.analyze_ast([[
     require 'optional'
