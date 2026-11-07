@@ -1396,6 +1396,9 @@ end
 function visitors.FuncDef(context, node, emitter)
   local attr = node.attr
   local type = attr.type
+  if attr.comptimefunc then
+    return -- `<comptime>` functions only run inside the compiler, see `nelua.comptime`
+  end
   if type.is_polyfunction then -- is a polymorphic function?
     local polyevals = type.evals
     for i=1,#polyevals do -- emit all evaluations

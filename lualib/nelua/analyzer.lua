@@ -13,6 +13,7 @@ local except = require 'nelua.utils.except'
 local preprocessor = require 'nelua.preprocessor'
 local builtins = require 'nelua.builtins'
 local ownership = require 'nelua.ownership'
+local comptime = require 'nelua.comptime'
 local config = require 'nelua.configer'.get()
 local console = require 'nelua.utils.console'
 local nanotimer = require 'nelua.utils.nanotimer'
@@ -640,6 +641,15 @@ function visitors.Annotation(context, node, opts)
   end
   objattr[name] = params
 
+  if name == 'comptime' then
+    local parentnode = context:get_visiting_node(1)
+    if parentnode and parentnode.is_FuncDef then
+      objattr.comptimefunc = true -- function symbols are already `comptime` values
+    elseif parentnode and parentnode.is_Function then
+      node:raisef("annotation 'comptime' is only valid for named functions")
+    end
+  end
+
   if name == 'owned' then
     if not objattr.is_record then
       node:raisef("annotation 'owned' is only valid for record types, but '%s' is not a record", objattr)
@@ -785,6 +795,12 @@ function visitors.Id(context, node)
   end
   if symbol.deprecated then
     node:warnf("use of deprecated symbol '%s'", name)
+  end
+  if symbol.comptimefunc then
+    local parentnode = context:get_visiting_node(1)
+    if not (parentnode and parentnode.is_Call and parentnode[2] == node) then
+      node:raisef("compile-time function '%s' can only be called, it has no runtime value", name)
+    end
   end
   ownership.check_read(context, symbol, node)
   symbol:add_use_by(state.funcscope.funcsym)
@@ -1841,6 +1857,10 @@ function visitors.Call(context, node, opts)
       -- rewritten in place into a `DoExpr`, see `ownership.visit_move`
       ownership.visit_move(context, node, argnodes)
       return
+    elseif calleeattr.builtin and calleeattr.name == 'comptime' then
+      -- evaluated and replaced by its results, see `comptime.visit_builtin`
+      comptime.visit_builtin(context, node, argnodes, opts)
+      return
     end
     if calleeattr.builtin then
       local builtinfunc = builtins[calleeattr.name]
@@ -1864,6 +1884,10 @@ function visitors.Call(context, node, opts)
     end
 
     visitor_Call(context, node, argnodes, calleetype, calleesym)
+
+    if comptime.visit_comptime_call(context, node, argnodes, nil, opts) then
+      return -- a `<comptime>` function call, replaced by its results
+    end
 
     if calleeattr.cimport then
       local desiredtype = opts and opts.desiredtype
@@ -4553,6 +4577,8 @@ function analyzer.analyze(context)
     assert(context.unresolvedcount == 0)
     context:pop_state()
   end
+  -- every `comptime(...)` call must have been evaluated by now
+  comptime.check_pending(context)
   -- execute after inference callbacks
   for _,callback in ipairs(context.afterinfers) do
     callback()

@@ -272,6 +272,10 @@ typedefs.pragmas = {
   When set, the user will be responsible for initializing the GC in his own entry point.
   ]]
   nogcentry = shaper.optional_boolean,
+  -- Maximum number of Lua instructions a compile-time function evaluation may run (default 10 million).
+  comptime_steps = shaper.integer:is_optional(),
+  -- Maximum call depth of a compile-time function evaluation (default 10000).
+  comptime_stack = shaper.integer:is_optional(),
   --[[
   Disables use of builtin character classes.
   When set, the standard library will use lib C APIs to check character classes,
@@ -382,6 +386,9 @@ typedefs.function_annots = {
   -- Mark a function for forward declaration.
   -- This allows to call a function before defining it.
   forwarddecl = true,
+  -- Whether every call of the function is evaluated at compile time (see `nelua.comptime`),
+  -- the function is never emitted in C and all its arguments must be compile time values.
+  comptime = true,
 }
 
 -- List of possible annotations for variables.
@@ -608,6 +615,7 @@ typedefs.builtin_attrs = {
   check = {type = primtypes.any},
   assert = {type = primtypes.any},
   move = {type = primtypes.any}, -- rewritten by the analyzer, see `nelua.ownership`
+  comptime = {type = primtypes.any}, -- evaluated by the analyzer, see `nelua.comptime`
   require = {type = types.FunctionType({{name='modname', type=primtypes.string}})},
   print = {type = primtypes.any},
   _G = {type = primtypes.table},

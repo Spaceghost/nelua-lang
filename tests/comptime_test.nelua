@@ -1,0 +1,109 @@
+require 'string'
+
+local function crc32_table(): [256]uint32
+  local t: [256]uint32
+  for i: uint32 = 0, 255 do
+    local c: uint32 = i
+    for _ = 1, 8 do
+      if c & 1 == 1 then
+        c = 0xEDB88320 ~ (c >> 1)
+      else
+        c = c >> 1
+      end
+    end
+    t[i] = c
+  end
+  return t
+end
+
+local function fib(n: integer): integer
+  if n < 2 then return n end
+  return fib(n - 1) + fib(n - 2)
+end
+
+local function build(n: integer): string
+  local s: string = ''
+  for i = 1, n do
+    s = s .. tostring(i) .. ','
+  end
+  return s
+end
+
+local function wrap8(x: uint8): uint8
+  return x + 250
+end
+
+local function overflow32(x: int32): int32
+  return x * 65536 * 32768
+end
+
+local function round32(x: float32): float32
+  return x / 3
+end
+
+local function negdiv(a: integer, b: integer): (integer, integer)
+  return a // b, a % b
+end
+
+local function shifts(x: int32, n: integer): (int32, int32, uint32)
+  return x << n, x >> n, (@uint32)(x) >> n
+end
+
+local function fast_pow(b: integer, e: integer): integer <comptime>
+  local r = 1
+  for _ = 1, e do r = r * b end
+  return r
+end
+
+do -- crc32 table
+  local CT = comptime(crc32_table())
+  local rt = crc32_table()
+  for i = 0, 255 do
+    assert(CT[i] == rt[i])
+  end
+  assert(CT[1] == 0x77073096 and CT[255] == 0x2D02EF8D)
+end
+
+do -- fib
+  local F <comptime> = comptime(fib(20))
+  assert(F == 6765 and F == fib(20))
+end
+
+do -- string building
+  local S <comptime> = comptime(build(5))
+  assert(S == '1,2,3,4,5,' and S == build(5))
+end
+
+do -- uint8 wrap
+  local W <comptime> = comptime(wrap8(10))
+  assert(W == 4 and W == wrap8(10))
+end
+
+do -- int32 overflow
+  local O <comptime> = comptime(overflow32(3))
+  assert(O == overflow32(3))
+end
+
+do -- float32 rounding
+  local R <comptime> = comptime(round32(1.0))
+  assert(R == round32(1.0))
+end
+
+do -- floor division and modulo on negatives
+  local Q <comptime>, M <comptime> = comptime(negdiv(-7, 2))
+  local q, m = negdiv(-7, 2)
+  assert(Q == -4 and M == 1 and Q == q and M == m)
+end
+
+do -- shifts
+  local A <comptime>, B <comptime>, C <comptime> = comptime(shifts(-8, 2))
+  local a, b, c = shifts(-8, 2)
+  assert(A == a and B == b and C == c)
+end
+
+do -- <comptime> function
+  local P = fast_pow(3, 7)
+  assert(P == 2187)
+end
+
+print('comptime OK!')
