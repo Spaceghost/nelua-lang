@@ -12,6 +12,7 @@ local bn = require 'nelua.utils.bn'
 local except = require 'nelua.utils.except'
 local preprocessor = require 'nelua.preprocessor'
 local builtins = require 'nelua.builtins'
+local ownership = require 'nelua.ownership'
 local config = require 'nelua.configer'.get()
 local console = require 'nelua.utils.console'
 local nanotimer = require 'nelua.utils.nanotimer'
@@ -302,6 +303,7 @@ local function visitor_Array_literal(context, node, littype)
         childnode:raisef("in array literal at index %d: cannot pass non copyable type '%s' by value",
           i, childtype)
       end
+      ownership.check_copy(context, childnode, string.format("in array literal at index %d", i))
     end
     sideeffect = sideeffect or childattr.sideeffect
     comptime = comptime and childattr.comptime
@@ -381,6 +383,7 @@ local function visitor_Record_literal(context, node, littype)
         childnode:raisef("in record literal field '%s': cannot pass non copyable type '%s' by value",
           fieldname, fieldvaltype)
       end
+      ownership.check_copy(context, fieldvalnode, string.format("in record literal field '%s'", fieldname))
     end
     if not fieldvalattr.comptime then
       comptime = nil
@@ -438,6 +441,7 @@ local function visitor_Union_literal(context, node, littype)
         childnode:raisef("in record literal field '%s': cannot pass non copyable type '%s' by value",
           fieldname, fieldvaltype)
       end
+      ownership.check_copy(context, fieldvalnode, string.format("in union literal field '%s'", fieldname))
     end
     if not fieldvalattr.comptime then
       comptime = nil
@@ -636,6 +640,22 @@ function visitors.Annotation(context, node, opts)
   end
   objattr[name] = params
 
+  if name == 'owned' then
+    if not objattr.is_record then
+      node:raisef("annotation 'owned' is only valid for record types, but '%s' is not a record", objattr)
+    end
+    if not objattr.is_owned then
+      objattr.is_owned = true
+      -- the `__close` metamethod is usually defined after the record, checked once analysis ends
+      local ownedtypes = context.ownedtypes
+      if not ownedtypes then
+        ownedtypes = {}
+        context.ownedtypes = ownedtypes
+      end
+      ownedtypes[#ownedtypes+1] = {type = objattr, node = node}
+    end
+  end
+
   if name == 'cimport' then
     objattr.cimport = true
     -- a single field struct is not ABI-identical to a C pointer in portable C,
@@ -766,6 +786,7 @@ function visitors.Id(context, node)
   if symbol.deprecated then
     node:warnf("use of deprecated symbol '%s'", name)
   end
+  ownership.check_read(context, symbol, node)
   symbol:add_use_by(state.funcscope.funcsym)
   if symbol.type then
     node.done = symbol
@@ -1607,6 +1628,10 @@ local function visitor_Call(context, node, argnodes, calleetype, calleesym, call
               calleename, selftype)
           end
         end
+        if not selftype.is_pointer then
+          ownership.check_copy(context, calleeobjnode,
+            string.format("in method call '%s' at argument 'self'", calleename))
+        end
         table.remove(pseudoargtypes, 1)
         table.remove(pseudoargattrs, 1)
       end
@@ -1701,6 +1726,11 @@ local function visitor_Call(context, node, argnodes, calleetype, calleesym, call
           if not wantedtype.is_pointer and not argattr:can_copy() then
             argnode:raisef("in call of function '%s' at argument %d: cannot pass non copyable type '%s' by value",
               calleename, i, argtype)
+          end
+          -- builtins (`print`, `assert`, ...) never take ownership of their arguments
+          if argnode and not wantedtype.is_pointer and not (calleesym and calleesym.builtin) then
+            ownership.check_copy(context, argnode,
+              string.format("in call of function '%s' at argument %d", calleename, i))
           end
         else
           knownallargs = false
@@ -1807,6 +1837,11 @@ function visitors.Call(context, node, opts)
   if calleetype and calleetype.is_type then
     visitor_Call_type_cast(context, node, argnodes, calleeattr.value)
   else
+    if calleeattr.builtin and calleeattr.name == 'move' then
+      -- rewritten in place into a `DoExpr`, see `ownership.visit_move`
+      ownership.visit_move(context, node, argnodes)
+      return
+    end
     if calleeattr.builtin then
       local builtinfunc = builtins[calleeattr.name]
       if builtinfunc then
@@ -2145,7 +2180,9 @@ function visitors.Block(context, node)
 
   if #statnodes > 0 or not node.scope then
     local scope
+    local ownstate = ownership.snapshot(context)
     repeat
+      ownership.restore(context, ownstate) -- every traversal starts from the state before the block
       scope = context:push_forked_cleaned_scope(node)
       scope.is_block = true
       context:traverse_nodes(statnodes)
@@ -2282,17 +2319,23 @@ function visitors.If(context, node)
     end
   end
   local done = true
+  local branches = ownership.branches_begin(context)
   for i=1,#ifpairs,2 do
     local ifcondnode, ifblocknode = ifpairs[i], ifpairs[i+1]
+    ownership.branch_begin(context, branches)
     context:traverse_node(ifcondnode, {desiredtype=primtypes.boolean})
     visitor_boolean_context(ifcondnode)
     context:traverse_node(ifblocknode)
+    ownership.branch_end(context, branches, ifblocknode)
     done = done and ifblocknode.done and ifcondnode.done
   end
   if elsenode then
+    ownership.branch_begin(context, branches)
     context:traverse_node(elsenode)
+    ownership.branch_end(context, branches, elsenode)
     done = done and elsenode.done and true
   end
+  ownership.branches_end(context, branches, not elsenode)
   node.done = done
 end
 
@@ -2308,6 +2351,8 @@ function visitors.Switch(context, node)
       valtype)
   end
   local done = valnode.done
+  local branches = ownership.branches_begin(context)
+  local carried -- state falling through from the previous case
   for i=1,#casepairs,2 do
     local caseexprs, caseblock = casepairs[i], casepairs[i+1]
     for j=1,#caseexprs do
@@ -2322,15 +2367,26 @@ function visitors.Switch(context, node)
     done = done and caseblock.done and true
     local casescope = context:get_forked_scope(caseblock)
     casescope.switchcase_index = 1
+    ownership.branch_begin(context, branches, carried)
     context:traverse_node(caseblock)
     if casescope.fallthrough and casescope.fallthrough ~= caseblock[#caseblock] then
       casescope.fallthrough:raisef("`fallthrough` statement must be the very last statement of a switch case block")
     end
+    if caseblock[#caseblock] and caseblock[#caseblock].is_Fallthrough then
+      -- the next case is entered either directly or from this one
+      carried = ownership.merge_states{branches.before, context.ownstate}
+    else
+      ownership.branch_end(context, branches, caseblock)
+      carried = nil
+    end
   end
   if elsenode then
+    ownership.branch_begin(context, branches, carried)
     context:traverse_node(elsenode)
+    ownership.branch_end(context, branches, elsenode)
     done = done and elsenode.node and true
   end
+  ownership.branches_end(context, branches, not elsenode)
   context:pop_scope()
   node.done = done
 end
@@ -2511,7 +2567,11 @@ function visitors.While(context, node)
   visitor_boolean_context(condnode)
   local scope = context:push_forked_cleaned_scope(node)
   scope.is_loop = true
+  local loop = ownership.loop_begin(context)
   context:traverse_node(blocknode)
+  local condattr = condnode.attr
+  local infinite = condattr.comptime and condattr.value == true
+  ownership.loop_end(context, loop, blocknode, infinite and 'infinite' or 'maybe')
   context:pop_scope()
   node.done = blocknode.done and condnode.done and true
 end
@@ -2521,11 +2581,13 @@ function visitors.Repeat(context, node)
   local scope = context:push_forked_cleaned_scope(node)
   scope.is_loop = true
   scope.is_repeat_loop = true
+  local loop = ownership.loop_begin(context)
   context:traverse_node(blocknode)
   context:push_scope(blocknode.scope)
   context:traverse_node(condnode, {desiredtype=primtypes.boolean})
   visitor_boolean_context(condnode)
   context:pop_scope()
+  ownership.loop_end(context, loop, blocknode, 'once')
   context:pop_scope()
   node.done = blocknode.done and condnode.done and true
 end
@@ -2545,9 +2607,12 @@ function visitors.ForNum(context, node)
     stype = sattr.type
   end
   local ittype
+  local ownstate = ownership.snapshot(context)
   repeat
+    ownership.restore(context, ownstate)
     local scope = context:push_forked_cleaned_scope(node)
     scope.is_loop = true
+    local loop = ownership.loop_begin(context)
 
     local itsymbol = context:traverse_node(itvarnode)
     itsymbol.scope:add_symbol(itsymbol)
@@ -2596,6 +2661,7 @@ function visitors.ForNum(context, node)
       end
     end
     context:traverse_node(blocknode)
+    ownership.loop_end(context, loop, blocknode, 'maybe')
 
     local resolutions_count = scope:resolve()
     context:pop_scope()
@@ -2648,10 +2714,14 @@ function visitors.ForIn(context, node)
 
   if context.generator == 'lua' then -- lua backend
     context:traverse_nodes(inexpnodes)
+    local ownstate = ownership.snapshot(context)
     repeat
+      ownership.restore(context, ownstate)
       local scope = context:push_forked_cleaned_scope(node)
       scope.is_loop = true
+      local loop = ownership.loop_begin(context)
       context:traverse_node(blocknode)
+      ownership.loop_end(context, loop, blocknode, 'maybe')
       local resolutions_count = scope:resolve()
       context:pop_scope()
     until resolutions_count == 0
@@ -2688,6 +2758,7 @@ function visitors.Break(context, node)
   if not context.scope:get_up_scope_of_kind('is_loop') then
     node:raisef("`break` statement is not inside a loop")
   end
+  ownership.record_break(context)
   node.done = true
 end
 
@@ -2695,6 +2766,7 @@ function visitors.Continue(context, node)
   if not context.scope:get_up_scope_of_kind('is_loop') then
     node:raisef("`continue` statement is not inside a loop")
   end
+  ownership.record_continue(context)
   node.done = true
 end
 
@@ -2924,6 +2996,9 @@ function visitors.VarDecl(context, node)
         if valnode and not valnode.attr:can_copy() then
           valnode:raisef("cannot assign non copyable type '%s'", valtype)
         end
+        if valnode then
+          ownership.check_copy(context, valnode, string.format("in variable '%s' declaration", symbol.name))
+        end
         if vartype.is_polyfunction then
           -- skip declaration for poly function aliases
           varnode.attr.nodecl = true
@@ -2958,7 +3033,9 @@ function visitors.Assign(context, node)
   end
   local done = true
   for i,varnode,valnode,valtype in izipargnodes(varnodes, valnodes) do
+    context.ownassigntarget = varnode -- assigning a moved variable is not a read of it
     local symbol = context:traverse_node(varnode)
+    context.ownassigntarget = nil
     local vartype = varnode.attr.type
     local varattr = varnode.attr
     if varattr:is_readonly() and not varattr:is_forward_declare_type() then
@@ -2969,9 +3046,15 @@ function visitors.Assign(context, node)
       valtype = valnode.attr.type
       valnode, valtype = visitor_convert(context, valnodes, i, vartype, valnode, valtype)
     end
+    if symbol and varnode.is_Id then
+      ownership.assign(context, symbol)
+    end
     if valtype then
       if valnode and not valnode.attr:can_copy() then
         valnode:raisef("cannot assign non copyable type '%s'", valtype)
+      end
+      if valnode then
+        ownership.check_copy(context, valnode, "in variable assignment")
       end
       if valtype and valtype.is_varanys then
         -- varanys are always stored as any in variables
@@ -3033,6 +3116,9 @@ function visitors.Return(context, node)
                 retnode:raisef("return at index %d: cannot pass non copyable type '%s' by value",
                   i, rettype)
               end
+              if retnode then
+                ownership.check_return(context, retnode, funcscope, string.format("return at index %d", i))
+              end
             end
           end
         elseif #retnodes ~= 0 then
@@ -3053,6 +3139,9 @@ function visitors.Return(context, node)
       funcscope:add_return_type(i, rettype, retnode)
       if rettype and retnode and rettype.is_type then
         funcscope:add_return_value(i, retnode.attr.value)
+      end
+      if retnode then
+        ownership.check_return(context, retnode, funcscope, string.format("return at index %d", i))
       end
     end
   end
@@ -3080,6 +3169,9 @@ function visitors.In(context, node)
           retnode:raisef("in `in` expression: cannot pass non copyable type '%s' by value",
             rettype)
         end
+        if retnode then
+          ownership.check_return(context, retnode, exprscope, "in `in` expression")
+        end
       end
     end
     node.done = retnode.done and true
@@ -3087,6 +3179,7 @@ function visitors.In(context, node)
     context:traverse_node(retnode)
     local retattr = retnode.attr
     local rettype = retattr.type
+    ownership.check_return(context, retnode, exprscope, "in `in` expression")
     exprscope:add_return_type(1, retattr.type, retnode)
     if rettype and rettype.is_type then
       exprscope:add_return_value(1, retattr.value)
@@ -3103,7 +3196,9 @@ end
 function visitors.DoExpr(context, node)
   local blocknode = node[1]
   local exprscope
+  local ownstate = ownership.snapshot(context)
   repeat
+    ownership.restore(context, ownstate)
     exprscope = context:push_forked_cleaned_scope(node)
     exprscope.is_doexpr = true
     exprscope.is_resultbreak = true
@@ -3111,6 +3206,10 @@ function visitors.DoExpr(context, node)
     local resolutions_count = exprscope:resolve()
     context:pop_scope()
   until resolutions_count == 0
+  local moverewrite = node.moverewrite
+  if moverewrite and moverewrite.symbol then -- this is a `move(x)`, `x` is moved from here on
+    ownership.mark_moved(context, moverewrite.symbol, node)
+  end
 
   local attr = node.attr
   if not node.checked then
@@ -3758,7 +3857,9 @@ function visitors.FuncDef(context, node, opts)
 
   -- repeat scope to resolve function variables and return types
   local funcscope, argattrs, ispolyparent, rettypes, hasautoret
+  local savedown = ownership.enter_function(context)
   repeat
+    ownership.reset(context)
     -- enter in the function scope
     funcscope = context:push_forked_cleaned_scope(node)
     funcscope.funcsym = symbol
@@ -3815,6 +3916,7 @@ function visitors.FuncDef(context, node, opts)
     context:pop_state()
     context:pop_scope()
   until resolutions_count == 0
+  ownership.leave_function(context, savedown)
 
   -- type checking for returns
   if type and defn and type.is_function and rettypes and #rettypes > 0 then
@@ -3865,7 +3967,9 @@ function visitors.Function(context, node)
 
   -- repeat scope to resolve function variables and return types
   local funcscope, argattrs, ispolyparent, rettypes, hasauto
+  local savedown = ownership.enter_function(context)
   repeat
+    ownership.reset(context)
     -- enter in the function scope
     funcscope = context:push_forked_cleaned_scope(node)
     funcscope.funcsym = symbol
@@ -3909,6 +4013,7 @@ function visitors.Function(context, node)
     context:pop_state()
     context:pop_scope()
   until resolutions_count == 0
+  ownership.leave_function(context, savedown)
 
   -- type checking for returns
   if type and rettypes and #rettypes > 0 then
@@ -4368,6 +4473,7 @@ function analyzer.analyze(context)
     ast.attr.filename = fs.abspath(ast.src.name)
   end
   context:push_forked_state{funcscope=context.rootscope}
+  context.ownedtypes = nil
   -- phase 1 traverse: preprocess
   local ppcode = preprocessor.preprocess(context, ast)
   if config.print_ppcode then
@@ -4378,12 +4484,22 @@ function analyzer.analyze(context)
   end
   -- phase 2 traverse: infer and check types
   repeat
+    ownership.reset(context)
     context:traverse_node(ast)
     local resolutions_count = context.rootscope:resolve()
     if config.more_timing then
       console.debugf('analyzed (%.1f ms)', timer:elapsedrestart())
     end
   until resolutions_count == 0
+  -- every `<owned>` record must have its `__close` metamethod by now
+  if context.ownedtypes then
+    for _,owned in ipairs(context.ownedtypes) do
+      local type = owned.type
+      if not (type.metafields and type.metafields.__close) then
+        owned.node:raisef("type '%s' is annotated with <owned> but has no '__close' metamethod", type)
+      end
+    end
+  end
   -- execute after analyze callbacks
   for _,callback in ipairs(context.afteranalyzes) do
     local ok, err = except.trycall(callback.f)
@@ -4395,6 +4511,7 @@ function analyzer.analyze(context)
   if context.unresolvedcount ~= 0 then
     context:push_forked_state{anyphase=true}
     repeat
+      ownership.reset(context)
       context:traverse_node(ast)
       local resolutions_count = context.rootscope:resolve()
       if config.more_timing then --luacov:disable

@@ -390,6 +390,56 @@ it("defer", function()
   ]], '5\n4\n3\n2\n1\n0\n-1')
 end)
 
+it("move", function()
+  -- `move` yields the value and zeroes its operand
+  expect.run_c([[
+    local Buf <owned> = @record{x: integer, y: integer}
+    function Buf:__close() end
+    local a: Buf = {1, 2}
+    local pa = &a
+    local b = move(a)
+    assert(b.x == 1 and b.y == 2)
+    assert(pa.x == 0 and pa.y == 0)
+    local P = @record{b: Buf, n: integer}
+    local p: P = {b = move(b), n = 3}
+    local c = move(p.b)
+    assert(c.x == 1 and c.y == 2 and p.b.x == 0 and p.b.y == 0 and p.n == 3)
+    local arr: [2]Buf = {move(c), Buf{5, 6}}
+    local parr = &arr
+    local arr2 = move(arr)
+    assert(arr2[0].x == 1 and arr2[1].y == 6)
+    assert(parr[0].x == 0 and parr[1].y == 0)
+    local function f(x: Buf): Buf
+      local y = move(x)
+      assert(x.x == 0 and x.y == 0)
+      return y
+    end
+    local d = f(move(arr2[1]))
+    assert(d.x == 5 and d.y == 6 and arr2[1].x == 0)
+    print('ok')
+  ]], 'ok')
+  -- a moved `<close>` receiver closes once, the source never closes a live value
+  expect.run_c([[
+    local closes = 0
+    local Res <owned> = @record{id: integer}
+    function Res:__close()
+      if self.id ~= 0 then closes = closes + 1 end
+    end
+    do
+      local a: Res = {7}
+      do
+        local b <close> = move(a)
+        assert(b.id == 7)
+      end
+      assert(closes == 1)
+      a = Res{8}
+      a:__close()
+    end
+    assert(closes == 2)
+    print('ok')
+  ]], 'ok')
+end)
+
 it("close", function()
   expect.run_c([[
     local R = @record{x: integer}

@@ -478,6 +478,11 @@ typedefs.type_annots = {
   using = true,
   -- Whether the type can be copied, that is, passed by value (experimental).
   nocopy = true,
+  -- Whether the record owns a resource released by its `__close` metamethod:
+  -- copying an lvalue of the type needs `move` and a moved variable cannot be read
+  -- until it is assigned again. Records with an owned field and arrays of owned
+  -- types are owned implicitly.
+  owned = true,
 }
 
 --[[
@@ -602,6 +607,7 @@ typedefs.builtin_attrs = {
     sideeffect = true},
   check = {type = primtypes.any},
   assert = {type = primtypes.any},
+  move = {type = primtypes.any}, -- rewritten by the analyzer, see `nelua.ownership`
   require = {type = types.FunctionType({{name='modname', type=primtypes.string}})},
   print = {type = primtypes.any},
   _G = {type = primtypes.table},

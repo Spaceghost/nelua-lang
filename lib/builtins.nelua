@@ -74,6 +74,16 @@ it will make the program error messages reproducible when building across differ
 ]]
 global function check(cond: boolean, message: facultative(string)): void <builtin> end
 
+--[[
+Transfers ownership of `x`, a variable, field, index or dereference of an owned type
+(a record annotated with `<owned>`, a record holding an owned field or an array of owned values):
+yields the value of `x` and resets `x` to its zero value.
+A moved variable cannot be read until it is assigned again, and a `<close>` variable cannot be moved.
+Copying an lvalue of an owned type anywhere else (assignments, initializers, by-value
+arguments, record and array literals, `return` of a field or upvalue) is a compile error without `move`.
+]]
+global function move(x: auto): auto <builtin> end
+
 -- Returns `cond`. This is a branching prediction utility, expecting `cond` to evaluate to `true`.
 global function likely(cond: boolean): boolean <builtin,nosideffect> end
 

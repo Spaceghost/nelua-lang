@@ -1895,6 +1895,72 @@ general_allocator:delete(p) -- free the Person allocation
 p = nilptr
 ```
 
+### Ownership
+
+A record that releases a resource in its `__close` metamethod can be annotated with `<owned>`.
+Values of an owned type are *affine*: the compiler makes sure a value is held by one
+variable at a time, so it cannot be released twice or used after it was handed away.
+Records holding an owned field and arrays of owned values are owned implicitly.
+
+```nelua
+require 'allocators.general'
+
+local Buf <owned> = @record{data: pointer, size: usize}
+
+function Buf.create(size: usize): Buf
+  return Buf{data = general_allocator:alloc(size), size = size}
+end
+
+function Buf:__close()
+  general_allocator:dealloc(self.data)
+  self.data = nilptr
+  self.size = 0
+end
+
+local function consume(b: Buf) -- takes the buffer by value, so it takes ownership
+  b:__close()
+end
+
+local function inspect(b: *Buf) -- a pointer never moves
+  print(b.size)
+end
+
+local a: Buf = Buf.create(16)
+-- local b = a           -- error: 'a' has owned type 'Buf', write `move(a)` or take `&a`
+local c = move(a)        -- ownership passes to `c`, `a` is reset to its zero value
+-- print(a.size)         -- error: variable 'a' of owned type 'Buf' was moved on line N
+a = Buf.create(8)        -- assigning `a` makes it live again
+consume(move(c))         -- passing by value is a move and needs `move`
+inspect(&a)              -- pointers do not move, outputs: 8
+a:__close()
+```
+
+The rules, all checked at compile time:
+
+* Copying an lvalue of an owned type needs `move`: in an assignment or declaration,
+  as a by-value call argument (including a by-value `self`), inside a record or array literal,
+  and in a `return` of anything but a plain local of the function (`return self.buf` needs
+  `move(self.buf)`). Rvalues (calls, constructors, `move(...)`) transfer ownership on their own,
+  and returning a local is a move.
+* `move(x)` yields the value of `x` and resets `x` to its zero value. `x` must be a variable,
+  field, index or dereference (`$p`) of an owned type.
+* After `move(x)`, reading `x` is an error until it is assigned again. The check follows the
+  control flow of the function body: a move inside an `if` branch, a `switch` case or a
+  loop body leaves `x` *maybe moved* afterwards, which is an error to read as well; a branch
+  ending in `return`, `break`, `continue` or `goto` does not leak its moves past the construct,
+  and a variable moved by the end of a loop body is reported where the next iteration would
+  read it. Only variables are tracked, not fields (`move(p.buf)` zeroes the field and nothing more),
+  and nothing is tracked across function calls.
+* A `<close>` variable cannot be moved, and a `<close>` local cannot be returned: its deferred
+  `__close` would run on the emptied or returned value.
+* Writes and reads through pointers are never checked.
+
+Errors name the variable, its type and the line of the move. The checks are an aid against
+double releases and use after release, not a memory safety guarantee: `move` zeroes the
+source so a stale `__close` releases nothing, but pointers taken before the move still point
+at the zeroed value.
+{:.alert.alert-info}
+
 ### Dereferencing and referencing
 
 The operator `&` is used to get a reference to a variable,

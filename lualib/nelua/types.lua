@@ -83,6 +83,11 @@ Type.shape = shaper.shape {
   using = shaper.optional_boolean,
   -- Whether the type can be copied, that is, passed by value.
   nocopy = shaper.optional_boolean,
+  -- Whether the type was annotated with <owned>.
+  owned = shaper.optional_boolean,
+  -- Whether values of the type own a resource (annotated <owned>, holding an owned field
+  -- or an array of such), so copies need `move` and moved variables cannot be read.
+  is_owned = shaper.optional_boolean,
   -- Marked when declaring a type without its definition.
   forwarddecl = shaper.optional_boolean,
   forwarddefn = shaper.optional_boolean,
@@ -1561,6 +1566,9 @@ function ArrayType:_init(subtype, length, node)
   if subtype.is_array then
     self.is_multidim_array = true
   end
+  if subtype.is_owned then -- an array of owned values is owned
+    self.is_owned = true
+  end
   -- validated subtype
   if subtype.is_comptime then
     ASTNode.raisef(node, "in array type: subtype cannot be of compile-time type '%s'", subtype)
@@ -2032,12 +2040,16 @@ function RecordType:update_fields()
   local fields = self.fields
   local offset, align = 0, 1
   local unknown = self.cincomplete
+  local owned = self.owned
   if #fields > 0 then
     local packed, aligned = self.packed, self.aligned
     -- compute fields offset and record align
     for i=1,#fields do
       local field = fields[i]
       local fieldtype = field.type
+      if fieldtype.is_owned then -- a record holding an owned value is owned
+        owned = true
+      end
 
       -- validate field
       if not fieldtype:is_defined() then
@@ -2082,6 +2094,7 @@ function RecordType:update_fields()
       align = math.max(aligned, align)
     end
   end
+  self.is_owned = owned and true or nil
   if not unknown then
     if offset == 0 then
       self.is_empty = true

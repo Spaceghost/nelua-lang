@@ -2201,6 +2201,347 @@ it("close", function()
   expect.analyze_error("local r: record{x: integer} <close>", "cannot close")
 end)
 
+-- four lines, so the body of each test below starts at line 5
+local owned_prelude = "local Buf <owned> = @record{data: pointer, size: usize}\n"..
+  "function Buf:__close() end\n"..
+  "local function consume(b: Buf) end\n"..
+  "local function inspect(b: *Buf) end\n"
+
+it("owned annotation", function()
+  expect.analyze_ast(owned_prelude..[[
+    local a: Buf
+    local b = move(a)
+    a = Buf{}
+    local c: Buf = move(b)
+    local Pair = @record{x: Buf, y: integer} -- owned through its field
+    local p: Pair
+    local q = move(p)
+    local arr: [2]Buf -- owned array
+    local arr2 = move(arr)
+    local Plain = @record{x: integer}
+    local u: Plain
+    local v = u -- not owned, copies freely
+    ## assert(Buf.value.is_owned and Pair.value.is_owned and not Plain.value.is_owned)
+    ## assert(arr.type.is_owned)
+  ]])
+  expect.analyze_error([[
+    local Buf <owned> = @record{x: integer}
+  ]], "type 'Buf' is annotated with <owned> but has no '__close' metamethod")
+  expect.analyze_error([[
+    local E <owned> = @enum{A=0}
+  ]], "annotation 'owned' is only valid for record types")
+  expect.analyze_error("local x: integer <owned>", "annotation 'owned' is undefined for variables")
+  expect.analyze_error("local function f() <owned> end", "annotation 'owned' is undefined for functions")
+end)
+
+it("owned copies need move", function()
+  expect.analyze_error(owned_prelude..[[
+    local a: Buf
+    local b = a
+  ]], "in variable 'b' declaration: 'a' has owned type 'Buf', write `move(a)` to transfer ownership or take a pointer with `&a`")
+  expect.analyze_error(owned_prelude..[[
+    local a: Buf
+    local b: Buf
+    b = a
+  ]], "in variable assignment: 'a' has owned type 'Buf', write `move(a)`")
+  expect.analyze_error(owned_prelude..[[
+    local a: Buf
+    consume(a)
+  ]], "in call of function 'consume' at argument 1: 'a' has owned type 'Buf', write `move(a)`")
+  expect.analyze_error(owned_prelude..[[
+    function Buf.byvalue(self: Buf) end
+    local a: Buf
+    a:byvalue()
+  ]], "in method call 'byvalue' at argument 'self': 'a' has owned type 'Buf'")
+  expect.analyze_error(owned_prelude..[[
+    local P = @record{b: Buf}
+    local a: Buf
+    local p: P = {b = a}
+  ]], "in record literal field 'b': 'a' has owned type 'Buf', write `move(a)`")
+  expect.analyze_error(owned_prelude..[[
+    local a: Buf
+    local arr: [1]Buf = {a}
+  ]], "in array literal at index 1: 'a' has owned type 'Buf', write `move(a)`")
+  expect.analyze_error(owned_prelude..[[
+    local P = @record{b: Buf}
+    local function f(p: *P): Buf
+      return p.b
+    end
+  ]], "return at index 1: 'p.b' has owned type 'Buf' and is not a local of this block, write `move(p.b)`")
+  expect.analyze_error(owned_prelude..[[
+    local a: Buf
+    local function f(): Buf
+      return a
+    end
+  ]], "return at index 1: 'a' has owned type 'Buf' and is not a local of this block, write `move(a)`")
+  expect.analyze_error(owned_prelude..[[
+    local function f(): Buf
+      local a: Buf <close>
+      return a
+    end
+  ]], "return at index 1: cannot return 'a' of owned type 'Buf', it is a <close> variable")
+  expect.analyze_error(owned_prelude..[[
+    local a: Buf
+    local b = (do in a end)
+  ]], "in `in` expression: 'a' has owned type 'Buf' and is not a local of this block, write `move(a)`")
+  expect.analyze_error(owned_prelude..[[
+    local p: *Buf
+    local b = $p
+  ]], "in variable 'b' declaration: '$p' has owned type 'Buf', write `move($p)`")
+  expect.analyze_error(owned_prelude..[[
+    local P = @record{b: Buf}
+    local p: P
+    local q = p
+  ]], "'p' has owned type 'P', write `move(p)`")
+  expect.analyze_error(owned_prelude..[[
+    local arr: [2]Buf
+    local arr2 = arr
+  ]], "'arr' has owned type 'array(Buf, 2)', write `move(arr)`")
+  -- accepted forms
+  expect.analyze_ast(owned_prelude..[[
+    local a: Buf
+    local b = move(a)
+    a = Buf{}
+    consume(move(a))
+    inspect(&b)
+    local function make(): Buf
+      local r: Buf
+      return r -- returning a local is a move
+    end
+    local function pass(x: Buf): Buf
+      return x -- arguments are locals
+    end
+    local P = @record{b: Buf}
+    local p: P = {b = move(b)}
+    local function take(p: *P): Buf
+      return move(p.b)
+    end
+    local c = make()
+    local d: Buf = pass(move(c))
+    local arr: [1]Buf = {move(d)}
+    local arr2 = move(arr)
+    local e = (do local t: Buf in t end)
+    local f = (do in move(e) end)
+    local ptr: *Buf = &f
+    local g = move($ptr)
+    local h = move(arr2[0])
+    local i = move((h))
+    print(i) -- builtins never take ownership
+    local function returns_two(): (Buf, integer)
+      local r: Buf
+      return r, 1
+    end
+    local j, k = returns_two()
+    local l, m = move(j), k
+  ]])
+end)
+
+it("owned moved state", function()
+  expect.analyze_error(owned_prelude..[[
+    local a: Buf
+    local b = move(a)
+    print(a.size)
+  ]], "variable 'a' of owned type 'Buf' was moved on line 6, assign it again before using it")
+  expect.analyze_error(owned_prelude..[[
+    local a: Buf
+    local b = move(a)
+    local c = move(a)
+  ]], "variable 'a' of owned type 'Buf' was moved on line 6")
+  expect.analyze_error(owned_prelude..[[
+    local a: Buf
+    consume(move(a))
+    a.size = 1
+  ]], "variable 'a' of owned type 'Buf' was moved on line 6")
+  expect.analyze_error(owned_prelude..[[
+    local a: Buf
+    consume(move(a))
+    inspect(&a)
+  ]], "variable 'a' of owned type 'Buf' was moved on line 6")
+  expect.analyze_error(owned_prelude..[[
+    local a: Buf
+    consume(move(a))
+    a:__close()
+  ]], "variable 'a' of owned type 'Buf' was moved on line 6")
+  -- branches
+  expect.analyze_error(owned_prelude..[[
+    local a: Buf
+    local x = false
+    if x then
+      consume(move(a))
+    end
+    print(a.size)
+  ]], "variable 'a' of owned type 'Buf' may have been moved on line 8 (the move is inside a branch, loop or switch case)")
+  expect.analyze_error(owned_prelude..[[
+    local a: Buf
+    local x = false
+    if x then
+      consume(move(a))
+    else
+      consume(move(a))
+    end
+    print(a.size)
+  ]], "variable 'a' of owned type 'Buf' was moved on line 8")
+  expect.analyze_error(owned_prelude..[[
+    local a: Buf
+    local x = false
+    if x then
+      consume(move(a))
+    elseif a.size > 0 then
+    end
+  ]], "variable 'a' of owned type 'Buf' may have been moved on line 8")
+  expect.analyze_error(owned_prelude..[[
+    local a: Buf
+    local x = false
+    if x then
+      consume(move(a))
+    else
+      a = Buf{}
+    end
+    print(a.size)
+  ]], "variable 'a' of owned type 'Buf' may have been moved on line 8")
+  expect.analyze_error(owned_prelude..[[
+    local a: Buf
+    local n = 0
+    switch n do
+    case 1 then
+      consume(move(a))
+    end
+    print(a.size)
+  ]], "variable 'a' of owned type 'Buf' may have been moved on line 9")
+  expect.analyze_error(owned_prelude..[[
+    local a: Buf
+    local n = 0
+    switch n do
+    case 1 then
+      consume(move(a))
+      fallthrough
+    case 2 then
+      print(a.size)
+    end
+  ]], "variable 'a' of owned type 'Buf' may have been moved on line 9")
+  -- loops
+  expect.analyze_error(owned_prelude..[[
+    local a: Buf
+    local x = false
+    while x do
+      consume(move(a))
+      break
+    end
+    print(a.size)
+  ]], "variable 'a' of owned type 'Buf' may have been moved on line 8")
+  expect.analyze_error(owned_prelude..[[
+    local a: Buf
+    local x = false
+    while x do
+      consume(move(a))
+    end
+  ]], "variable 'a' of owned type 'Buf' was moved on line 8 in a previous iteration of the loop")
+  expect.analyze_error(owned_prelude..[[
+    local a: Buf
+    for i=1,2 do
+      consume(move(a))
+    end
+  ]], "variable 'a' of owned type 'Buf' was moved on line 7 in a previous iteration of the loop")
+  expect.analyze_error(owned_prelude..[[
+    local a: Buf
+    local x = false
+    while x do
+      if x then
+        consume(move(a))
+        continue
+      end
+      a = Buf{}
+    end
+  ]], "variable 'a' of owned type 'Buf' may have been moved on line 9 in a previous iteration of the loop")
+  expect.analyze_error(owned_prelude..[[
+    local a: Buf
+    repeat
+      consume(move(a))
+    until true
+    print(a.size)
+  ]], "variable 'a' of owned type 'Buf' was moved on line 7")
+  -- `<close>` variables
+  expect.analyze_error(owned_prelude..[[
+    local a: Buf <close>
+    local b = move(a)
+  ]], "in call of builtin 'move': cannot move 'a' of owned type 'Buf', it is a <close> variable")
+  -- `move` operands
+  expect.analyze_error(owned_prelude..[[
+    local b = move(Buf{})
+  ]], "in call of builtin 'move': expected a variable, field, index or dereference of an owned type, but got an rvalue of type 'Buf'")
+  expect.analyze_error(owned_prelude..[[
+    local i = 1
+    local j = move(i)
+  ]], "in call of builtin 'move': 'i' has type 'int64', which is not owned")
+  expect.analyze_error(owned_prelude..[[
+    local a: Buf
+    move(a)
+  ]], "in call of builtin 'move': the moved value of 'a' is unused")
+  expect.analyze_error(owned_prelude..[[
+    local a: Buf
+    local b = move(a, a)
+  ]], "in call of builtin 'move': expected 1 argument but got 2")
+  -- accepted forms
+  expect.analyze_ast(owned_prelude..[[
+    local a: Buf
+    local b = move(a)
+    a = Buf{} -- live again
+    print(a.size)
+    local x = false
+    if x then
+      consume(move(a))
+      a = Buf{}
+    end
+    print(a.size)
+    local function f(a: Buf): integer
+      if a.size == 0 then
+        consume(move(a))
+        return 0 -- the move does not leak past the early return
+      end
+      return a.size
+    end
+    while x do
+      if x then
+        consume(move(a))
+        break -- nor past the break
+      end
+      print(a.size)
+    end
+    while x do
+      a = Buf{}
+      consume(move(a)) -- assigned before every read of the iteration
+    end
+    a = Buf{}
+    for i=1,2 do
+      if x then
+        a = Buf{}
+        consume(move(a))
+        continue
+      end
+      a = Buf{}
+    end
+    a = Buf{}
+    local P = @record{b: Buf}
+    local p: P
+    local c = move(p.b)
+    local d = move(p.b) -- fields are not tracked, only variables
+    local pa = &a
+    consume(move(a))
+    print(pa.size) -- pointers are not tracked
+    switch 1 do
+    case 1 then
+      a = Buf{}
+    else
+      a = Buf{}
+    end
+    print(a.size)
+    local arr: [2]Buf
+    local arr2 = move(arr)
+    arr = {}
+    print(#arr)
+  ]])
+end)
+
 it("builtins", function()
   expect.ast_type_equals("local a = #@integer", "local a: isize = #@integer")
   expect.ast_type_equals("local a = likely(true)", "local a: boolean = likely(true)")

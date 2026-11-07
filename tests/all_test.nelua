@@ -19,6 +19,7 @@ require 'tests.hashmap_test'
 require 'tests.algorithm_test'
 require 'tests.heapqueue_test'
 require 'tests.tuple_test'
+require 'tests.owned_test'
 require 'tests.defer_test'
 require 'tests.coroutine_test'
 
