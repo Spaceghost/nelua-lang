@@ -687,9 +687,14 @@ function GCAllocator:realloc(ptr: pointer, newsize: usize, oldsize: usize): poin
   elseif unlikely(newsize == oldsize) then
     return ptr
   else -- shrinking or growing
+    -- capture the old address as an integer before the reallocation:
+    -- once `realloc` frees the block the pointer value is indeterminate in C
+    -- (gcc 12 flags any later read of `ptr` as -Wuse-after-free),
+    -- `volatile` keeps the compiler from folding the integer back to `ptr`
+    local oldaddr: usize <volatile> = (@usize)(ptr)
     local newptr: pointer = general_allocator:realloc(ptr, newsize, oldsize)
     if likely(newptr) then
-      gc:reregister(ptr, newptr, newsize)
+      gc:reregister((@pointer)(oldaddr), newptr, newsize)
     end
     return newptr
   end
