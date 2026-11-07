@@ -22,12 +22,15 @@ luadefs.binary_ops = {
   ['band'] = '&',
   ['shl'] = '<<',
   ['shr'] = '>>',
+  ['asr'] = '>>', -- emitted through `nelua_asr`
   ['add'] = '+',
   ['sub'] = '-',
   ['mul'] = '*',
   ['div'] = '/',
   ['idiv'] = '//',
+  ['tdiv'] = '//', -- emitted through `nelua_tdiv`
   ['mod'] = '%',
+  ['tmod'] = '%', -- emitted through `nelua_tmod`
   ['pow'] = '^',
   ['concat'] = '..',
 }

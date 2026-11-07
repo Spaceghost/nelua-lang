@@ -152,6 +152,9 @@ comptime.get_defnode = get_defnode
 local PENDING = setmetatable({}, {__tostring = function() return 'comptime pending' end})
 comptime.PENDING = PENDING
 
+-- Accepts every node tag in `ASTNode:walk_trace_nodes`.
+local all_tags = setmetatable({}, {__index = function() return true end})
+
 local check_function
 
 -- Checks that function `symbol`, called from `node`, can be evaluated at compile time.
@@ -169,10 +172,20 @@ local function check_callee(context, symbol, node, fstate)
   check_function(context, symbol, defnode, fstate.info)
 end
 
-local function check_node(context, node, parent, fstate)
+local function check_node(context, node, trace, fstate)
   local attr = node.attr
+  local parent = trace[#trace]
   local raise = function(msg, ...)
-    node:raisef("in compile-time evaluation of function '%s': "..msg, fstate.name, ...)
+    local locnode = node
+    local i = #trace
+    while not locnode.pos and i > 0 do -- synthesized nodes point at their source statement
+      locnode = trace[i]
+      i = i - 1
+    end
+    locnode:raisef("in compile-time evaluation of function '%s': "..msg, fstate.name, ...)
+  end
+  if node.is_IdDecl and node[1] == '__forclose' then -- the lowering of a `for in` loop
+    raise("`for in` loops cannot be used at compile time (iterators are runtime functions)")
   end
   local type = attr.type
   if type and not node.is_Type then
@@ -292,10 +305,8 @@ check_function = function(context, symbol, defnode, info)
     end
   end
   local ok, err = pcall(function()
-    for node, parent in defnode:walk_nodes() do
-      if node ~= defnode then
-        check_node(context, node, parent, fstate)
-      end
+    for node, trace in defnode:walk_trace_nodes(all_tags) do
+      check_node(context, node, trace, fstate)
     end
   end)
   if not ok then
@@ -516,6 +527,7 @@ local function run(context, symbol, funcinfo, args, node)
   local steps, depth = 0, 0
   local limiterr
   local function hook(event)
+    if limiterr then return end -- already failing, let the error unwind
     if event == 'count' then
       steps = steps + HOOK_COUNT
       if steps > maxsteps then
