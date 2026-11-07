@@ -1980,6 +1980,42 @@ it("variant types", function()
   ]])
 end)
 
+it("record equality with field metamethods", function()
+  -- comparing records resolves the `__eq` instance of field types for the C generator
+  expect.analyze_ast([[
+    local P = @record{x: number}
+    function P.__eq(a: P, b: P): boolean return a.x == b.x end
+    local R = @record{p: P}
+    local S = @record{ps: [2]P, r: R}
+    ## static_assert(not P.value.eqsym)
+    local a: S, b: S
+    local x = a == b
+    ## static_assert(P.value.eqsym == P.value.metafields.__eq)
+    ## static_assert(not R.value.eqsym and not S.value.eqsym)
+  ]])
+  -- an `__eq` that cannot compare two values of its type is left alone
+  expect.analyze_ast([[
+    local Odd = @record{x: integer}
+    function Odd.__eq(a: Odd, b: integer): boolean return a.x == b end
+    local W = @record{o: Odd}
+    local a: W, b: W
+    local x = a == b
+    ## static_assert(not Odd.value.eqsym)
+  ]])
+  -- a polymorphic `__eq` gets an instance for the field type pair
+  expect.analyze_ast([[
+    local Int = @record{x: integer}
+    function Int.__eq(a: auto, b: auto): boolean return a.x == b.x end
+    local Z = @record{i: Int}
+    local function f(a: Z, b: Z) return a == b end
+    ## local IntT = Int.value
+    ## after_analyze(function()
+    ##   static_assert(IntT.eqsym and IntT.eqsym.type.is_function)
+    ##   static_assert(#IntT.metafields.__eq.type.evals == 1)
+    ## end)
+  ]])
+end)
+
 it("const pointers", function()
   expect.analyze_ast([[
     local a: integer = 1

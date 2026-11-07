@@ -772,6 +772,14 @@ print(d.name, d.age)
 Records are directly translated to C structs.
 {:.alert.alert-info}
 
+Two records of the same type compare equal with `==` when every field compares equal:
+a field whose type defines an `__eq` metamethod (a record with a custom `__eq`, a `variant`,
+an `optional`) is compared by calling it, also for elements of array fields,
+every other field is compared by value (arrays of scalars by their bytes).
+Padding bytes are never compared. A record defining its own `__eq` uses it instead,
+see [record metamethods](#record-metamethods).
+{:.alert.alert-info}
+
 ### Union
 
 Union store multiple variables in a shared memory block:

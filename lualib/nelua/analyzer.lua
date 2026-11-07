@@ -3970,6 +3970,75 @@ local function visitor_orelse(context, node)
   context:transform_and_traverse_node(node, newnode)
 end
 
+--[[
+Resolves the `__eq` metamethod instance comparing two values of `type` into `type.eqsym`,
+so the structural record equality builtin calls it for fields (and array elements) of that
+type instead of comparing their bytes. A polymorphic `__eq` (variants, `auto` arguments) is
+instantiated for `(type, type)` through a synthetic call kept in `node.fieldeqcalls`, which
+resolves across analyzer passes like any other call. Returns whether the instance is resolved.
+]]
+local function resolve_field_eq(context, node, type)
+  if type.eqsym then return true end
+  local objsym = type.symbol
+  local mtsym = type.metafields.__eq
+  local mttype = mtsym.type
+  if not objsym or not mttype then return false end
+  if not mttype.is_polyfunction then
+    local argtypes = mttype.argtypes
+    if #argtypes ~= 2 or
+       not argtypes[1]:is_convertible_from_type(type) or
+       not argtypes[2]:is_convertible_from_type(type) then
+      return true -- cannot compare two values of the type with it, compare bytes as before
+    end
+  end
+  local fieldeqcalls = node.fieldeqcalls
+  if not fieldeqcalls then
+    fieldeqcalls = {}
+    node.fieldeqcalls = fieldeqcalls
+  end
+  local callnode = fieldeqcalls[type]
+  if not callnode then
+    local function make_argnode(name)
+      local argsym = Symbol{name = name, type = type, staticstorage = true}
+      return aster.Id{name, pattr={forcesymbol=argsym}}
+    end
+    callnode = aster.Call{{make_argnode('a'), make_argnode('b')},
+      aster.DotIndex{'__eq', aster.Id{objsym.name, pattr={forcesymbol=objsym}}}}
+    fieldeqcalls[type] = callnode
+  end
+  context:traverse_node(callnode)
+  local calleesym = callnode.attr.calleesym
+  if not (calleesym and calleesym.type) then return false end
+  type.eqsym = calleesym
+  return true
+end
+
+-- Resolves every `__eq` needed to compare two records of `type` by fields, returns whether done.
+local function resolve_record_fields_eq(context, node, type)
+  if not type.is_record then return true end -- unions compare bytes
+  local done = true
+  for _,field in ipairs(type.fields) do
+    local fieldtype = field.type
+    while fieldtype.is_array do fieldtype = fieldtype.subtype end
+    if fieldtype.metafields and fieldtype.metafields.__eq then
+      if not resolve_field_eq(context, node, fieldtype) then done = false end
+    elseif fieldtype.is_record then
+      if not resolve_record_fields_eq(context, node, fieldtype) then done = false end
+    end
+  end
+  return done
+end
+
+-- Prepares `==`/`~=` between two records without their own `__eq`, returns whether done.
+local function resolve_composite_eq(context, node, opname, ltype, rtype)
+  if not ((opname == 'eq' or opname == 'ne') and ltype and ltype == rtype) then return true end
+  if ltype.is_pointer and ltype.subtype.is_composite then
+    ltype = ltype.subtype -- auto dereferenced below
+  end
+  if not ltype.is_record or ltype.metafields.__eq then return true end
+  return resolve_record_fields_eq(context, node, ltype)
+end
+
 function visitors.BinaryOp(context, node, opts)
   local lnode, opname, rnode = node[1], node[2], node[3]
   if opname == 'orelse' then
@@ -3997,14 +4066,16 @@ function visitors.BinaryOp(context, node, opts)
     visitor_boolean_context(rnode)
   end
 
+  local lattr, rattr = lnode.attr, rnode.attr
+  local ltype, rtype = lattr.type, rattr.type
+  local fieldeqsdone = resolve_composite_eq(context, node, opname, ltype, rtype)
+
   -- quick return for already resolved type
   if attr.type then
-    if lnode.done and rnode.done then node.done = true end
+    if lnode.done and rnode.done and fieldeqsdone then node.done = true end
     return
   end
 
-  local lattr, rattr = lnode.attr, rnode.attr
-  local ltype, rtype = lattr.type, rattr.type
   local type
   if ltype and rtype then
     if ltype.is_pointer and rtype.is_pointer and not disallowed_deref_ops[opname] and
@@ -4048,7 +4119,7 @@ function visitors.BinaryOp(context, node, opts)
   end
   if type then
     attr.type = type
-    if lnode.done and rnode.done then
+    if lnode.done and rnode.done and fieldeqsdone then
       node.done = true
     end
   end

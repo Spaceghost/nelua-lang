@@ -1681,6 +1681,104 @@ it("record comparisons", function()
     assert(($pq ~= 0) == true)
 ]])
 end)
+it("record comparisons with field metamethods", function()
+  -- a field type's `__eq` is called instead of comparing its bytes
+  expect.generate_c([[
+    local P = @record{x: number}
+    function P.__eq(a: P, b: P): boolean return a.x == b.x end
+    local R = @record{p: P, n: integer}
+    local a: R, b: R
+    local x = a == b
+  ]], "return P___eq(a.p, b.p) && a.n == b.n;")
+  -- arrays of such types loop over the elements, arrays of scalars keep the memcmp fast path
+  expect.generate_c([[
+    local P = @record{x: number}
+    function P.__eq(a: P, b: P): boolean return a.x == b.x end
+    local R = @record{ps: [2]P, ns: [2]integer}
+    local a: R, b: R
+    local x = a == b
+  ]], {"if(!P___eq(a[i], b[i])) return false;",
+       "return nelua_eq_P_arr2((P_ptr)a.ps, (P_ptr)b.ps) && memcmp(a.ns, b.ns, sizeof(a.ns)) == 0;"})
+  -- a custom `__eq` on a field (tolerance compare) decides the record equality
+  expect.run_c([[
+    require 'math'
+    local Point = @record{x: number, y: number}
+    function Point.__eq(a: Point, b: Point): boolean
+      return math.abs(a.x - b.x) < 0.01 and math.abs(a.y - b.y) < 0.01
+    end
+    local S = @record{p: Point, n: integer}
+    local s1: S = {p = {1.0, 2.0}, n = 1}
+    local s2: S = {p = {1.001, 2.0}, n = 1}
+    assert(s1.p == s2.p)
+    assert(s1 == s2) assert(not (s1 ~= s2))
+    s2.n = 2
+    assert(s1 ~= s2) assert(not (s1 == s2))
+    s2.n = 1
+    s2.p.x = 1.5
+    assert(s1 ~= s2)
+
+    -- arrays of such records, nested arrays, plain arrays and nested plain records
+    local Inner = @record{p: Point, k: integer}
+    local A = @record{ps: [2]Point, grid: [2][2]Point, ns: [3]integer, inner: Inner}
+    local a1: A = {ps = {{1,2},{3,4}}, grid = {{{1,2},{3,4}},{{5,6},{7,8}}}, ns = {1,2,3}, inner = {{1,1}, 1}}
+    local a2: A = {ps = {{1.001,2},{3,4}}, grid = {{{1,2},{3,4}},{{5,6},{7,8.001}}}, ns = {1,2,3}, inner = {{1,1.001}, 1}}
+    assert(a1 == a2) assert(not (a1 ~= a2))
+    a2.ns[2] = 4
+    assert(a1 ~= a2)
+    a2.ns[2] = 3
+    a2.grid[1][1].y = 9
+    assert(a1 ~= a2)
+    a2.grid[1][1].y = 8
+    a2.inner.p.x = 2
+    assert(a1 ~= a2)
+
+    -- an `__eq` with `auto` arguments is instantiated for the field type
+    local Int = @record{x: integer, junk: integer}
+    function Int.__eq(a: auto, b: auto): boolean return a.x == b.x end
+    local Z = @record{i: Int}
+    local z1: Z = {i = {1, 10}}
+    local z2: Z = {i = {1, 20}}
+    assert(z1 == z2)
+    z2.i.x = 2
+    assert(z1 ~= z2)
+
+    -- an `__eq` that cannot compare two values of the field type is not used
+    local Odd = @record{x: integer}
+    function Odd.__eq(a: Odd, b: integer): boolean return a.x == b end
+    local W = @record{o: Odd}
+    local function same(a: W, b: W): boolean return a == b end
+    assert(same({{1}}, {{1}}))
+    assert(not same({{1}}, {{2}}))
+  ]])
+  -- a variant field compares through its `__eq`, the unused union bytes are ignored
+  expect.run_c([[
+    require 'variant'
+    local V = @variant(integer, string)
+    local R = @record{v: V, n: integer}
+    local a: R, b: R
+    a.v:set("hello world, a long string")
+    a.v:set(1)
+    b.v:set(1)
+    assert(a.v == b.v)
+    assert(a == b) assert(not (a ~= b))
+    b.v:set(2)
+    assert(a ~= b) assert(not (a == b))
+    b.v:set("hello world, a long string")
+    assert(a ~= b)
+    a.v:set("hello world, a long string")
+    assert(a == b)
+    a.v:clear()
+    assert(a ~= b)
+    b.v:clear()
+    assert(a == b)
+    local vs1: [2]V, vs2: [2]V
+    vs1[0]:set("padding") vs1[0]:set(3) vs2[0]:set(3)
+    local AV = @record{vs: [2]V}
+    assert((@AV){vs1} == (@AV){vs2})
+    vs2[1]:set(4)
+    assert((@AV){vs1} ~= (@AV){vs2})
+  ]])
+end)
 
 it("binary conditional operators", function()
   expect.generate_c("local a: pointer, b: pointer; local x = a or b",  [[({

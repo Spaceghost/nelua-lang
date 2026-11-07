@@ -7,6 +7,7 @@ This module defines implementations for many builtin C functions used by the C c
 local pegger = require 'nelua.utils.pegger'
 local cdefs = require 'nelua.cdefs'
 local CEmitter = require 'nelua.cemitter'
+local types = require 'nelua.types'
 local typedefs = require 'nelua.typedefs'
 local ccompiler = require 'nelua.ccompiler'
 local primtypes = typedefs.primtypes
@@ -597,15 +598,55 @@ function cbuiltins.nelua_lt_(context, ltype, rtype)
   return name
 end
 
+-- Returns whether comparing two values of `type` calls a `__eq` metamethod
+-- (resolved by the analyzer into `eqsym`) for the value, a field or an array element.
+local function eq_needs_metamethod(type)
+  if type.eqsym then return true end
+  if type.is_array then return eq_needs_metamethod(type.subtype) end
+  if type.is_record then
+    for _,field in ipairs(type.fields) do
+      if eq_needs_metamethod(field.type) then return true end
+    end
+  end
+  return false
+end
+
 -- Used by equality operator (`==`).
 function cbuiltins.nelua_eq_(context, ltype, rtype)
   if not rtype then -- comparing same type
     local type = ltype
     local name = 'nelua_eq_'..type.codename
     if context.usedbuiltins[name] then return name end
-    assert(type.is_composite)
+    assert(type.is_composite or type.is_array)
     local defemitter = CEmitter(context)
     defemitter:add_ln('{') defemitter:inc_indent()
+    if type.is_array then
+      -- array (field) whose elements compare with a `__eq` metamethod,
+      -- takes pointers to the first elements, nested arrays are flattened
+      local subtype, len = type.subtype, type.length
+      while subtype.is_array do
+        len = len * subtype.length
+        subtype = subtype.subtype
+      end
+      defemitter:add_indent_ln('for(', primtypes.usize, ' i = 0; i < ', len, '; ++i) {')
+      defemitter:inc_indent()
+      defemitter:add_indent('if(!')
+      if subtype.eqsym then
+        defemitter:add(subtype.eqsym, '(a[i], b[i])')
+      else
+        defemitter:add_builtin('nelua_eq_', subtype)
+        defemitter:add('(a[i], b[i])')
+      end
+      defemitter:add_ln(') return false;')
+      defemitter:dec_indent() defemitter:add_indent_ln('}')
+      defemitter:add_indent_ln('return true;')
+      defemitter:dec_indent() defemitter:add_ln('}')
+      local ptrtype = types.PointerType(subtype)
+      context:define_function_builtin(name,
+        'NELUA_INLINE', primtypes.boolean, {{ptrtype, 'a'}, {ptrtype, 'b'}},
+        defemitter:generate())
+      return name
+    end
     defemitter:add_indent('return ')
     if type.is_union then
       defemitter:add_builtin('memcmp')
@@ -616,9 +657,15 @@ function cbuiltins.nelua_eq_(context, ltype, rtype)
           defemitter:add(' && ')
         end
         local fieldname, fieldtype = field.name, field.type
-        if fieldtype.is_composite then
+        if fieldtype.eqsym then -- the field type has a `__eq` metamethod
+          defemitter:add(fieldtype.eqsym, '(a.', fieldname, ', b.', fieldname, ')')
+        elseif fieldtype.is_composite then
           defemitter:add_builtin('nelua_eq_', fieldtype)
           defemitter:add('(a.', fieldname, ', b.', fieldname, ')')
+        elseif fieldtype.is_array and eq_needs_metamethod(fieldtype) then
+          local ptrtype = types.PointerType(fieldtype.inner_subtype)
+          defemitter:add_builtin('nelua_eq_', fieldtype)
+          defemitter:add('((', ptrtype, ')a.', fieldname, ', (', ptrtype, ')b.', fieldname, ')')
         elseif fieldtype.is_array then
           defemitter:add_builtin('memcmp')
           defemitter:add('(a.', fieldname, ', ', 'b.', fieldname, ', sizeof(a.', fieldname, ')) == 0')
