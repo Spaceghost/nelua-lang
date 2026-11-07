@@ -258,12 +258,12 @@ local K = 3
 local k = 3]])
 end)
 it("typed arrays and records", function()
-  expect.lua_gencode_contains([[
+  expect.lua_gencode_contains([=[
 local t: [4]uint8 = {1,2}
 local u: [2]integer = {1,2}
 local v: [3]integer
 local w = u
-local x = u[1]]], {
+local x = u[1]]=], {
     "local t = nelua_array(4, 0, {[0] = 1, 2})",
     "local u = {[0] = 1, 2}",
     "local v = nelua_array(3, 0)",
