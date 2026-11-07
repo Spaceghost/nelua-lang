@@ -5,6 +5,11 @@ on:
     branches:
       - "master"
 
+# The upload step creates the `latest` pre-release with GITHUB_TOKEN, which is
+# read-only on this fork unless the workflow asks for write access.
+permissions:
+  contents: write
+
 jobs:
   package:
     strategy:
