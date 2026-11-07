@@ -209,6 +209,7 @@ Type.shape = shaper.shape {
   is_sequence = shaper.optional_boolean,
   is_list = shaper.optional_boolean,
   is_hashmap = shaper.optional_boolean,
+  is_heapqueue = shaper.optional_boolean,
   is_filestream = shaper.optional_boolean,
   is_time_t = shaper.optional_boolean,
   is_clock_t = shaper.optional_boolean,
