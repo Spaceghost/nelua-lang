@@ -2725,6 +2725,43 @@ it("optional types", function()
   ]])
   expect.analyze_error([[
     require 'optional'
+    local function find(k: integer): integer? return nil end
+    local function f(k: integer): integer?
+      local a, b = find(k)?
+      return a
+    end
+  ]], "`?` yields a single value, but 2 values are expected")
+  expect.analyze_error([[
+    require 'optional'
+    local function find(k: integer): integer? return nil end
+    local function f(k: integer): integer?
+      local a, b: integer
+      a, b = find(k)?
+      return a
+    end
+  ]], "`?` yields a single value, but 2 values are expected")
+  expect.analyze_ast([[
+    require 'optional'
+    local function find(k: integer): integer? return nil end
+    local function wrap(v: integer): integer? return v end
+    local Node = @record{n: integer, next: *Node}
+    local function f(k: integer): integer?
+      local a, b = find(k)?, 2 -- `?` is one value among others
+      return wrap(find(a)?)? + b -- nested `?`
+    end
+    local function second(n: *Node): *Node?
+      return n?.next? -- chained `?`
+    end
+    local function g(k: integer): integer?
+      local v = (function(j: integer): integer? return find(j) end)(k)? -- `?` on a closure call
+      return (do in find(v)? end) -- `?` as the sole `in` expression
+    end
+  ]])
+end)
+
+it("optional types embedded in cimport records", function()
+  expect.analyze_error([[
+    require 'optional'
     local Inner = @record{o: integer?}
     local Outer <cimport,nodecl> = @record{inner: Inner}
   ]], "optional types cannot be used in a <cimport> record field")
@@ -2772,40 +2809,6 @@ it("optional types", function()
     Inner = @record{n: integer}
     local x: Outer
     local n: integer = x.p.n
-  ]])
-  expect.analyze_error([[
-    require 'optional'
-    local function find(k: integer): integer? return nil end
-    local function f(k: integer): integer?
-      local a, b = find(k)?
-      return a
-    end
-  ]], "`?` yields a single value, but 2 values are expected")
-  expect.analyze_error([[
-    require 'optional'
-    local function find(k: integer): integer? return nil end
-    local function f(k: integer): integer?
-      local a, b: integer
-      a, b = find(k)?
-      return a
-    end
-  ]], "`?` yields a single value, but 2 values are expected")
-  expect.analyze_ast([[
-    require 'optional'
-    local function find(k: integer): integer? return nil end
-    local function wrap(v: integer): integer? return v end
-    local Node = @record{n: integer, next: *Node}
-    local function f(k: integer): integer?
-      local a, b = find(k)?, 2 -- `?` is one value among others
-      return wrap(find(a)?)? + b -- nested `?`
-    end
-    local function second(n: *Node): *Node?
-      return n?.next? -- chained `?`
-    end
-    local function g(k: integer): integer?
-      local v = (function(j: integer): integer? return find(j) end)(k)? -- `?` on a closure call
-      return (do in find(v)? end) -- `?` as the sole `in` expression
-    end
   ]])
 end)
 
