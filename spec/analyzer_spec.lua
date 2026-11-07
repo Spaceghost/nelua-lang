@@ -4234,12 +4234,12 @@ it("comptime evaluation", function()
     local w <comptime> = comptime(big(65536))
     comptime(f()) -- results of a statement are discarded
     ##[[ after_inference(function()
-      assert(F.value == 6765 and F.type == primtypes.integer)
-      assert(a.value == 1 and b.value == 'a' and c.value == true)
-      assert(p.value == 2 and q.value == 's')
-      assert(inf.value == math.huge)
-      assert(um.type == primtypes.uint64 and tostring(um.value) == '18446744073709551615')
-      assert(w.type == primtypes.int32 and w.value == 0)
+      assert(tostring(F.value) == '6765' and F.type == primtypes.integer, 'F')
+      assert(tostring(a.value) == '1' and b.value == 'a' and c.value == true, 'abc')
+      assert(tostring(p.value) == '2' and q.value == 's', 'pq')
+      assert(tostring(inf.value) == 'inf', 'inf')
+      assert(um.type == primtypes.uint64 and tostring(um.value) == '18446744073709551615', 'um')
+      assert(w.type == primtypes.int32 and tostring(w.value) == '0', 'w')
     end) ]]
   ]=])
   -- `<comptime>` functions evaluate at every call site, also recursively

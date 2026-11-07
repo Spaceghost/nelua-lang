@@ -5988,7 +5988,7 @@ it("comptime evaluation", function()
     local function g(): R return R{x = 1, y = 2.5, s = 'hi', b = true} end
     local r = comptime(g())
   ]], {
-    "static nluint32_arr4 T = {.v = {0U, 3988292384U, 3681617472U, 3374942560U}};",
+    "static nluint32_arr4 T = {.v = {0U, 3988292384ULL, 3681617472ULL, 3374942560ULL}};",
     'static R r = {.x = 1, .y = 2.5, .s = {(uint8_t*)"hi", 2}, .b = true};',
   })
   -- a `<comptime>` function is never emitted, its calls are
