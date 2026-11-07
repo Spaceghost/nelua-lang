@@ -4452,7 +4452,7 @@ it("comptime evaluation errors", function()
   expect.analyze_error([[
     local function f(a: integer, b: integer): integer return a // b end
     local x = comptime(f(1, 0))
-  ]], "in compile-time evaluation of function 'f': attempt to perform 'n//0'")
+  ]], "in compile-time evaluation of function 'f': attempt to divide by zero")
   -- step and stack limits
   expect.analyze_error([[
     ## pragmas.comptime_steps = 100000
