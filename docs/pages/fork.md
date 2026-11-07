@@ -222,9 +222,12 @@ Rules, all enforced at compile time and all free at run time:
 * Only variables are tracked, not fields, and nothing is tracked across calls. This is an aid
   against double release and use after release, not a memory safety proof.
 
-In the standard library `heapqueue` and `list` are owned. `vector`, `sequence`, `hashmap`,
-`stringbuilder` and `filestream` are not yet, because parts of the library still pass them by
-value; the overview lists the places.
+In the standard library `heapqueue` and `list` are owned. A `vector` of an owned type owns
+its elements and is owned itself: `push`/`insert` take a value with `move`, `pop`/`remove`
+hand it back, `clear`, a shrinking `resize`, `removeif` (whose predicate then takes a
+reference) and `destroy` close what they drop, and `copy`/`removevalue` are left out. Other
+`vector`s, and `sequence`, `hashmap`, `stringbuilder` and `filestream`, are not owned yet,
+because parts of the library still pass them by value; the overview lists the places.
 
 Read more: [Ownership in the overview](/overview/#ownership).
 

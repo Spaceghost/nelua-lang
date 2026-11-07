@@ -194,4 +194,38 @@ do -- custom allocator
   vec:destroy()
 end
 
+-- a vector of owned values moves them in and out and closes what it drops
+local owned_closed = 0
+local Res <owned> = @record{n: integer}
+function Res:__close() if self.n ~= 0 then owned_closed = owned_closed + 1 end self.n = 0 end
+do
+  local v: vector(Res)
+  v:push(Res{n=1}); v:push(Res{n=2}); v:push(Res{n=3})
+  local r = Res{n=4}
+  v:insert(0, move(r))
+  local p = v:pop()
+  assert(p.n == 3 and #v == 3 and v[0].n == 4)
+  p:__close()
+  local q = v:remove(1)
+  assert(q.n == 1 and v[0].n == 4 and v[1].n == 2)
+  q:__close()
+  v:push(Res{n=5}); v:push(Res{n=6})
+  v:removeif(function(x: *Res) return x.n % 2 == 0 end)
+  assert(#v == 1 and v[0].n == 5 and owned_closed == 5)
+  v:resize(0)
+  assert(owned_closed == 6)
+  v:push(Res{n=7}); v:push(Res{n=8})
+  v:clear()
+  assert(owned_closed == 8 and #v == 0)
+  v:push(Res{n=9})
+  local w = move(v)          -- the vector itself is owned
+  assert(#w == 1)            -- reading `v` now would be a compile error
+  w:destroy()
+  assert(owned_closed == 9)
+  local u: vector(Res) = {Res{n=10}, Res{n=11}}
+  assert(#u == 2 and u[1].n == 11)
+  u:destroy()
+  assert(owned_closed == 11)
+end
+
 print 'vector OK!'
