@@ -3241,13 +3241,22 @@ it("optional static initializers", function()
     local pb: [2]integer? = {1, 2}
     local pe: P? = {}
     local pr: P? = {x = f()}
+    local n = 5
+    local c <const> = 6
+    local pn: P? = {x = n}
+    local pc: P? = {x = c}
+    local an: [2]integer? = {n, f()}
     local Q = @record{o: P?, a: [2]integer?}
     local q: Q = {o = {x = 5}, a = {5, 6}}
+    local qn: Q = {o = {x = n}, a = {n, 2}}
     local function opt(o: P?): P? return {x = o:get().x} end
     opt({x = 9})
+    opt({x = n})
     pa = {x = 3}
+    pn = {x = n}
     ## static_assert(pa.type.is_optional and pa.type.subtype == P.value and pr.type == pa.type)
     ## static_assert(pb.type == a.type and pe.type == pa.type)
+    ## static_assert(pn.type == pa.type and pc.type == pa.type and an.type == a.type)
   ]])
   expect.analyze_error([[
     require 'optional'

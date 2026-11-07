@@ -3541,12 +3541,14 @@ it("optional static initializers", function()
     local w: *integer? = pn
     local P = @record{x: integer}
     local pr: P? = {x = f()}
+    local pv: P? = {x = n}
   ]], {
     "static nelua_optional_int64_ y;",
     "y = nelua_optional_int64____convert_1(f());",
     "z = nelua_optional_int64____convert_1(n);",
     "w = nelua_optional_pointer_int64_____convert_1(pn);",
     "pr = nelua_optional_P____convert_1((P){.x = f()});",
+    "pv = nelua_optional_P____convert_1((P){.x = n});",
   })
   expect.run_c([[
     require 'optional'
@@ -3620,6 +3622,24 @@ it("optional static initializers", function()
       local lp: P? = {x = 2}
       local la: [2]integer? = {f(), 2}
       assert(lp:get().x == 2 and la:get()[0] == 7)
+    end
+    -- runtime fields that are plain variables (the list is not `done` after its first typing)
+    local n = 5
+    local c <const> = 6
+    local pn: P? = {x = n}
+    local pc: P? = {x = c}
+    local an: [2]integer? = {n, 2}
+    local af: [2]integer? = {n, f()}
+    local qn: Q = {o = {x = n}, a = {n, 2}}
+    pn = {x = n + 1}
+    assert(pn:get().x == 6 and pc:get().x == 6 and an:get()[0] == 5 and af:get()[1] == 7)
+    assert(qn.o:get().x == 5 and qn.a:get()[0] == 5 and g({x = n}) == 5 and not empty({x = n}))
+    do
+      local m = 8
+      local dn: P? = {x = m}
+      local da: [2]integer? = {m, f()}
+      dn = {x = m}
+      assert(dn:get().x == 8 and da:get()[1] == 7 and g({x = m}) == 8)
     end
   ]])
 end)

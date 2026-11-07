@@ -905,8 +905,8 @@ the array (`{}` is the empty optional). A constant initializer (`3`, `nil`, `nil
 `'abc'`, `{x = 1}`, the address of a static object such as `&g`) builds the optional as an
 initializer list, so at the top scope `local x: integer? = 3` and `local p: *R? = nilptr`
 are C static initializers with no statement in `nelua_main` (they hold under
-`noentrypoint` too); a runtime initializer such as `f()` is still converted in
-`nelua_main`. `opt == nil` and `opt ~= nil` test for emptiness, `opt == v` compares the
+`noentrypoint` too); a runtime initializer such as `f()`, a variable `n` or a list with a
+runtime field (`{x = f()}`, `{x = n}`) is still converted in `nelua_main`. `opt == nil` and `opt ~= nil` test for emptiness, `opt == v` compares the
 held value and two optionals of the same type compare equal when both are empty or both
 hold equal values. `boolean?` cannot be used as a boolean (`if b then`), test it with
 `~= nil` or `get_or` instead.

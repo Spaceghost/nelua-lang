@@ -288,7 +288,12 @@ in `nelua_main`, and `opt == nil` is never constant-folded. An init list written
 P? = {x = 1}`, `local a: [2]integer? = {1, 2}`, a record field or call argument of type `T?`, `return {...}`)
 is typed against `T` by `visitors.InitList` (the optional's `desiredtype` is redirected to its `subtype`) and then
 wrapped by `visitor_convert` like any other `T` value: comptime lists become the init list `{.some = true, .v =
-{...}}` (a static initializer at the top scope), lists with runtime fields go through `__convert`. The
+{...}}` (a static initializer at the top scope), lists with runtime fields (`{x = f()}`, `{x = n}` for a local
+`n`, inside a nested record or call argument too) go through `__convert`; a list with a variable field is not
+`done` after its first typing and is visited again as the `__convert` argument with no desired type (the
+optional value concept has none), so `visitor_convert` pins `attr.desiredtype` to the type the list was typed
+against before building the call, else it was retyped as `table` ("no viable conversion from 'table' to
+'optional(P)'"). The
 redirection is skipped for an empty list (`{}` is the empty optional) and for a list whose pairs all name the
 optional record's own fields (`{some = true, v = {1, 2}}`, `(@[2]integer?){v = {3, 4}}` keep working), so a
 payload record with a field named `some` or `v` must be spelled through the `v` pair. Before this fix the list

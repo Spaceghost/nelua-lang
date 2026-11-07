@@ -244,6 +244,12 @@ local function visitor_convert(context, parent, parentindex, vartype, valnode, v
     end
   end
   objsym = objtype.symbol
+  if valnode.is_InitList and not valnode.done and not valnode.attr.desiredtype and not valtype.is_table then
+    -- an init list with runtime fields is not `done` after its first typing and will be
+    -- visited again as the `__convert` argument (the concept has no desired type), so pin
+    -- the type it was typed against or it would be retyped as `table`
+    valnode.attr.desiredtype = valtype
+  end
   local idnode = aster.Id{objsym.name, pattr={forcesymbol=objsym}}
   local newvalnode = aster.Call{{valnode}, aster.DotIndex{'__convert', idnode}}
   newvalnode.src = valnode.src
