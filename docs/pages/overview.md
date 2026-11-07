@@ -772,12 +772,16 @@ print(d.name, d.age)
 Records are directly translated to C structs.
 {:.alert.alert-info}
 
-Two records of the same type compare equal with `==` when every field compares equal:
+Two records of the same type compare equal with `==` when every field compares equal,
+the same way a direct `==` on the field would:
 a field whose type defines an `__eq` metamethod (a record with a custom `__eq`, a `variant`,
-an `optional`) is compared by calling it, also for elements of array fields,
-every other field is compared by value (arrays of scalars by their bytes).
-Padding bytes are never compared. A record defining its own `__eq` uses it instead,
-see [record metamethods](#record-metamethods).
+an `optional`) is compared by calling it (also when it takes its arguments by pointer),
+`string` fields are compared by content, both also for the elements of array fields,
+every other field is compared by value (arrays of scalars by their bytes, pointers and
+`cstring` fields by address). Padding bytes are never compared.
+A record defining its own `__eq` uses it instead, see [record metamethods](#record-metamethods).
+Note that this is only for records: comparing two pointers to records compares the addresses,
+and comparing two bare arrays (outside a record) compares their bytes.
 {:.alert.alert-info}
 
 ### Union

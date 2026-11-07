@@ -2014,6 +2014,45 @@ it("record equality with field metamethods", function()
     ##   static_assert(#IntT.metafields.__eq.type.evals == 1)
     ## end)
   ]])
+  -- an `__eq` taking its arguments by pointer (automatic reference) is used
+  expect.analyze_ast([[
+    local P = @record{x: integer}
+    function P.__eq(a: *P, b: *P): boolean return a.x == b.x end
+    local R = @record{p: P}
+    local a: R, b: R
+    local x = a == b
+    ## static_assert(P.value.eqsym == P.value.metafields.__eq)
+  ]])
+  -- comparing pointers to records compares the pointers, no field `__eq` is instantiated
+  expect.analyze_ast([[
+    local P = @record{x: integer}
+    function P.__eq(a: auto, b: auto): boolean
+      ## static_error('poly __eq instantiated')
+      return false
+    end
+    local R = @record{p: P}
+    local r1: R, r2: R
+    local pa: *R, pb: *R = &r1, &r2
+    local x = pa == pb
+    local y = pa ~= pb
+    ## static_assert(not P.value.eqsym)
+  ]])
+  -- string fields compare by content through a builtin, not through `string.__eq`
+  expect.analyze_ast([[
+    require 'string'
+    local R = @record{s: string}
+    local a: R, b: R
+    local x = a == b
+    ## static_assert(not primtypes.string.eqsym)
+  ]])
+  -- an error instantiating a field `__eq` points at the `==`
+  expect.analyze_error([[
+    local P = @record{x: integer}
+    function P.__eq(a: auto, b: auto): boolean return a.x == b.nope end
+    local R = @record{p: P}
+    local r1: R, r2: R
+    local x = r1 == r2
+  ]], {"cannot index field 'nope'", ":6:15: from: polymorphic function instantiation"})
 end)
 
 it("const pointers", function()
