@@ -1,0 +1,181 @@
+require 'algorithm'
+require 'vector'
+require 'sequence'
+require 'span'
+
+local function is_sorted(a: auto): boolean
+  for i=1,<#a do
+    if a[i] < a[i-1] then return false end
+  end
+  return true
+end
+
+do -- sort array
+  local a: []integer = {3,1,4,2,5,6}
+  algorithm.sort(a)
+  assert(#a == 6 and is_sorted(a))
+  assert(a[0] == 1 and a[1] == 2 and a[2] == 3 and a[3] == 4 and a[4] == 5 and a[5] == 6)
+end
+
+do -- sort span
+  local a: []integer = {3,1,4,2,5,6}
+  local s: span(integer) = &a
+  algorithm.sort(s)
+  assert(is_sorted(s) and a[0] == 1 and a[5] == 6)
+end
+
+do -- sort vector
+  local v: vector(integer) <close> = {3,1,4,2,5,6}
+  algorithm.sort(v)
+  assert(#v == 6 and is_sorted(v) and v[0] == 1 and v[5] == 6)
+end
+
+do -- sort sequence
+  local s: sequence(integer) <close> = {3,1,4,2,5,6}
+  algorithm.sort(s)
+  assert(#s == 6)
+  for i=2,#s do assert(s[i-1] <= s[i]) end
+  assert(s[1] == 1 and s[6] == 6)
+end
+
+do -- sort empty and single
+  local e: vector(integer) <close> = {}
+  algorithm.sort(e)
+  assert(#e == 0)
+  local o: []integer = {7}
+  algorithm.sort(o)
+  assert(o[0] == 7)
+end
+
+do -- sort with custom comparator
+  local v: vector(integer) <close> = {3,1,4,2,5,6}
+  algorithm.sort(v, function(x: integer, y: integer): boolean return x > y end)
+  for i=1,<#v do assert(v[i-1] >= v[i]) end
+  assert(v[0] == 6 and v[5] == 1)
+end
+
+do -- sort is stable
+  local Rec = @record{key: integer, order: integer}
+  local v: vector(Rec) <close>
+  local seed: integer = 42
+  for i=0,<150 do
+    seed = (seed * 1103515245 + 12345) % 2147483648
+    v:push(Rec{key = seed % 5, order = i})
+  end
+  algorithm.sort(v, function(a: Rec, b: Rec): boolean return a.key < b.key end)
+  assert(#v == 150)
+  for i=1,<#v do
+    assert(v[i-1].key <= v[i].key)
+    if v[i-1].key == v[i].key then
+      assert(v[i-1].order < v[i].order)
+    end
+  end
+end
+
+do -- sort across the minrun threshold (reversed)
+  local v: vector(integer) <close>
+  for i=0,<200 do v:push(199 - i) end
+  algorithm.sort(v)
+  for i=0,<200 do assert(v[i] == i) end
+end
+
+do -- sort across the minrun threshold (pseudo random)
+  local v: vector(integer) <close>
+  local seed: integer = 7
+  local sum: integer = 0
+  for i=0,<1000 do
+    seed = (seed * 1103515245 + 12345) % 2147483648
+    local x: integer = seed % 1000
+    v:push(x)
+    sum = sum + x
+  end
+  algorithm.sort(v)
+  assert(is_sorted(v))
+  local sum2: integer = 0
+  for i=0,<#v do sum2 = sum2 + v[i] end
+  assert(sum == sum2)
+end
+
+do -- heapsort
+  local v: vector(integer) <close> = {3,1,4,2,5,6}
+  algorithm.heapsort(v)
+  assert(is_sorted(v) and v[0] == 1 and v[5] == 6)
+  local a: []integer = {3,1,4,2,5,6}
+  algorithm.heapsort(a)
+  assert(is_sorted(a))
+  local e: vector(integer) <close> = {}
+  algorithm.heapsort(e)
+  assert(#e == 0)
+end
+
+do -- heapsort with custom comparator
+  local v: vector(integer) <close> = {3,1,4,2,5,6}
+  algorithm.heapsort(v, function(x: integer, y: integer): boolean return x > y end)
+  for i=1,<#v do assert(v[i-1] >= v[i]) end
+end
+
+do -- heapsort larger pseudo random
+  local v: vector(integer) <close>
+  local seed: integer = 99
+  local sum: integer = 0
+  for i=0,<500 do
+    seed = (seed * 1103515245 + 12345) % 2147483648
+    local x: integer = seed % 100
+    v:push(x)
+    sum = sum + x
+  end
+  algorithm.heapsort(v)
+  assert(is_sorted(v))
+  local sum2: integer = 0
+  for i=0,<#v do sum2 = sum2 + v[i] end
+  assert(sum == sum2)
+end
+
+do -- removeif without param
+  local v: vector(integer) <close> = {1,2,3,4,5,6,7,8}
+  local n = algorithm.removeif(v, function(x: integer): boolean return x % 2 == 0 end)
+  assert(n == 4)
+  assert(#v == 8) -- physical size unchanged
+  assert(v[0] == 1 and v[1] == 3 and v[2] == 5 and v[3] == 7)
+  v:resize(n)
+  assert(#v == 4)
+end
+
+do -- removeif with param
+  local a: []integer = {5,1,8,3,9,2}
+  local n = algorithm.removeif(a, function(x: integer, limit: integer): boolean return x > limit end, 4)
+  assert(n == 3)
+  assert(a[0] == 1 and a[1] == 3 and a[2] == 2)
+end
+
+do -- removeif none and all
+  local a: []integer = {1,2,3}
+  assert(algorithm.removeif(a, function(x: integer): boolean return false end) == 3)
+  assert(a[0] == 1 and a[1] == 2 and a[2] == 3)
+  assert(algorithm.removeif(a, function(x: integer): boolean return true end) == 0)
+end
+
+do -- unpackn
+  local v: vector(integer) <close> = {3,1,4,2,5,6}
+  algorithm.unpackn(v, 0)
+  local a = algorithm.unpackn(v, 1)
+  assert(a == 3)
+  local a, b = algorithm.unpackn(v, 2)
+  assert(a == 3 and b == 1)
+  local a, b, c = algorithm.unpackn(v, 3)
+  assert(a == 3 and b == 1 and c == 4)
+  local arr: []integer = {10, 20}
+  local x, y = algorithm.unpackn(arr, 2)
+  assert(x == 10 and y == 20)
+end
+
+do -- packn
+  local a = algorithm.packn(3, 1, 4)
+  assert(#a == 3 and a[0] == 3 and a[1] == 1 and a[2] == 4)
+  local f = algorithm.packn(1.5, 2.5)
+  assert(#f == 2 and f[0] == 1.5 and f[1] == 2.5)
+  algorithm.sort(a)
+  assert(a[0] == 1 and a[1] == 3 and a[2] == 4)
+end
+
+print('algorithm OK!')

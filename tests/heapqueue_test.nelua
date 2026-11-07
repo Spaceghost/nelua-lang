@@ -1,0 +1,137 @@
+require 'heapqueue'
+require 'allocators.general'
+
+do -- braces initializer and pop order
+  local hq: heapqueue(integer) = {5, 1, 4, 2, 3}
+  assert(#hq == 5)
+  assert(hq:top() == 1)
+  assert(hq:pop() == 1)
+  assert(hq:pop() == 2)
+  assert(hq:pop() == 3)
+  assert(hq:pop() == 4)
+  assert(hq:pop() == 5)
+  assert(#hq == 0)
+  hq:destroy()
+  assert(#hq == 0 and hq:capacity() == 0)
+end
+
+do -- push and top
+  local hq: heapqueue(integer)
+  assert(#hq == 0 and hq:capacity() == 0)
+  hq:push(10)
+  assert(#hq == 1 and hq:top() == 10 and hq:capacity() == 1)
+  hq:push(-3)
+  assert(#hq == 2 and hq:top() == -3)
+  hq:push(7)
+  assert(#hq == 3 and hq:top() == -3)
+  assert(hq:pop() == -3 and hq:pop() == 7 and hq:pop() == 10)
+  hq:destroy()
+end
+
+do -- pop order with duplicates and many elements
+  local hq: heapqueue(integer)
+  local seed: integer = 3
+  for i=0,<300 do
+    seed = (seed * 1103515245 + 12345) % 2147483648
+    hq:push(seed % 50)
+  end
+  assert(#hq == 300)
+  local prev = hq:pop()
+  local count = 1
+  while #hq > 0 do
+    local v = hq:pop()
+    assert(v >= prev)
+    prev = v
+    count = count + 1
+  end
+  assert(count == 300)
+  hq:destroy()
+end
+
+do -- remove at position
+  local hq: heapqueue(integer) = {9, 4, 7, 1, 8, 2, 6, 3, 5}
+  assert(#hq == 9 and hq:top() == 1)
+  local removed = hq:remove(2)
+  assert(#hq == 8)
+  local seen_removed = false
+  local prev = hq:pop()
+  if prev == removed then seen_removed = true end
+  while #hq > 0 do
+    local v = hq:pop()
+    assert(v >= prev)
+    if v == removed then seen_removed = true end
+    prev = v
+  end
+  assert(not seen_removed)
+  hq:destroy()
+end
+
+do -- remove last position and top position
+  local hq: heapqueue(integer) = {3, 1, 2}
+  assert(hq:remove((@usize)(#hq - 1)) >= 1)
+  assert(#hq == 2)
+  assert(hq:remove(0) == 1)
+  assert(#hq == 1)
+  hq:destroy()
+end
+
+do -- indexing is not in priority order but covers all elements
+  local hq: heapqueue(integer) = {3, 1, 2}
+  local sum = 0
+  for i=0,<#hq do sum = sum + hq[i] end
+  assert(sum == 6)
+  assert(hq[0] == 1)
+  hq:destroy()
+end
+
+do -- clear, reserve and destroy
+  local hq: heapqueue(integer) = {1, 2, 3}
+  assert(#hq == 3 and hq:capacity() == 3)
+  hq:clear()
+  assert(#hq == 0 and hq:capacity() == 3)
+  hq:push(4)
+  assert(hq:top() == 4)
+  hq:reserve(16)
+  assert(hq:capacity() == 16)
+  hq:destroy()
+  assert(#hq == 0 and hq:capacity() == 0)
+end
+
+do -- to-be-closed variable
+  local hq: heapqueue(integer) <close> = {2, 1}
+  assert(hq:top() == 1)
+end
+
+do -- custom comparator (max heap)
+  local function maxfirst(a: integer, b: integer): boolean
+    return a > b
+  end
+  local hq: heapqueue(integer, (maxfirst)) = {5, 1, 4, 2, 3}
+  assert(hq:top() == 5)
+  assert(hq:pop() == 5 and hq:pop() == 4 and hq:pop() == 3 and hq:pop() == 2 and hq:pop() == 1)
+  hq:destroy()
+end
+
+do -- records with custom comparator
+  local Task = @record{priority: integer, name: string}
+  local function bypriority(a: Task, b: Task): boolean
+    return a.priority < b.priority
+  end
+  local hq: heapqueue(Task, (bypriority))
+  hq:push(Task{3, 'c'})
+  hq:push(Task{1, 'a'})
+  hq:push(Task{2, 'b'})
+  assert(hq:pop().name == 'a')
+  assert(hq:pop().name == 'b')
+  assert(hq:pop().name == 'c')
+  hq:destroy()
+end
+
+do -- custom allocator
+  local hq = (@heapqueue(integer, nil, GeneralAllocator)).make(general_allocator)
+  hq:push(2) hq:push(1)
+  assert(hq:pop() == 1 and hq:pop() == 2)
+  hq:destroy()
+end
+
+print('heapqueue OK!')

@@ -1,0 +1,63 @@
+--[[
+Absorbed from nelua-batteries (https://github.com/edubart/nelua-batteries),
+MIT License, Copyright (c) 2021 Eduardo Bart (https://github.com/edubart).
+]]
+
+--[[
+The tuple library provides a generic record holding a fixed list of values of different types.
+
+A tuple instantiated as `tuple(A, B, C)` is a record with fields `e0: A`, `e1: B` and `e2: C`.
+Its elements can also be read and written by indexing with a compile time constant,
+`t[0]` is the same as `t.e0`.
+
+Remarks: A tuple initialized from a list of unnamed fields is filled with the list elements.
+]]
+
+## local function make_tupleT(...)
+  -- Tuple record defined when instantiating the generic `tuple` with types `...`.
+  local tupleT: type = @record{}
+  ##[[
+  for i=1,select('#',...) do
+    local fieldname = 'e'..(i-1)
+    local fieldtype = select(i, ...)
+    tupleT.value:add_field(fieldname, fieldtype)
+  end
+  ]]
+
+  --[[
+  Returns reference to element at position `index`, which must be a compile time constant.
+  Used when indexing elements with square brackets (`[]`).
+  ]]
+  function tupleT.__atindex(self: *tupleT, index: integer <comptime>): auto
+    return &self.#|'e'..index.value|#;
+  end
+
+  ## return tupleT
+## end
+
+--[[
+Generic used to instantiate a tuple type in the form of `tuple(...)`,
+where each argument is the type of one tuple element.
+]]
+global tuple: type = #[generalize(make_tupleT)]#
+
+--[[
+Packs all arguments `...` into a new tuple and returns it.
+The tuple type is deduced from the argument types.
+]]
+function tuple.pack(...: varargs): auto
+  return (@tuple(#[aster.unpack(types.nodes_to_types{...})]#)){...}
+end
+
+-- Unpacks and returns all elements of tuple `t` as multiple values.
+function tuple.unpack(t: auto)
+  ##[[
+  local rets = {}
+  for _,field in ipairs(t.type.fields) do
+    table.insert(rets, aster.DotIndex{field.name, aster.Id{'t'}})
+  end
+  ]]
+  return #[aster.unpack(rets)]#
+end
+
+return tuple

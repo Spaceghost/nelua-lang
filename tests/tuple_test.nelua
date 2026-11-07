@@ -1,0 +1,46 @@
+require 'tuple'
+require 'string'
+
+do -- fields and indexing
+  local t: tuple(integer, number, string) = {1, 2.5, 'three'}
+  assert(t.e0 == 1 and t.e1 == 2.5 and t.e2 == 'three')
+  assert(t[0] == 1 and t[1] == 2.5 and t[2] == 'three')
+  t[0] = 10
+  t.e1 = 20.5
+  assert(t.e0 == 10 and t[1] == 20.5)
+  local p = &t[2]
+  assert($p == 'three')
+end
+
+do -- pack
+  local t = tuple.pack(1, true, 'x')
+  ## assert(t.type.is_record and #t.type.fields == 3)
+  assert(t[0] == 1 and t[1] == true and t[2] == 'x')
+  assert(t.e0 == 1 and t.e1 == true and t.e2 == 'x')
+end
+
+do -- unpack
+  local t: tuple(integer, integer, integer) = {3, 1, 4}
+  local a, b, c = tuple.unpack(t)
+  assert(a == 3 and b == 1 and c == 4)
+  local x, y, z = tuple.unpack(tuple.pack(5, 6.5, 'seven'))
+  assert(x == 5 and y == 6.5 and z == 'seven')
+end
+
+do -- single and copy
+  local t: tuple(integer) = {7}
+  assert(t[0] == 7)
+  local u = t
+  u[0] = 8
+  assert(t[0] == 7 and u[0] == 8)
+end
+
+do -- as function return
+  local function divmod(a: integer, b: integer): tuple(integer, integer)
+    return {a // b, a % b}
+  end
+  local q, r = tuple.unpack(divmod(17, 5))
+  assert(q == 3 and r == 2)
+end
+
+print('tuple OK!')
