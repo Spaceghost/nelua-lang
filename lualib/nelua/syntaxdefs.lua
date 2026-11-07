@@ -12,9 +12,16 @@ the rules please check LPegRex, LPegLabel and LPeg RE manuals:
 
 -- Complete syntax grammar of Nelua defined in a single PEG.
 local grammar = [==[
-chunk           <-- SHEBANG? SKIP Block (!.)^UnexpectedSyntax
+chunk           <-- SHEBANG? SKIP topblock (SyntaxUse / (!.)^UnexpectedSyntax)
 
-Block           <==(local / global /
+-- `#syntax` is only accepted between top-level statements; the parser stops there,
+-- runs the extension and resumes with the extended grammar (see nelua.syntaxext)
+topblock : Block <== stats
+Block           <== stats (!'#syntax')^SyntaxNotTopLevel
+SyntaxUse       <== '#syntax' WORDSKIP @syntaxsource
+syntaxsource    <-- STRING_LONG $'code' SKIP / STRING_SHRT $'module' SKIP
+
+stats           <--(@@STAT@@local / global /
                     FuncDef / Return / In /
                     Do / Defer /
                     If / Switch / Match /
@@ -146,20 +153,20 @@ deref     : UnaryOp   <== `$`->'deref' @exprunary
 
 -- Expressions
 expr            <-- expror
-expror          <-- (exprand opor*)~>foldleft
-exprand         <-- (exprcmp opand*)~>foldleft
-exprcmp         <-- (exprorelse opcmp*)~>foldleft
-exprorelse      <-- (exprbor oporelse*)~>foldleft
-exprbor         <-- (exprbxor opbor*)~>foldleft
-exprbxor        <-- (exprband opbxor*)~>foldleft
-exprband        <-- (exprbshift opband*)~>foldleft
-exprbshift      <-- (exprconcat opbshift*)~>foldleft
-exprconcat      <-- (exprarit opconcat*)~>foldleft
-exprarit        <-- (exprfact oparit*)~>foldleft
-exprfact        <-- (exprunary opfact*)~>foldleft
-exprunary       <-- opunary / exprpow
-exprpow         <-- (exprsimple oppow*)~>foldleft
-exprsimple      <-- Number / String / Type / InitList / Boolean /
+expror          <-- (exprand (opor@@BIN_or@@)*)~>foldleft
+exprand         <-- (exprcmp (opand@@BIN_and@@)*)~>foldleft
+exprcmp         <-- (exprorelse (opcmp@@BIN_cmp@@)*)~>foldleft
+exprorelse      <-- (exprbor (oporelse@@BIN_orelse@@)*)~>foldleft
+exprbor         <-- (exprbxor (opbor@@BIN_bor@@)*)~>foldleft
+exprbxor        <-- (exprband (opbxor@@BIN_bxor@@)*)~>foldleft
+exprband        <-- (exprbshift (opband@@BIN_band@@)*)~>foldleft
+exprbshift      <-- (exprconcat (opbshift@@BIN_bshift@@)*)~>foldleft
+exprconcat      <-- (exprarit (opconcat@@BIN_concat@@)*)~>foldleft
+exprarit        <-- (exprfact (oparit@@BIN_arit@@)*)~>foldleft
+exprfact        <-- (exprunary (opfact@@BIN_fact@@)*)~>foldleft
+exprunary       <-- @@UNARY@@opunary / exprpow
+exprpow         <-- (exprsimple (oppow@@BIN_pow@@)*)~>foldleft
+exprsimple      <-- @@EXPR@@Number / String / Type / InitList / Boolean /
                     Function / Nilptr / Nil / Varargs / exprsuffixed
 exprprim        <-- ppcallprim / id / DoExpr / Paren
 
@@ -331,6 +338,8 @@ local errors = {
 ["Expected_EXP_DIGITS"]     = "malformed exponential number",
 ["Expected_HEX_PREFIX"]     = "malformed hexadecimal number",
 ["UnexpectedSyntax"]        = "unexpected syntax",
+["SyntaxNotTopLevel"]       = "`#syntax` is only allowed between top-level statements",
+["Expected_syntaxsource"]   = "expected a module name string or a long string of Lua code after `#syntax`",
 }
 
 -- Table with definitions used while parsing.
@@ -342,10 +351,17 @@ function defs.pair_sugar(idnode)
 end
 
 -- The syntaxdefs module.
+-- `grammar` above carries extension points (`@@STAT@@`, `@@EXPR@@`, `@@UNARY@@`,
+-- `@@BIN_<level>@@`) that nelua.syntaxext fills; the registered grammar has them empty.
+local grammar_template = grammar
+grammar = grammar_template:gsub('@@[%w_]+@@', '')
+
 local syntaxdefs = {
   extension = 'nelua',
+  extensible = true,
   errors = errors,
   grammar = grammar,
+  grammar_template = grammar_template,
   defs = defs,
 }
 

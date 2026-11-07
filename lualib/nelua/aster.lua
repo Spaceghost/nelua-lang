@@ -162,12 +162,18 @@ function aster.parse(content, name, extension)
   src = {content=content, name=name}
   extension = extension or (name and name:match('%.([^.]+)$')) or 'nelua'
   local syntax = aster.syntaxes[extension] or aster.syntaxes.nelua
-  local ast, errlabel, errpos = syntax.patt:match(content)
+  local ast, errlabel, errpos, errors
+  if syntax.extensible then -- may contain `#syntax` directives
+    ast, errlabel, errpos, errors = require('nelua.syntaxext').parse(syntax, content, name)
+  else
+    ast, errlabel, errpos = syntax.patt:match(content)
+  end
+  errors = errors or syntax.errors
   if ast and syntax.transformcb then
     ast, errlabel, errpos = syntax.transformcb(ast, content, name)
   end
   if not ast then
-    local errmsg = syntax.errors[errlabel] or errlabel
+    local errmsg = errors[errlabel] or errlabel
     local loc = {
       srcname=name,
       srccode=content,

@@ -43,6 +43,23 @@ aster.register('DoExpr', {
   shaper.Block -- statements block
 })
 
+-- `#syntax` directive, executed by the parser (never reaches the analyzer).
+aster.register('SyntaxUse', {
+  shaper.string, -- module name or Lua code
+  shaper.one_of{"module", "code"}, -- source kind
+})
+
+-- Node produced by a syntax extension rule, expanded right after parsing
+-- by the extension's builder (never reaches the analyzer).
+aster.register('SyntaxExt', shaper.array_of(shaper.any))
+
+-- Binary operator added by a syntax extension, expanded right after parsing.
+aster.register('SyntaxExtBinOp', {
+  shaper.Node, -- left expr
+  shaper.string, -- extension rule id
+  shaper.Node, -- right expr
+})
+
 -- Preprocess code to be executed and removed.
 aster.register('Preprocess', {
   shaper.string -- code

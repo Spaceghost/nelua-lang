@@ -36,6 +36,7 @@ it by writing new syntax or by requiring a new library, never by accident.
 | [Cross compiling](#cross-compiling) | `nelua --target aarch64-linux-musl` | the target's type sizes and ABI |
 | [Bindings](#generated-c-bindings) | `nelua-bindgen zlib.h -o zlib.nelua` | `<cimport>` declarations, no wrappers |
 | [Compile-time evaluation](#compile-time-evaluation) | `comptime(f(x))`, `function f() <comptime>` | only the folded result |
+| [Syntax extensions](#syntax-extensions) | `#syntax 'syntax.compound'`, then `x += 1` | nothing: rewritten to ordinary Nelua while parsing |
 | [Libraries](#libraries) | `require 'algorithm'`, `heapqueue`, `tuple` | ordinary generic records |
 
 ## Variants
@@ -357,6 +358,62 @@ and arrays, allocators and the GC, `io`/`os`, closures, `defer`, optionals and v
 rejected with an error at the offending line. Records cannot be passed as arguments yet.
 
 Read more: [Compile-time function evaluation in the overview](/overview/#compile-time-function-evaluation).
+
+## Syntax extensions
+
+The preprocessor can generate code, but it cannot change what the parser accepts. A top-level
+`#syntax` directive can: it runs Lua code at compile time that adds grammar rules, and the rest of
+*that file* is parsed with them. Each rule comes with a builder that turns what it matched into
+ordinary Nelua AST, so the type checker and both code generators never see anything new.
+
+Two extensions ship in `lib/syntax/`:
+
+```nelua
+#syntax 'syntax.compound'
+#syntax 'syntax.pipe'
+
+local x = 5
+x += 3          -- x = x + 3; also -= *= /= //= %= ^= ..= |= &= <<= >>=
+
+local t: [4]integer = {1, 2, 3, 4}
+local i = 0
+local function nexti() i = i + 1 return i end
+t[nexti()] *= 10  -- a target with a call in it is evaluated once, through a pointer
+
+local function add(a: integer, b: integer) return a + b end
+local function half(a: integer) return a // 2 end
+print(x |> half |> add(t[1]))     -- add(half(x), t[1]); outputs: 24
+```
+
+Writing one inline:
+
+```nelua
+#syntax [[
+  syntax.statement("`unless` @expr @`then` Block @`end`", function(cond, body)
+    return syntax.stat('if not (c) then body() end', {c = cond, body = body})
+  end)
+]]
+
+unless x > 10 then print('small') end
+```
+
+The `syntax` table offers `statement(peg, builder)`, `expression(peg, builder)` (a new primary
+expression), `unary(token, builder)`, `binary(level, token, builder)` (at the precedence of an
+existing operator: `or and cmp orelse bor bxor band bshift concat arit fact pow`, always left
+associative), `rules(text)` for helper rules, `error(label, message)`, `def(name, value)`,
+`gensym(prefix)` and `raise(message, ...)`. Patterns are [LPegRex](https://github.com/edubart/lpegrex)
+and may use any rule of the Nelua grammar (`expr`, `exprs`, `Block`, `name`, `typeexpr`, ...).
+Builders get the captures and return a node; a statement builder may return a `Block`, which is
+spliced into the enclosing block. `syntax.expr`, `syntax.stat` and `syntax.block` build nodes from
+Nelua source in which identifiers named in the substitution table are replaced (`body()` as a
+statement stands for a whole block).
+
+`#syntax 'name'` loads `name.lua` from the file's directory, the Nelua library path
+(`lib/syntax/pipe.lua`) or the Lua path; the module returns a function taking `syntax`.
+Limits: `#syntax` is only accepted between top-level statements; extensions do not reach required
+files or the files that require this one; templates are parsed with the base grammar; names a
+builder introduces are not hygienic unless it uses `gensym`. A backtick keyword in a rule (such as
+`` `unless` ``) becomes reserved for the rest of the file; use `'word' WORDSKIP` for a contextual one.
 
 ## Libraries
 

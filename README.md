@@ -70,6 +70,10 @@ cost and limits; the list below is the short form:
   never emits it to C. Bodies are translated to Lua with the fork's Lua generator and run in
   a sandbox that keeps the C integer widths, `float32` rounding, unsigned division and the
   Nelua shifts, with step and call-depth limits ([overview](docs/pages/overview.md#compile-time-function-evaluation)).
+- **Syntax extensions**: a top-level `#syntax` directive runs Lua at compile time that adds
+  statements, expressions or operators to the grammar for the rest of the file; builders
+  rewrite them to ordinary AST. Ships `syntax.compound` (`x += 1`, ...) and `syntax.pipe`
+  (`x |> f(a)`) ([guide](docs/pages/fork.md#syntax-extensions)).
 - **Optionals**: `T?` / `optional(T)` through `require 'optional'`, `nil` and `T` convert
   to it, `== nil` tests emptiness, `*T?` keeps the pointer size with `nilptr` as empty, and
   the postfix `expr?` propagates empty optionals, null pointers and the stdlib
