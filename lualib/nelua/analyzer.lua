@@ -3985,9 +3985,10 @@ local function resolve_field_eq(context, node, type)
   if not objsym or not mttype then return false end
   if not mttype.is_polyfunction then
     local argtypes = mttype.argtypes
-    if #argtypes ~= 2 or
-       not argtypes[1]:is_convertible_from_type(type) or
-       not argtypes[2]:is_convertible_from_type(type) then
+    local function accepts(argtype) -- by value or by automatic reference (`a: *T`)
+      return argtype:is_convertible_from_type(type) or argtype:is_pointer_of(type)
+    end
+    if #argtypes ~= 2 or not accepts(argtypes[1]) or not accepts(argtypes[2]) then
       return true -- cannot compare two values of the type with it, compare bytes as before
     end
   end
@@ -3999,11 +4000,12 @@ local function resolve_field_eq(context, node, type)
   local callnode = fieldeqcalls[type]
   if not callnode then
     local function make_argnode(name)
-      local argsym = Symbol{name = name, type = type, staticstorage = true}
+      local argsym = Symbol{name = name, type = type, staticstorage = true, lvalue = true}
       return aster.Id{name, pattr={forcesymbol=argsym}}
     end
     callnode = aster.Call{{make_argnode('a'), make_argnode('b')},
       aster.DotIndex{'__eq', aster.Id{objsym.name, pattr={forcesymbol=objsym}}}}
+    callnode:recursive_update_location(node.src, node.pos, node.endpos) -- errors point at the `==`
     fieldeqcalls[type] = callnode
   end
   context:traverse_node(callnode)
@@ -4020,7 +4022,9 @@ local function resolve_record_fields_eq(context, node, type)
   for _,field in ipairs(type.fields) do
     local fieldtype = field.type
     while fieldtype.is_array do fieldtype = fieldtype.subtype end
-    if fieldtype.metafields and fieldtype.metafields.__eq then
+    -- a string field is compared by content with the `nelua_eq_string` builtin like a direct `==`,
+    -- whether or not the 'string' module (and its `__eq`) is required
+    if fieldtype.metafields and fieldtype.metafields.__eq and not fieldtype.is_string then
       if not resolve_field_eq(context, node, fieldtype) then done = false end
     elseif fieldtype.is_record then
       if not resolve_record_fields_eq(context, node, fieldtype) then done = false end
@@ -4032,9 +4036,7 @@ end
 -- Prepares `==`/`~=` between two records without their own `__eq`, returns whether done.
 local function resolve_composite_eq(context, node, opname, ltype, rtype)
   if not ((opname == 'eq' or opname == 'ne') and ltype and ltype == rtype) then return true end
-  if ltype.is_pointer and ltype.subtype.is_composite then
-    ltype = ltype.subtype -- auto dereferenced below
-  end
+  -- pointers are never auto dereferenced for `==`/`~=` (see `disallowed_deref_ops`)
   if not ltype.is_record or ltype.metafields.__eq then return true end
   return resolve_record_fields_eq(context, node, ltype)
 end

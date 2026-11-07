@@ -601,7 +601,7 @@ end
 -- Returns whether comparing two values of `type` calls a `__eq` metamethod
 -- (resolved by the analyzer into `eqsym`) for the value, a field or an array element.
 local function eq_needs_metamethod(type)
-  if type.eqsym then return true end
+  if type.eqsym or type.is_string then return true end
   if type.is_array then return eq_needs_metamethod(type.subtype) end
   if type.is_record then
     for _,field in ipairs(type.fields) do
@@ -609,6 +609,22 @@ local function eq_needs_metamethod(type)
     end
   end
   return false
+end
+
+-- Emits the call comparing `a` and `b` of `type` with its `__eq` metamethod instance
+-- (`type.eqsym`), referencing the values for arguments taken by pointer (`a: *T`),
+-- or with the string builtin for strings.
+local function add_eq_metamethod_call(emitter, type, a, b)
+  if type.is_string then
+    emitter:add_builtin('nelua_eq_string')
+    emitter:add('(', a, ', ', b, ')')
+    return
+  end
+  local eqsym = type.eqsym
+  local argtypes = eqsym.type.argtypes
+  emitter:add(eqsym, '(',
+    argtypes[1].is_pointer and '&' or '', a, ', ',
+    argtypes[2].is_pointer and '&' or '', b, ')')
 end
 
 -- Used by equality operator (`==`).
@@ -631,8 +647,8 @@ function cbuiltins.nelua_eq_(context, ltype, rtype)
       defemitter:add_indent_ln('for(', primtypes.usize, ' i = 0; i < ', len, '; ++i) {')
       defemitter:inc_indent()
       defemitter:add_indent('if(!')
-      if subtype.eqsym then
-        defemitter:add(subtype.eqsym, '(a[i], b[i])')
+      if subtype.eqsym or subtype.is_string then
+        add_eq_metamethod_call(defemitter, subtype, 'a[i]', 'b[i]')
       else
         defemitter:add_builtin('nelua_eq_', subtype)
         defemitter:add('(a[i], b[i])')
@@ -657,8 +673,8 @@ function cbuiltins.nelua_eq_(context, ltype, rtype)
           defemitter:add(' && ')
         end
         local fieldname, fieldtype = field.name, field.type
-        if fieldtype.eqsym then -- the field type has a `__eq` metamethod
-          defemitter:add(fieldtype.eqsym, '(a.', fieldname, ', b.', fieldname, ')')
+        if fieldtype.eqsym or fieldtype.is_string then -- `__eq` metamethod or string content
+          add_eq_metamethod_call(defemitter, fieldtype, 'a.'..fieldname, 'b.'..fieldname)
         elseif fieldtype.is_composite then
           defemitter:add_builtin('nelua_eq_', fieldtype)
           defemitter:add('(a.', fieldname, ', b.', fieldname, ')')
