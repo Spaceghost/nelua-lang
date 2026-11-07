@@ -23,7 +23,7 @@ local FStream: type = @record{
 }
 
 -- File stream record, used to store file handles.
-global filestream: type = @record{
+global filestream: type <owned> = @record{
   fs: *FStream
 }
 ## filestream.value.is_filestream = true

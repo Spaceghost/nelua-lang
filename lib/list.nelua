@@ -27,7 +27,7 @@ require 'memory'
   }
 
   -- List record defined when instantiating the generic `list`.
-  local listT: type <nickname(#[string.format('list(%s)',T)]#)> = @record{
+  local listT: type <nickname(#[string.format('list(%s)',T)]#),owned> = @record{
     front: *listnodeT, -- list begin
     back: *listnodeT, -- list end
     allocator: Allocator

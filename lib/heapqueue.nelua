@@ -27,7 +27,7 @@ require 'span'
   local T: type = @#[T]#
 
   -- Heap queue record defined when instantiating the generic `heapqueue` with type `T`.
-  local heapqueueT: type <nickname(#[string.format('heapqueue(%s)', T)]#)> = @record{
+  local heapqueueT: type <nickname(#[string.format('heapqueue(%s)', T)]#),owned> = @record{
     data: span(T),
     size: usize,
     allocator: Allocator
