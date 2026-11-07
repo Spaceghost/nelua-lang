@@ -244,6 +244,12 @@ local function visitor_convert(context, parent, parentindex, vartype, valnode, v
     end
   end
   objsym = objtype.symbol
+  if valnode.is_InitList and not valnode.done and not valnode.attr.desiredtype and not valtype.is_table then
+    -- an init list with runtime fields is not `done` after its first typing and will be
+    -- visited again as the `__convert` argument (the concept has no desired type), so pin
+    -- the type it was typed against or it would be retyped as `table`
+    valnode.attr.desiredtype = valtype
+  end
   local idnode = aster.Id{objsym.name, pattr={forcesymbol=objsym}}
   local newvalnode = aster.Call{{valnode}, aster.DotIndex{'__convert', idnode}}
   newvalnode.src = valnode.src
@@ -467,6 +473,22 @@ end
 
 function visitors.InitList(context, node, opts)
   local desiredtype = (opts and opts.desiredtype) or node.attr.desiredtype
+  if desiredtype and desiredtype.is_optional and #node > 0 then
+    -- an init list into `T?` is typed against `T` and then wrapped by `visitor_convert`
+    -- (comptime: init list, so top scope cases stay static initializers; otherwise `__convert`),
+    -- unless it spells the optional record's own fields (`{some = true, v = ...}`)
+    local ownliteral = true
+    for i=1,#node do
+      local childnode = node[i]
+      if not (childnode.is_Pair and luatype(childnode[1]) == 'string' and desiredtype.fields[childnode[1]]) then
+        ownliteral = false
+        break
+      end
+    end
+    if not ownliteral then
+      desiredtype = desiredtype.subtype
+    end
+  end
   if desiredtype then
     local objtype = desiredtype:implicit_deref_type()
     if objtype.metafields and objtype.metafields.__convert then

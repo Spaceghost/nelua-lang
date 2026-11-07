@@ -3705,8 +3705,18 @@ it("optional static initializers", function()
     local c: cstring? = 'xyz'
     local S <comptime> = 'uvw'
     local d: cstring? = S
+    local P = @record{x: integer}
+    local pa: P? = {x = 1}
+    local pb: [2]integer? = {1, 2}
+    local pe: P? = {}
+    local Q = @record{o: P?, a: [2]integer?}
+    local qq: Q = {o = {x = 5}, a = {5, 6}}
   ]], {
     "static nelua_optional_int64_ x = {.some = true, .v = 3};",
+    "static nelua_optional_P_ pa = {.some = true, .v = {.x = 1}};",
+    "static nelua_optional_array_int64__2__ pb = {.some = true, .v = {1, 2}};",
+    "static nelua_optional_P_ pe = {0};",
+    "static Q qq = {.o = {.some = true, .v = {.x = 5}}, .a = {.some = true, .v = {5, 6}}};",
     "static nelua_optional_int64_ y = {0};",
     "static nelua_optional_pointer_R__ p = {0};",
     "static nelua_optional_pointer_R__ q = {.v = (&g)};",
@@ -3750,11 +3760,16 @@ it("optional static initializers", function()
     local y: integer? = f()
     local z: integer? = n
     local w: *integer? = pn
+    local P = @record{x: integer}
+    local pr: P? = {x = f()}
+    local pv: P? = {x = n}
   ]], {
     "static nelua_optional_int64_ y;",
     "y = nelua_optional_int64____convert_1(f());",
     "z = nelua_optional_int64____convert_1(n);",
     "w = nelua_optional_pointer_int64_____convert_1(pn);",
+    "pr = nelua_optional_P____convert_1((P){.x = f()});",
+    "pv = nelua_optional_P____convert_1((P){.x = n});",
   })
   expect.run_c([[
     require 'optional'
@@ -3798,6 +3813,55 @@ it("optional static initializers", function()
     assert(x == nil)
     x = 6
     assert(x == 6)
+  ]])
+  -- an init list into `T?` is typed against `T` and wrapped
+  expect.run_c([[
+    require 'optional'
+    local P = @record{x: integer, y: integer}
+    local p: P? = {x = 1}
+    local a: [2]integer? = {1, 2}
+    local e: P? = {}
+    local own: [2]integer? = {some = true, v = {3, 4}}
+    local function f(): integer return 7 end
+    local r: P? = {x = f()}
+    local Q = @record{o: P?, a: [2]integer?}
+    local q: Q = {o = {x = 5}, a = {5, 6}}
+    assert(p:get().x == 1 and p:get().y == 0 and a:get()[1] == 2 and e == nil)
+    assert(own:get()[0] == 3 and r:get().x == 7)
+    assert(q.o:get().x == 5 and q.a:get()[1] == 6)
+    local function g(o: P?): integer return o:get().x end
+    local function empty(o: P?): boolean return o == nil end
+    assert(g({x = 9}) == 9 and not empty({x = 9}) and empty({}))
+    p = {x = 3}
+    assert(p == P{x = 3})
+    local function h(k: integer): P?
+      if k == 1 then return {x = k} end
+      return {x = f()}
+    end
+    assert(h(1):get().x == 1 and h(2):get().x == 7)
+    do
+      local lp: P? = {x = 2}
+      local la: [2]integer? = {f(), 2}
+      assert(lp:get().x == 2 and la:get()[0] == 7)
+    end
+    -- runtime fields that are plain variables (the list is not `done` after its first typing)
+    local n = 5
+    local c <const> = 6
+    local pn: P? = {x = n}
+    local pc: P? = {x = c}
+    local an: [2]integer? = {n, 2}
+    local af: [2]integer? = {n, f()}
+    local qn: Q = {o = {x = n}, a = {n, 2}}
+    pn = {x = n + 1}
+    assert(pn:get().x == 6 and pc:get().x == 6 and an:get()[0] == 5 and af:get()[1] == 7)
+    assert(qn.o:get().x == 5 and qn.a:get()[0] == 5 and g({x = n}) == 5 and not empty({x = n}))
+    do
+      local m = 8
+      local dn: P? = {x = m}
+      local da: [2]integer? = {m, f()}
+      dn = {x = m}
+      assert(dn:get().x == 8 and da:get()[1] == 7 and g({x = m}) == 8)
+    end
   ]])
 end)
 
