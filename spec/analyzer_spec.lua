@@ -2826,6 +2826,117 @@ it("optional types", function()
   ]])
 end)
 
+it("optional types embedded in cimport records", function()
+  expect.analyze_error([[
+    require 'optional'
+    local Inner = @record{o: integer?}
+    local Outer <cimport,nodecl> = @record{inner: Inner}
+  ]], "optional types cannot be used in a <cimport> record field")
+  expect.analyze_error([[
+    require 'optional'
+    local Inner = @record{o: integer?}
+    local Outer <cimport,nodecl> = @record{a: [2]Inner}
+  ]], "optional types cannot be used in a <cimport> record field")
+  expect.analyze_error([[
+    require 'optional'
+    local Inner = @record{o: integer?}
+    local U = @union{i: Inner, n: integer}
+    local Outer <cimport,nodecl> = @record{u: U}
+  ]], "optional types cannot be used in a <cimport> record field")
+  expect.analyze_error([[
+    require 'optional'
+    local Outer <cimport,nodecl,forwarddecl> = @record{}
+    Outer = @record{o: integer?}
+  ]], "optional types cannot be used in a <cimport> record field")
+  expect.analyze_error([[
+    require 'optional'
+    local Inner = @record{o: integer?}
+    local Outer <cimport,nodecl,forwarddecl> = @record{}
+    Outer = @record{p: *Outer, i: Inner}
+  ]], "optional types cannot be used in a <cimport> record field")
+  expect.analyze_ast([[
+    require 'optional'
+    local Inner = @record{o: integer?}
+    local Outer <cimport,nodecl> = @record{p: *Inner, a: [2]*Inner}
+    local x: Outer
+    local o: *Inner = x.p
+  ]])
+  expect.analyze_ast([[
+    require 'optional'
+    local Inner = @record{o: integer?}
+    local Outer <cimport,nodecl,forwarddecl> = @record{}
+    Outer = @record{p: *Inner, q: *Outer, n: integer}
+    local x: Outer
+    local o: *Inner = x.p
+    local n: integer = x.n
+  ]])
+  expect.analyze_ast([[
+    local Inner <forwarddecl> = @record{}
+    local Outer <cimport,nodecl> = @record{p: *Inner}
+    Inner = @record{n: integer}
+    local x: Outer
+    local n: integer = x.p.n
+  ]])
+  expect.analyze_ast([[
+    require 'optional'
+    local Inner <forwarddecl> = @record{}
+    local Outer <cimport,nodecl,forwarddecl> = @record{}
+    Outer = @record{p: *Inner, n: clong}
+    Inner = @record{o: integer?, k: integer}
+    local x: Outer
+    local k: integer = x.p.k
+    local o: integer? = x.p.o
+  ]])
+  expect.analyze_error([[
+    require 'optional'
+    local Inner = @record{o: integer?}
+    local x: Inner <cimport,nodecl>
+  ]], "optional types cannot be used in a <cimport> variable")
+  expect.analyze_error([[
+    require 'optional'
+    local Inner = @record{o: integer?}
+    local x: [2]Inner <cimport,nodecl>
+  ]], "optional types cannot be used in a <cimport> variable")
+  expect.analyze_error([[
+    require 'optional'
+    local Inner = @record{o: integer?}
+    local function f(a: Inner) <cimport,nodecl> end
+  ]], "optional types cannot be used in a <cimport> function")
+  expect.analyze_error([[
+    require 'optional'
+    local Inner = @record{o: integer?}
+    local function f(): Inner <cimport,nodecl> end
+  ]], "optional types cannot be used in a <cimport> function")
+  expect.analyze_ast([[
+    require 'optional'
+    local Inner = @record{o: integer?}
+    local function f(a: *Inner): *Inner <cimport,nodecl> end
+    local x: *Inner <cimport,nodecl>
+  ]])
+  expect.analyze_error([[
+    require 'optional'
+    local U <cimport,nodecl> = @union{o: integer?, n: integer}
+  ]], "optional types cannot be used in a <cimport> union field")
+  expect.analyze_error([[
+    require 'optional'
+    local U <cimport,nodecl,forwarddecl> = @union{}
+    U = @union{o: integer?, n: integer}
+  ]], "optional types cannot be used in a <cimport> union field")
+  expect.analyze_error([[
+    require 'optional'
+    local Inner = @record{o: integer?}
+    local U <cimport,nodecl> = @union{i: Inner, n: integer}
+  ]], "optional types cannot be used in a <cimport> union field")
+  expect.analyze_ast([[
+    require 'optional'
+    local Inner = @record{o: integer?}
+    local U <cimport,nodecl,forwarddecl> = @union{}
+    U = @union{p: *Inner, n: integer}
+    local x: U
+    local o: *Inner = x.p
+  ]])
+end)
+
 it("optional orelse", function()
   expect.analyze_ast([[
     require 'optional'

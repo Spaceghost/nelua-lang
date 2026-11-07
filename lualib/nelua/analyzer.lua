@@ -641,10 +641,11 @@ function visitors.Annotation(context, node, opts)
     -- a single field struct is not ABI-identical to a C pointer in portable C,
     -- so optionals never cross a <cimport> boundary
     if objattr._type then
-      if objattr.is_record and objattr.fields then
+      if (objattr.is_record or objattr.is_union) and objattr.fields then
         for _,field in ipairs(objattr.fields) do
           if types.type_has_optional(field.type) then
-            node:raisef("optional types cannot be used in a <cimport> record field, use a plain pointer")
+            node:raisef("optional types cannot be used in a <cimport> %s field, use a plain pointer",
+              objattr.is_union and 'union' or 'record')
           end
         end
       end
@@ -972,6 +973,15 @@ function visitors.RecordType(context, node, opts)
   local fieldnodes = node
   context:traverse_nodes(fieldnodes, recordtype)
   recordtype:update_fields()
+  if recordtype.cimport then
+    -- completing a <cimport, forwarddecl> record, the annotation check ran before any field existed
+    for i=1,#fieldnodes do
+      local fieldnode = fieldnodes[i]
+      if types.type_has_optional(fieldnode.attr.value) then
+        fieldnode:raisef("optional types cannot be used in a <cimport> record field, use a plain pointer")
+      end
+    end
+  end
   node.done = true
 end
 
@@ -1012,6 +1022,15 @@ function visitors.UnionType(context, node, opts)
   attr.type = primtypes.type
   attr.value = uniontype
   uniontype:update_fields()
+  if uniontype.cimport then
+    -- completing a <cimport, forwarddecl> union, the annotation check ran before any field existed
+    for i=1,#fieldnodes do
+      local fieldnode = fieldnodes[i]
+      if types.type_has_optional(fieldnode.attr.value) then
+        fieldnode:raisef("optional types cannot be used in a <cimport> union field, use a plain pointer")
+      end
+    end
+  end
   node.done = true
 end
 
@@ -3097,12 +3116,12 @@ local function visitor_function_annotations(context, node, annotnodes, blocknode
       if attr.cimport and type then
         -- a single field struct is not ABI-identical to a C pointer in portable C
         for _,argtype in ipairs(type.argtypes) do
-          if argtype.is_optional then
+          if types.type_has_optional(argtype) then
             node:raisef("optional types cannot be used in a <cimport> function, use a plain pointer")
           end
         end
         for _,rettype in ipairs(type.rettypes) do
-          if rettype.is_optional then
+          if types.type_has_optional(rettype) then
             node:raisef("optional types cannot be used in a <cimport> function, use a plain pointer")
           end
         end
