@@ -6,6 +6,13 @@ require 'stringbuilder'
 -- Grow and shrink GC-tracked memory in a loop while collecting, so that
 -- `GCAllocator:realloc` and `GC:reregister` are exercised on both root and
 -- heap items, on moving and in-place reallocations.
+--
+-- The 'gc realloc' spec (spec/stdlib_spec.lua) runs this file with --sanitize
+-- and, on gcc >= 12, with
+--   --cflags='-O2 -Werror=use-after-free -Wuse-after-free=2'
+-- -O2 is required: at the default (unoptimized) spec build GC:reregister is
+-- not inlined into GCAllocator:realloc and gcc never sees the realloc, so the
+-- diagnostic is silent even on code that reads the freed pointer.
 
 local function realloc_test() <noinline>
   for round=1,8 do
