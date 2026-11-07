@@ -3440,6 +3440,149 @@ it("optional if local", function()
   ]], {"__iflocal_1 = x;", "if(nelua_optional_int64__has((&__iflocal_1)))", "int64_t y = __iflocal_1.v;"})
 end)
 
+it("match statement", function()
+  expect.run_c([[
+    require 'variant'
+    require 'optional'
+    local V = @variant(integer, string, boolean)
+    local function classify(v: V): integer
+      match v do
+      case local n: integer then return n
+      case local s: string then return #s + 100
+      case boolean then return 200
+      case nil then return -1
+      end
+      return -2
+    end
+    assert(classify(5) == 5 and classify('abc') == 103 and classify(true) == 200 and classify((@V)()) == -1)
+    -- several types in one case and an else block
+    local function kind(v: V): string
+      match v do
+      case integer, boolean then return 'scalar'
+      else return 'other'
+      end
+      return ''
+    end
+    assert(kind(1) == 'scalar' and kind(false) == 'scalar' and kind('s') == 'other' and kind((@V)()) == 'other')
+    -- the subject is evaluated once
+    local evals = 0
+    local function make(k: integer): V
+      evals = evals + 1
+      if k == 1 then return 1 elseif k == 2 then return 'x' end
+      return (@V)()
+    end
+    local hits = 0
+    match make(1) do
+    case local n: integer then hits = hits + n
+    case string then case boolean then case nil then
+    end
+    assert(evals == 1 and hits == 1)
+    -- binds by value, the subject is left alone
+    local v: V = 7
+    match v do
+    case local n: integer then n = n + 1 assert(n == 8)
+    else assert(false)
+    end
+    assert(v == 7)
+    -- the binding is scoped to its case and shadows outer names, `match` is still a name
+    local n = 1
+    match v do case local n: integer then assert(n == 7) else end
+    assert(n == 1)
+    local match = 3
+    assert(match == 3)
+    -- inside a loop with break and continue
+    local sum, skipped = 0, 0
+    for i=1,6 do
+      local w: V
+      if i % 3 == 0 then w = true elseif i % 2 == 0 then w = i else w = 'odd' end
+      match w do
+      case local k: integer then sum = sum + k
+      case string then skipped = skipped + 1 continue
+      case boolean then if i == 6 then break end
+      case nil then assert(false)
+      end
+      sum = sum + 100
+    end
+    assert(sum == 306 and skipped == 2)
+    -- optional subjects
+    local function find(k: integer): integer?
+      if k == 1 then return 10 end
+      return nil
+    end
+    local function describe(k: integer): integer
+      match find(k) do
+      case local x: integer then return x * 2
+      case nil then return -1
+      end
+      return 0
+    end
+    assert(describe(1) == 20 and describe(2) == -1)
+    local function only(k: integer): integer
+      match find(k) do
+      case local x: integer then return x
+      else return 0
+      end
+      return -5
+    end
+    assert(only(1) == 10 and only(2) == 0)
+    local function either(k: integer): integer
+      match find(k) do
+      case integer, nil then return 1
+      end
+      return 2
+    end
+    assert(either(1) == 1 and either(2) == 1)
+    local function nilfirst(k: integer): integer
+      match find(k) do
+      case nil then return 0
+      case local x: integer then return x
+      end
+      return -1
+    end
+    assert(nilfirst(1) == 10 and nilfirst(2) == 0)
+    -- niche optional
+    local g = 4
+    local p: *integer? = &g
+    match p do
+    case local q: *integer then assert($q == 4)
+    case nil then assert(false)
+    end
+    p = nilptr
+    match p do case *integer then assert(false) case nil then end
+    -- inside a closure
+    local f = function(k: integer): integer
+      match find(k) do case local x: integer then return x + 1 case nil then return 0 end
+      return -1
+    end
+    assert(f(1) == 11 and f(2) == 0)
+    -- a defer in a case runs when leaving it
+    local closed = 0
+    do
+      match find(1) do
+      case local x: integer then defer closed = closed + x end assert(closed == 0)
+      case nil then
+      end
+      assert(closed == 10)
+    end
+  ]])
+  expect.generate_c([[
+    require 'variant'
+    local v: integer|string = 1
+    match v do
+    case local n: integer then
+    case string, nil then
+    end
+  ]], {"__match_1 = v;", "switch(__match_1.tag) {", "case 1: {", "int64_t n = __match_1.u.v1;", "case 2:", "case 0: {"})
+  expect.generate_c([[
+    require 'optional'
+    local o: integer? = 1
+    match o do
+    case local n: integer then
+    case nil then
+    end
+  ]], {"__match_1 = o;", "if(nelua_optional_int64__has((&__match_1)))", "int64_t n = __match_1.v;"})
+end)
+
 it("optional try kinds", function()
   expect.run_c([[
     require 'optional'

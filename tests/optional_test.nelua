@@ -228,4 +228,27 @@ do -- optionals in records and arrays
   assert(rs[0].parent == nil and rs[1].parent == 1)
 end
 
+do -- match binds the held value or takes the `nil` case
+  local function find(k: integer): integer?
+    if k == 1 then return 10 end
+    return nil
+  end
+  local function describe(k: integer): integer
+    match find(k) do
+    case local x: integer then return x * 2
+    case nil then return -1
+    end
+    return 0
+  end
+  assert(describe(1) == 20 and describe(2) == -1)
+  local g = 4
+  local p: *integer? = &g
+  match p do
+  case local q: *integer then assert($q == 4)
+  case nil then assert(false)
+  end
+  p = nilptr
+  match p do case *integer then assert(false) case nil then end
+end
+
 print('optional ok')

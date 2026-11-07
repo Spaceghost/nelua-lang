@@ -295,6 +295,32 @@ aster.register('Switch', {
   shaper.Block + shaper.falsy, -- else block
 })
 
+-- Match case pattern for the empty state (e.g. `case nil then`).
+aster.register('MatchNil', {})
+
+-- Match case pattern for a member type without binding (e.g. `case integer then`).
+aster.register('MatchType', {
+  shaper.Node, -- type expr
+})
+
+-- Match case pattern binding the held value (e.g. `case local x: integer then`).
+aster.register('MatchLocal', {
+  shaper.IdDecl, -- declared variable, with its type
+})
+
+-- Match case (patterns followed by a block).
+aster.register('MatchCase', {
+  shaper.array_of(shaper.Node), -- patterns
+  shaper.Block, -- statements block
+})
+
+-- Match statement, dispatches on the held type of a variant or an optional.
+aster.register('Match', {
+  shaper.Node, -- match expr
+  shaper.array_of(shaper.Node), -- cases
+  shaper.Block + shaper.falsy, -- else block
+})
+
 -- Do statement.
 aster.register('Do', {
   shaper.Block, -- statements block

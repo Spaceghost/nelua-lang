@@ -2335,6 +2335,167 @@ function visitors.Switch(context, node)
   node.done = done
 end
 
+--[[
+Desugars a `match` statement over a variant or an optional into existing nodes.
+`match e do case local n: T then B1 case U, nil then B2 else B3 end` over a variant becomes
+`do local __m = e  switch __m.tag do case 1 then local n: T = __m.u.v1 B1 case 2, 0 then B2 else B3 end end`
+and over an optional an `if __m:has() then local n: T = __m.v B1 else B2 end` chain.
+Every case type must be a member of the variant (the held type of the optional), each tag may
+appear once, and without an `else` every member and `nil` must be covered.
+Returns false when the subject still waits for its type.
+]]
+local function visitor_match(context, node)
+  local exprnode, casenodes, elsenode = node[1], node[2], node[3]
+  local state = node.matchstate
+  if not state then
+    state = {doblock = aster.Block{}}
+    node.matchstate = state
+  end
+  local doblock = state.doblock
+  -- the subject will live inside the `do` block, check it under that scope
+  context:push_forked_cleaned_scope(doblock)
+  context:traverse_node(exprnode)
+  local exprtype = exprnode.attr.type
+  if not exprtype then
+    context:pop_scope()
+    return false -- wait for the type
+  end
+  local membertypes
+  if exprtype.is_variant then
+    membertypes = exprtype.subtypes
+  elseif exprtype.is_optional then
+    membertypes = {exprtype.subtype}
+  else
+    context:pop_scope()
+    exprnode:raisef("`match` expects a variant or an optional, got '%s'", exprtype)
+  end
+  local function memberlist()
+    local names = {}
+    for i,T in ipairs(membertypes) do names[i] = tostring(T) end
+    return table.concat(names, ', ')
+  end
+  -- resolves a pattern type node to its 1-based member index
+  local function resolve_type(typenode)
+    context:push_forked_state{intypeexpr = true}
+    context:traverse_node(typenode)
+    context:pop_state()
+    local typeattr = typenode.attr
+    local T = typeattr.value
+    if not (typeattr.type and typeattr.type.is_type and T) then
+      typenode:raisef("invalid type in `match` case")
+    end
+    for i,U in ipairs(membertypes) do
+      if U == T then return i end
+    end
+    if exprtype.is_variant then
+      typenode:raisef("`match` case type '%s' is not a member of '%s' (members: %s)",
+        T, exprtype, memberlist())
+    end
+    typenode:raisef("`match` case type '%s' is not the held type '%s' of '%s'",
+      T, membertypes[1], exprtype)
+  end
+  -- tag 0 is the empty state, tag `i` the member `i`
+  local seen = {} -- tag -> pattern node
+  local cases = {} -- {tags = {...}, block = Block, decl = IdDecl|nil, tag = integer|nil}
+  for _,casenode in ipairs(casenodes) do
+    local patnodes, blocknode = casenode[1], casenode[2]
+    local case = {tags = {}, block = blocknode}
+    for _,patnode in ipairs(patnodes) do
+      local tag
+      if patnode.is_MatchNil then
+        tag = 0
+      elseif patnode.is_MatchType then
+        tag = resolve_type(patnode[1])
+      else -- MatchLocal
+        if #patnodes > 1 then
+          patnode:raisef("`case local` binds a single type, list types in a `case` without a binding")
+        end
+        local declnode = patnode[1]
+        tag = resolve_type(declnode[2])
+        case.decl = declnode
+        case.tag = tag
+      end
+      if seen[tag] then
+        if tag == 0 then
+          patnode:raisef("`match` case `nil` appears more than once")
+        end
+        patnode:raisef("`match` case '%s' appears more than once", membertypes[tag])
+      end
+      seen[tag] = patnode
+      case.tags[#case.tags+1] = tag
+    end
+    for _,stmt in ipairs(blocknode) do
+      if stmt.is_Fallthrough then
+        stmt:raisef("`fallthrough` is not allowed in a `match` case")
+      end
+    end
+    cases[#cases+1] = case
+  end
+  if not elsenode then
+    local missing = {}
+    for i=1,#membertypes do
+      if not seen[i] then missing[#missing+1] = tostring(membertypes[i]) end
+    end
+    if not seen[0] then missing[#missing+1] = 'nil' end
+    if #missing > 0 then
+      node:raisef("`match` statement is not exhaustive, missing cases: %s (add them or an `else` block)",
+        table.concat(missing, ', '))
+    end
+  end
+  context:pop_scope()
+  -- rewrite
+  local oname = context.scope:generate_name('__match')
+  local function bind(case, valnode)
+    local valdecl = aster.VarDecl{'local', {case.decl}, {valnode}}
+    valdecl:recursive_update_location(case.decl.src, case.decl.pos, case.decl.endpos)
+    table.insert(case.block, 1, valdecl)
+  end
+  local dispatch
+  if exprtype.is_variant then
+    local casepairs = {}
+    for _,case in ipairs(cases) do
+      local tagnodes = {}
+      for i,tag in ipairs(case.tags) do
+        tagnodes[i] = aster.Number{tostring(tag)}
+      end
+      if case.decl then
+        bind(case, aster.DotIndex{'v'..case.tag, aster.DotIndex{'u', aster.Id{oname}}})
+      end
+      casepairs[#casepairs+1] = tagnodes
+      casepairs[#casepairs+1] = case.block
+    end
+    dispatch = aster.Switch{aster.DotIndex{'tag', aster.Id{oname}}, casepairs, elsenode or false}
+  else
+    local ifpairs = {}
+    for _,case in ipairs(cases) do
+      local condnode
+      if #case.tags == 2 then
+        condnode = aster.Boolean{true}
+      elseif case.tags[1] == 1 then
+        condnode = aster.CallMethod{'has', {}, aster.Id{oname}}
+      else
+        condnode = aster.UnaryOp{'not', aster.CallMethod{'has', {}, aster.Id{oname}}}
+      end
+      if case.decl then
+        bind(case, aster.DotIndex{'v', aster.Id{oname}})
+      end
+      ifpairs[#ifpairs+1] = condnode
+      ifpairs[#ifpairs+1] = case.block
+    end
+    dispatch = aster.If{ifpairs, elsenode or false}
+  end
+  doblock[1] = aster.VarDecl{'local', {aster.IdDecl{oname}}, {exprnode}}
+  doblock[2] = dispatch
+  local newnode = aster.Do{doblock}
+  newnode:recursive_update_location(node.src, node.pos, node.endpos)
+  context:transform_and_traverse_node(node, newnode)
+  return true
+end
+
+function visitors.Match(context, node)
+  visitor_match(context, node)
+end
+
 function visitors.Defer(context, node)
   local blocknode = node[1]
   context:traverse_node(blocknode)

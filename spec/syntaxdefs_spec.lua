@@ -553,6 +553,50 @@ describe("statement", function()
     end)
   end)
 
+  describe("match", function()
+    it("variant patterns", function()
+      expect_ast("match v do case local n: integer then return n case string, nil then case boolean then else end",
+        n.Block{
+          n.Match{
+            n.Id{'v'},
+            {n.MatchCase{{n.MatchLocal{n.IdDecl{'n', n.Id{'integer'}}}}, n.Block{n.Return{n.Id{'n'}}}},
+             n.MatchCase{{n.MatchType{n.Id{'string'}}, n.MatchNil{}}, n.Block{}},
+             n.MatchCase{{n.MatchType{n.Id{'boolean'}}}, n.Block{}}},
+            n.Block{}
+      }})
+      expect_ast("match f(x) case nil then end",
+        n.Block{
+          n.Match{
+            n.Call{{n.Id{'x'}}, n.Id{'f'}},
+            {n.MatchCase{{n.MatchNil{}}, n.Block{}}}
+      }})
+      expect_ast("match p case local q: *integer then case nil then end",
+        n.Block{
+          n.Match{
+            n.Id{'p'},
+            {n.MatchCase{{n.MatchLocal{n.IdDecl{'q', n.PointerType{n.Id{'integer'}}}}}, n.Block{}},
+             n.MatchCase{{n.MatchNil{}}, n.Block{}}}
+      }})
+    end)
+    it("match stays an ordinary name", function()
+      expect_ast("match(x)", n.Block{n.Call{{n.Id{'x'}}, n.Id{'match'}}})
+      expect_ast("match = 1", n.Block{n.Assign{{n.Id{'match'}}, {n.Number{'1'}}}})
+      expect_ast("s:match(p)", n.Block{n.CallMethod{'match', {n.Id{'p'}}, n.Id{'s'}}})
+      expect_ast("local match = string.match",
+        n.Block{n.VarDecl{'local', {n.IdDecl{'match', false}}, {n.DotIndex{'match', n.Id{'string'}}}}})
+      expect_ast("matched = 1", n.Block{n.Assign{{n.Id{'matched'}}, {n.Number{'1'}}}})
+    end)
+    it("errors", function()
+      expect_ast_error("match v do end", 'Expected_matchcases')
+      expect_ast_error("match v do case then end", 'Expected_matchpatterns')
+      expect_ast_error("match v do case integer, then end", 'Expected_matchpattern')
+      expect_ast_error("match v do case local n then end", 'Expected_typeddecl')
+      expect_ast_error("match v do case integer end", 'Expected_then')
+      expect_ast_error("match v do case integer then", 'Expected_end')
+      expect_ast_error("match v end", 'UnexpectedSyntax')
+    end)
+  end)
+
   describe("do", function()
     it("simple", function()
       expect_ast("do end",

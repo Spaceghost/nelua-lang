@@ -17,7 +17,7 @@ chunk           <-- SHEBANG? SKIP Block (!.)^UnexpectedSyntax
 Block           <==(local / global /
                     FuncDef / Return / In /
                     Do / Defer /
-                    If / Switch /
+                    If / Switch / Match /
                     for /
                     While / Repeat /
                     Break / Continue / Fallthrough /
@@ -44,6 +44,16 @@ ifcond          <-- IfLocal / expr
 IfLocal         <== `local` @iddecl @`=` @expr
 Switch          <== `switch` @expr `do`? @cases (`else` Block)? @`end`
 cases           <-| (`case` @exprs @`then` Block)+
+-- `match` is a contextual word (`string.match` stays valid): the statement is only taken
+-- when a `case` follows, otherwise the parser backtracks to a call or an assignment
+Match           <== 'match' WORDSKIP expr (`do` @matchcases / matchcases) (`else` Block)? @`end`
+matchcases      <-| MatchCase+
+MatchCase       <== `case` @matchpatterns @`then` Block
+matchpatterns   <-| matchpattern (`,` @matchpattern)*
+matchpattern    <-- MatchNil / MatchLocal / MatchType
+MatchNil        <== `nil`
+MatchLocal      <== `local` @typeddecl
+MatchType       <== typeexpr
 for             <-- `for` (ForNum / ForIn)
 ForNum          <== iddecl `=` @expr @`,` forcmp~? @expr (`,` @expr)~? @`do` Block @`end`
 ForIn           <== @iddecls @`in` @exprs @`do` Block @`end`
@@ -265,6 +275,10 @@ local errors = {
 ["Expected_then"]           = "expected `then` keyword to begin a statement block",
 ["Expected_in"]             = "expected `in` keyword in `for` statement",
 ["Expected_cases"]          = "expected `case` keyword in `switch` statement",
+["Expected_matchcases"]     = "expected `case` keyword in `match` statement",
+["Expected_matchpatterns"]  = "expected a type, `nil` or `local` declaration in `match` case",
+["Expected_matchpattern"]   = "expected a type, `nil` or `local` declaration in `match` case",
+["Expected_typeddecl"]      = "expected a typed identifier declaration",
 ["Expected_Annotation"]     = "expected an annotation expression",
 ["Expected_expr"]           = "expected an expression",
 ["Expected_ifcond"]         = "expected an expression or `local` declaration in `if` condition",

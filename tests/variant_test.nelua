@@ -135,4 +135,25 @@ do -- visit
   assert(n:visit(function(x: float64): float64 return x * scale end) == 3.75)
 end
 
+do -- match
+  local V = @variant(integer, string, boolean)
+  local function classify(v: V): integer
+    match v do
+    case local n: integer then return n
+    case local s: string then return #s
+    case boolean then return 100
+    case nil then return -1
+    end
+    return -2
+  end
+  assert(classify(5) == 5 and classify('abc') == 3 and classify(true) == 100 and classify((@V)()) == -1)
+  local v: V = 'x'
+  local seen = 0
+  match v do
+  case integer, boolean then seen = 1
+  else seen = 2
+  end
+  assert(seen == 2)
+end
+
 print('variant ok')

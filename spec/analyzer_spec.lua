@@ -3174,6 +3174,151 @@ it("optional if local", function()
   ]], "`if local` expects an optional, got 'int64'")
 end)
 
+it("match statement", function()
+  expect.analyze_ast([[
+    require 'variant'
+    require 'optional'
+    local v: integer|string|boolean = 3
+    match v do
+    case local n: integer then local m: integer = n
+    case local s: string then local t: string = s
+    case boolean then
+    case nil then
+    end
+    match v do
+    case integer, string then
+    else
+    end
+    match v case local b: boolean then else end
+    local function get(): integer|string return 1 end
+    match get() do
+    case local n: integer then
+    case local s: string then
+    case nil then
+    end
+    local o: integer? = 5
+    match o do
+    case local x: integer then local y: integer = x
+    case nil then
+    end
+    match o do
+    case integer, nil then
+    end
+    match o case nil then else end
+    local p: *integer? = nilptr
+    match p do
+    case local q: *integer then local r: *integer = q
+    case nil then
+    end
+    local function f(k: integer): integer
+      match o do
+      case local x: integer then return x
+      case nil then return 0
+      end
+      return -1
+    end
+    -- `match` is a contextual word, names and methods keep using it
+    local match = 1
+    local R = @record{}
+    function R.match(x: integer) end
+    R.match(match)
+  ]])
+  expect.analyze_error([[
+    require 'variant'
+    local v: integer|string = 1
+    match v do
+    case float64 then
+    case nil then
+    end
+  ]], "`match` case type 'float64' is not a member of 'variant(int64, string)' (members: int64, string)")
+  expect.analyze_error([[
+    require 'variant'
+    local v: integer|string = 1
+    match v do
+    case local n: integer then
+    case integer then
+    case string, nil then
+    end
+  ]], "`match` case 'int64' appears more than once")
+  expect.analyze_error([[
+    require 'variant'
+    local v: integer|string = 1
+    match v do
+    case nil then
+    case integer, string, nil then
+    end
+  ]], "`match` case `nil` appears more than once")
+  expect.analyze_error([[
+    require 'variant'
+    local v: integer|string = 1
+    match v do
+    case integer then
+    end
+  ]], "`match` statement is not exhaustive, missing cases: string, nil (add them or an `else` block)")
+  expect.analyze_error([[
+    require 'optional'
+    local o: integer? = 1
+    match o do
+    case local x: integer then
+    end
+  ]], "`match` statement is not exhaustive, missing cases: nil (add them or an `else` block)")
+  expect.analyze_error([[
+    local n = 1
+    match n do
+    case nil then
+    end
+  ]], "`match` expects a variant or an optional, got 'int64'")
+  expect.analyze_error([[
+    require 'optional'
+    local o: integer? = 1
+    match o do
+    case string then
+    case nil then
+    end
+  ]], "`match` case type 'string' is not the held type 'int64' of 'optional(int64)'")
+  expect.analyze_error([[
+    require 'variant'
+    local v: integer|string = 1
+    match v do
+    case local n: integer, string then
+    else
+    end
+  ]], "`case local` binds a single type, list types in a `case` without a binding")
+  expect.analyze_error([[
+    require 'variant'
+    local v: integer|string = 1
+    match v do
+    case integer then fallthrough
+    case string, nil then
+    end
+  ]], "`fallthrough` is not allowed in a `match` case")
+  expect.analyze_error([[
+    require 'variant'
+    local v: integer|string = 1
+    match v do
+    case local n: integer then
+    case string, nil then local m = n
+    end
+  ]], "undeclared symbol 'n'")
+  expect.analyze_error([[
+    require 'optional'
+    local o: integer? = 1
+    match o do
+    case local x: integer then
+    case nil then
+    end
+    local y = x
+  ]], "undeclared symbol 'x'")
+  expect.analyze_error([[
+    require 'optional'
+    local o: integer? = 1
+    match o do
+    case local x: string then
+    case nil then
+    end
+  ]], "`match` case type 'string' is not the held type 'int64' of 'optional(int64)'")
+end)
+
 it("optional try kinds", function()
   -- errmsg kind: the value is the first return, the message is tested with `.size`
   expect.analyze_ast([[
