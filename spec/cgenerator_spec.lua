@@ -3607,7 +3607,8 @@ it("optional static initializers", function()
     assert(own:get()[0] == 3 and r:get().x == 7)
     assert(q.o:get().x == 5 and q.a:get()[1] == 6)
     local function g(o: P?): integer return o:get().x end
-    assert(g({x = 9}) == 9 and g({}) == 0)
+    local function empty(o: P?): boolean return o == nil end
+    assert(g({x = 9}) == 9 and not empty({x = 9}) and empty({}))
     p = {x = 3}
     assert(p == P{x = 3})
     local function h(k: integer): P?
