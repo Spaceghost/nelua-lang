@@ -76,9 +76,12 @@ comptime.stdlib = {
 --------------------------------------------------------------------------------
 -- Eligibility check
 
+-- Memoized verdicts of `type_error` (false when the type is fine, the message otherwise).
+local type_verdicts = setmetatable({}, {__mode = 'k'})
+
 -- Returns an error message when `type` has no compile-time counterpart, nil when it has one.
 local function type_error(type)
-  local verdict = type.comptimeverdict
+  local verdict = type_verdicts[type]
   if verdict ~= nil then
     return verdict or nil
   end
@@ -89,12 +92,12 @@ local function type_error(type)
   elseif type.is_string then
     err = false
   elseif type.is_array then
-    type.comptimeverdict = false -- guard against cycles
+    type_verdicts[type] = false -- guard against cycles
     err = type_error(type.subtype) or false
   elseif type.is_pointer then
     local subtype = type.subtype
     if subtype and (subtype.is_record or subtype.is_array) and not subtype.is_string then
-      type.comptimeverdict = false
+      type_verdicts[type] = false
       err = type_error(subtype) or false
     else
       err = string.format("pointer type '%s' cannot be used at compile time \z
@@ -104,7 +107,7 @@ local function type_error(type)
     if type.is_optional or type.is_variant then
       err = string.format("type '%s' cannot be used at compile time yet", type)
     else
-      type.comptimeverdict = false
+      type_verdicts[type] = false
       for _,field in ipairs(type.fields) do
         if field.type.is_pointer then
           err = string.format("record '%s' has the pointer field '%s', it cannot be used at compile time",
@@ -121,7 +124,7 @@ local function type_error(type)
   else
     err = string.format("type '%s' cannot be used at compile time", type)
   end
-  type.comptimeverdict = err
+  type_verdicts[type] = err
   return err or nil
 end
 
@@ -237,9 +240,13 @@ local function check_node(context, node, trace, fstate)
     local symbol = attr._symbol and attr
     if symbol then
       local stype = symbol.type
-      if stype and stype.is_procedure then
-        local iscallee = parent and ((parent.is_Call and parent[2] == node) or
-                                     (parent.is_FuncDef and parent[2] == node))
+      local iscallee = parent and ((parent.is_Call and parent[2] == node) or
+                                   (parent.is_FuncDef and parent[2] == node))
+      if symbol.builtin then
+        if not (iscallee and allowed_builtins[symbol.name]) then
+          raise("builtin '%s' cannot be used at compile time", symbol.name)
+        end
+      elseif stype and stype.is_procedure then
         if not iscallee and not symbol.anonymous then
           raise("function values cannot be used at compile time, only calls")
         end
@@ -249,8 +256,6 @@ local function check_node(context, node, trace, fstate)
         return
       elseif node.is_Id and is_inside_scope(symbol, fstate.funcscope) then -- locals
         return
-      elseif symbol.builtin then
-        raise("builtin '%s' cannot be used at compile time", symbol.name)
       elseif node.is_DotIndex and not (node[2].attr.type and node[2].attr.type.is_type) then
         return -- a record field
       else
