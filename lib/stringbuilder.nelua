@@ -60,7 +60,7 @@ end
   local INIT_CAPACITY: usize <comptime> = 16
 
   -- String builder record defined when instantiating the generic `stringbuilder`.
-  local stringbuilderT: type <owned> = @record{
+  local stringbuilderT: type = @record{
     data: span(byte),
     size: usize,
     allocator: Allocator

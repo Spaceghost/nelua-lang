@@ -58,7 +58,8 @@ each with specs in `spec/` and docs under `docs/pages/`:
   an lvalue needs the `move` builtin (which zeroes the source), a moved variable cannot be
   read until assigned again (flow sensitive over branches, loops, early exits), records with
   owned fields and arrays of owned values are owned implicitly, and `<close>` variables cannot
-  be moved ([overview](docs/pages/overview.md#ownership)).
+  be moved; `heapqueue` and `list` are owned in the stdlib, `vector`, `sequence`, `hashmap`,
+  `stringbuilder` and `filestream` are not yet ([overview](docs/pages/overview.md#ownership)).
 - **Optionals**: `T?` / `optional(T)` through `require 'optional'`, `nil` and `T` convert
   to it, `== nil` tests emptiness, `*T?` keeps the pointer size with `nilptr` as empty, and
   the postfix `expr?` propagates empty optionals, null pointers and the stdlib

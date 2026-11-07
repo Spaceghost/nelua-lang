@@ -11,6 +11,9 @@ function CountingAllocator:dealloc(p: pointer): void
   if p then deallocs = deallocs + 1 end
   general_allocator:dealloc(p)
 end
+function CountingAllocator:realloc(p: pointer, newsize: usize, oldsize: usize): pointer
+  return general_allocator:realloc(p, newsize, oldsize) -- growth is not a destroy
+end
 ## Allocator_implement_interface(CountingAllocator)
 
 local closes = 0
@@ -72,6 +75,9 @@ end
 
 local IVec = @vector(integer, CountingAllocator)
 
+-- `vector` itself is not annotated <owned> (the standard library passes vectors by value
+-- in `utf8.char`, `span` conversions and iterator states), both branches are kept so the
+-- test follows the annotation
 ## if IVec.value.is_owned then
 do -- a moved vector destroys exactly once
   local vec: IVec = {1, 2, 3}

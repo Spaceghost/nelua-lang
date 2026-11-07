@@ -34,7 +34,7 @@ require 'span'
   }
 
   -- Sequence record defined when instantiating the generic `sequence` with type `T`.
-  local sequenceT: type <nickname(#[string.format('sequence(%s)', T)]#),owned> = @record{
+  local sequenceT: type <nickname(#[string.format('sequence(%s)', T)]#)> = @record{
     impl: *sequenceimplT,
     allocator: Allocator
   }

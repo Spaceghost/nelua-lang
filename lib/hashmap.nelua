@@ -79,7 +79,7 @@ local INVALID_INDEX: usize <comptime> = (@usize)(-1)
   }
 
   -- Hash map record defined when instantiating the generic `hashmap`.
-  local hashmapT: type <nickname(#[string.format('hashmap(%s, %s)',K,V)]#),owned> = @record{
+  local hashmapT: type <nickname(#[string.format('hashmap(%s, %s)',K,V)]#)> = @record{
     buckets: span(usize),
     nodes: span(hashnodeT),
     size: usize,
