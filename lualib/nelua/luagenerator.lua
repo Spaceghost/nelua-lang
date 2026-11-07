@@ -477,7 +477,9 @@ function visitors.DoExpr(context, node, emitter)
   local block = node[1]
   emitter:add_ln('(function()')
   context:push_forked_state{loopinfo = false}
+  context:push_forked_scope(node)
   emitter:add(block)
+  context:pop_scope()
   context:pop_state()
   emitter:add_indent('end)()')
 end

@@ -188,7 +188,7 @@ local function check_node(context, node, trace, fstate)
     raise("`for in` loops cannot be used at compile time (iterators are runtime functions)")
   end
   local type = attr.type
-  if type and not node.is_Type then
+  if type and not node.is_Type and not attr.builtin then
     local err = type_error(type)
     if err then raise(err) end
   end
@@ -719,6 +719,9 @@ Evaluates function `symbol` with arguments `args` (list of `{attr=, node=}`) at 
 returns the packed results. Results are cached per function and argument values.
 ]]
 function comptime.evaluate(context, symbol, args, node)
+  if symbol.forwarddecl and not symbol.funcdefined then
+    return nil -- wait for the definition
+  end
   local defnode = get_defnode(symbol)
   if not defnode then
     node:raisef("in compile-time evaluation of function '%s': the function has no definition available",
@@ -905,7 +908,7 @@ function comptime.check_pending(context)
   if not pendings then return end
   for node in pairs(pendings) do
     node:raisef("in call of builtin 'comptime': the call could not be resolved at compile time \z
-      (the function or a function it calls has unresolved types)")
+      (the function is not defined or has unresolved types)")
   end
 end
 
