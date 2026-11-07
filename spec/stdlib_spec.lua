@@ -37,7 +37,9 @@ it("gc realloc", function()
   local ccinfo = ccompiler.get_cc_info()
   local args = {'--generator', 'c', '--sanitize', 'tests/gc_realloc_test.nelua'}
   if ccinfo.is_gcc and not ccinfo.is_clang and ccinfo.gnuc >= 12 then
-    table.insert(args, 1, '--cflags=-Werror=use-after-free -Wall')
+    -- note: a bare -Werror=use-after-free drops gcc to level 1 (definite uses
+    -- only), the level must be restated to keep the "may be used" diagnostics
+    table.insert(args, 1, '--cflags=-Werror=use-after-free -Wuse-after-free=2')
   end
   expect.run(args, 'gc realloc ok')
 end)
