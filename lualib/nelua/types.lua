@@ -476,9 +476,19 @@ Type.binary_operators.ne = function(ltype, rtype, lattr, rattr)
   return retype, reval
 end
 
+-- Result type of `and`/`or`: an optional beside a boolean is tested through its truthiness,
+-- so the result is a boolean instead of `any` (`boolean?` is refused by the analyzer before).
+local function conditional_result_type(ltype, rtype, lattr, rattr)
+  local retype = types.promote_type_for_attrs(lattr, rattr) or ltype:promote_type(rtype)
+  if not retype and ((ltype.is_optional and rtype.is_boolean) or (rtype.is_optional and ltype.is_boolean)) then
+    retype = primtypes.boolean
+  end
+  return retype or primtypes.any
+end
+
 Type.binary_operators['and'] = function(ltype, rtype, lattr, rattr)
   local reval
-  local retype = types.promote_type_for_attrs(lattr, rattr) or ltype:promote_type(rtype) or primtypes.any
+  local retype = conditional_result_type(ltype, rtype, lattr, rattr)
   local lval, rval = lattr.value, rattr.value
   if retype.is_boolean and lval ~= nil and rval ~= nil then
     reval = not not (lval and rval)
@@ -488,7 +498,7 @@ end
 
 Type.binary_operators['or'] = function(ltype, rtype, lattr, rattr)
   local reval
-  local retype = types.promote_type_for_attrs(lattr, rattr) or ltype:promote_type(rtype) or primtypes.any
+  local retype = conditional_result_type(ltype, rtype, lattr, rattr)
   local lval, rval = lattr.value, rattr.value
   if retype.is_boolean and lval ~= nil and rval ~= nil then
     reval = lval or rval

@@ -80,6 +80,11 @@ Precedence by construction: `*T?` = `(*T)?`, `*const T?` = `(*const T)?`, `[4]T?
   the test. Decision for `boolean?`: `BooleanType:get_convertible_from_type` refuses `is_optional and
   subtype.is_boolean` ("test a boolean optional with `~= nil`, `orelse` or `if local`"), so `local b: boolean? =
   false; if b then` is a compile error rather than silently true.
+- `opt and b` / `opt or b` / `b and opt` / `b or opt` where `b` is `boolean` (not `boolean?`): the result type is
+  `boolean` without a desired type (`Type.binary_operators['and'|'or']` fall back to `boolean` when promotion
+  fails and one side is optional beside a boolean), so `local r = opt and true` deduces `boolean` instead of
+  `any`; `opt` is converted through its truthiness and the right side stays lazy. A ternary whose branches are
+  `boolean` and non-boolean (`opt and true or 2`, like `true and true or 2` upstream) still deduces `any`.
 - `opt or y` / `opt and y` where `opt.is_optional` and `y` is not optional and not boolean: compile error
   "use `orelse` to provide a default for an optional" (check in `visitors.BinaryOp` before `binary_operator`, so
   the `any` promotion is never reached). `T? or T?` stays allowed (result `T?`).

@@ -2931,6 +2931,50 @@ it("optional orelse", function()
   ]])
 end)
 
+it("optional and/or with a boolean", function()
+  expect.analyze_ast([[
+    require 'optional'
+    local x: integer? = 1
+    local p: *integer? = nilptr
+    local function t(): boolean return true end
+    local a = x and true
+    local b = x or true
+    local c = x or false
+    local d = true and x
+    local e = false or x
+    local f = x and t()
+    local g = p or t()
+    local h = x and true or false
+    local y: integer? = 2
+    local z = x or y
+    local w = x and y
+    ## after_inference(function()
+    ##   for _,s in ipairs{a, b, c, d, e, f, g, h} do assert(s.type.is_boolean, s.name) end
+    ##   assert(z.type == x.type and w.type == x.type)
+    ## end)
+  ]])
+  expect.analyze_error([[
+    require 'optional'
+    local x: integer? = 1
+    local a = x and 1
+  ]], "in binary operation `and`: use `orelse` to provide a default for an optional")
+  expect.analyze_error([[
+    require 'optional'
+    local x: integer? = 1
+    local a = x or 'd'
+  ]], "in binary operation `or`: use `orelse` to provide a default for an optional")
+  expect.analyze_error([[
+    require 'optional'
+    local b: boolean? = false
+    local c = b or true
+  ]], "test a boolean optional")
+  expect.analyze_error([[
+    require 'optional'
+    local b: boolean? = false
+    local c = true and b
+  ]], "test a boolean optional")
+end)
+
 it("optional if local", function()
   expect.analyze_ast([[
     require 'optional'
