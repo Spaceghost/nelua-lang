@@ -2252,7 +2252,7 @@ it("owned copies need move", function()
     function Buf.byvalue(self: Buf) end
     local a: Buf
     a:byvalue()
-  ]], "in method call 'byvalue' at argument 'self': 'a' has owned type 'Buf'")
+  ]], "in method call 'Buf.byvalue' at argument 'self': 'a' has owned type 'Buf'")
   expect.analyze_error(owned_prelude..[[
     local P = @record{b: Buf}
     local a: Buf
@@ -2386,8 +2386,10 @@ it("owned moved state", function()
     local x = false
     if x then
       consume(move(a))
-    elseif a.size > 0 then
+    elseif a.size > 0 then -- evaluated only when the first branch was not taken
+      consume(move(a))
     end
+    print(a.size)
   ]], "variable 'a' of owned type 'Buf' may have been moved on line 8")
   expect.analyze_error(owned_prelude..[[
     local a: Buf

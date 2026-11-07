@@ -410,8 +410,9 @@ it("move", function()
     assert(arr2[0].x == 1 and arr2[1].y == 6)
     assert(parr[0].x == 0 and parr[1].y == 0)
     local function f(x: Buf): Buf
+      local px = &x
       local y = move(x)
-      assert(x.x == 0 and x.y == 0)
+      assert(px.x == 0 and px.y == 0)
       return y
     end
     local d = f(move(arr2[1]))
