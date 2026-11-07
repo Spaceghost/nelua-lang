@@ -52,7 +52,9 @@ each with specs in `spec/` and docs under `docs/pages/`:
   with `==` (also against bare member values), `tostring` and `visit` ([overview](docs/pages/overview.md#variant)).
 - **`match` statement**: `match v do case local n: integer then ... case string, nil then ... end`
   dispatches on the held type of a variant or an optional with exhaustiveness checking
-  (every member and `nil`, or an `else`), lowered to a `switch` on the tag; `match` is a
+  (every member and `nil`, or an `else`); `case local n: *T` binds a reference into the subject
+  instead of a copy, lvalue and pointer subjects are matched in place, and the whole statement is
+  lowered at compile time to a `switch` on the tag with no runtime support code; `match` is a
   contextual word, `string.match` keeps working ([overview](docs/pages/overview.md#variant)).
 - **Owned records**: `<owned>` on a record with `__close` makes its values affine: copying
   an lvalue needs the `move` builtin (which zeroes the source), a moved variable cannot be

@@ -3553,6 +3553,21 @@ it("match statement", function()
     case local q: *integer then local r: *integer = q
     case nil then
     end
+    -- reference bindings and pointer subjects
+    match v do
+    case local n: *integer then local m: *integer = n
+    case local s: *const string then local t: *const string = s
+    case boolean, nil then
+    end
+    local vp = &v
+    match vp do
+    case local n: *integer then
+    case string, boolean, nil then
+    end
+    match o do
+    case local x: *integer then local y: *integer = x
+    case nil then
+    end
     local function f(k: integer): integer
       match o do
       case local x: integer then return x
@@ -3574,6 +3589,14 @@ it("match statement", function()
     case nil then
     end
   ]], "`match` case type 'float64' is not a member of 'variant(int64, string)' (members: int64, string)")
+  expect.analyze_error([[
+    require 'variant'
+    local v: integer|string = 1
+    match v do
+    case local n: *float64 then
+    case nil then
+    end
+  ]], "is not a member of 'variant(int64, string)' or a pointer to one (members: int64, string)")
   expect.analyze_error([[
     require 'variant'
     local v: integer|string = 1

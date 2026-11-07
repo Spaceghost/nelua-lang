@@ -901,16 +901,40 @@ else print('other')
 end
 ```
 
-`match e do case ... end` requires a variant or an optional subject, which is evaluated once and
-copied; `case local x: T then` binds a copy of the held value for its block (one type per binding),
-`case T then` and `case T, U then` test without binding, and `case nil then` is the empty state.
-Every case type must be a member type (the error lists the members), a type or `nil` may appear
-in one case only, and without an `else` block every member and `nil` must be covered, so adding a
-member to the variant makes each `match` without `else` a compile error until the new case is
-written. `fallthrough` is not allowed. `match` is lowered to a `switch` on the tag, so `break` and
-`continue` reach the enclosing loop as they do from a `switch`. `match` is a contextual word, not a
-reserved one: `string.match`, `s:match(p)` and `local match = 1` keep working, the statement is
-taken only when a `case` follows the subject.
+A case can also bind a *reference* to the held value, to read a large member in place or to
+change the subject through it:
+
+```nelua
+local Shape = @variant(integer, string)
+local shapes: [2]Shape = {1, 'two'}
+
+match shapes[0] do
+case local n: *integer then $n = $n + 10 -- writes into `shapes[0]`
+case string, nil then
+end
+print(shapes[0]) -- outputs: 11
+
+match shapes[1] do
+case local s: *const string then print(#$s) -- read-only reference, outputs: 3
+else
+end
+```
+
+`match e do case ... end` requires a variant or an optional subject, or a pointer to one, and
+evaluates it once. A subject that is an lvalue (a variable, field, index or dereference) is
+matched in place through its address; a pointer subject is matched through; an rvalue (a call
+result or a constructor) is stored in a hidden local. `case local x: T then` binds a copy of the
+held value for its block (one type per binding), `case local x: *T then` binds a pointer to the
+held value inside the subject (`*const T` for a read-only one; a member that is itself a pointer
+type is matched exactly first), `case T then` and `case T, U then` test without binding, and
+`case nil then` is the empty state. Every case type must be a member type, or a pointer to one in
+a binding (the error lists the members), a type or `nil` may appear in one case only, and without
+an `else` block every member and `nil` must be covered, so adding a member to the variant makes
+each `match` without `else` a compile error until the new case is written. `fallthrough` is not
+allowed. The statement is lowered at compile time to a `switch` on the tag, with no runtime
+support code, so `break` and `continue` reach the enclosing loop as they do from a `switch`.
+`match` is a contextual word, not a reserved one: `string.match`, `s:match(p)` and
+`local match = 1` keep working, the statement is taken only when a `case` follows the subject.
 {:.alert.alert-info}
 
 ### Optional
@@ -1112,9 +1136,10 @@ end
 ```
 
 The case type must be the held type itself (`case local x: float64` on an `integer?` is an
-error, convert inside the block), `case nil then` is the empty state, `case T, nil then` covers
-both without binding, and without `else` both states must be covered. The same statement works
-on variants, see [Variant](#variant).
+error, convert inside the block) or a pointer to it (`case local x: *integer then $x = $x + 1`
+updates the value inside the optional), `case nil then` is the empty state, `case T, nil then`
+covers both without binding, and without `else` both states must be covered. The same statement
+works on variants, see [Variant](#variant).
 {:.alert.alert-info}
 
 ### Pointer

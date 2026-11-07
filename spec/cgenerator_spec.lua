@@ -3598,6 +3598,45 @@ it("match statement", function()
     case local q: *integer then assert($q == 4)
     case nil then assert(false)
     end
+    -- `case local x: *T` binds a reference into the subject, which is read in place
+    local m: V = 7
+    match m do
+    case local n: *integer then $n = $n + 1
+    else assert(false)
+    end
+    assert(m == 8)
+    match m do case local n: *const integer then assert($n == 8) else assert(false) end
+    -- any lvalue works as the subject: record fields, array elements, pointer dereferences
+    local Holder = @record{v: V, vs: [2]V}
+    local h: Holder = {v = 'ab', vs = {1, 2}}
+    match h.v do case local s: *string then assert($s == 'ab') $s = 'abc' else assert(false) end
+    assert(h.v == 'abc')
+    match h.vs[1] do case local n: *integer then $n = 20 else assert(false) end
+    assert(h.vs[1] == 20)
+    -- a pointer to a variant is matched through
+    local hp = &h
+    match &h.v do case local s: *string then assert($s == 'abc') else assert(false) end
+    match hp.vs[0] do case local n: *integer then $n = 10 else assert(false) end
+    assert(h.vs[0] == 10)
+    -- an rvalue subject lives in the hidden local, references point into that copy
+    match make(1) do
+    case local n: *integer then $n = $n * 5 assert($n == 5)
+    else assert(false)
+    end
+    -- optionals bind by reference too
+    local o: integer? = 5
+    match o do case local x: *integer then $x = 6 case nil then assert(false) end
+    assert(o:get() == 6)
+    local op = &o
+    match op do case local x: *integer then $x = $x + 1 case nil then assert(false) end
+    assert(o:get() == 7)
+    -- a pointer member type is matched exactly before it is read as a reference pattern
+    local W = @variant(*integer, string)
+    local w: W = &g
+    match w do
+    case local q: *integer then assert(q == &g and $q == 4)
+    case string, nil then assert(false)
+    end
     p = nilptr
     match p do case *integer then assert(false) case nil then end
     -- inside a closure
@@ -3620,18 +3659,34 @@ it("match statement", function()
     require 'variant'
     local v: integer|string = 1
     match v do
-    case local n: integer then
+    case local n: integer then n = n + 1
     case string, nil then
     end
-  ]], {"__match_1 = v;", "switch(__match_1.tag) {", "case 1: {", "int64_t n = __match_1.u.v1;", "case 2:", "case 0: {"})
+  ]], {"__match_1 = (&v);", "switch(__match_1->tag) {", "case 1: {", "int64_t n = __match_1->u.v1;", "case 2:", "case 0: {"})
+  expect.generate_c([[
+    require 'variant'
+    local v: integer|string = 1
+    match v do
+    case local n: *integer then $n = 2
+    case string, nil then
+    end
+  ]], {"__match_1 = (&v);", "nlint64_ptr n = (&__match_1->u.v1);"})
+  expect.generate_c([[
+    require 'variant'
+    local function get(): integer|string return 1 end
+    match get() do
+    case local n: *integer then $n = 2
+    case string, nil then
+    end
+  ]], {"__match_1 = get();", "switch(__match_1.tag) {", "nlint64_ptr n = (&__match_1.u.v1);"})
   expect.generate_c([[
     require 'optional'
     local o: integer? = 1
     match o do
-    case local n: integer then
+    case local n: integer then n = n + 1
     case nil then
     end
-  ]], {"__match_1 = o;", "if(nelua_optional_int64__has((&__match_1)))", "int64_t n = __match_1.v;"})
+  ]], {"__match_1 = (&o);", "if(nelua_optional_int64__has(__match_1))", "int64_t n = __match_1->v;"})
 end)
 
 it("optional try kinds", function()

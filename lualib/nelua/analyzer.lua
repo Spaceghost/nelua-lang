@@ -2264,7 +2264,11 @@ local function visitor_if_local(context, node)
         local valdecl = aster.VarDecl{'local', {declnode}, {aster.DotIndex{'v', aster.Id{oname}}}}
         valdecl:recursive_update_location(condnode.src, condnode.pos, condnode.endpos)
         table.insert(thenblock, 1, valdecl)
-        doblock[1] = aster.VarDecl{'local', {aster.IdDecl{oname}}, {exprnode}}
+        local subjectnode = exprnode
+  if subjectislvalue and not subjectisptr then
+    subjectnode = aster.UnaryOp{'ref', exprnode} -- no copy, the cases read the subject in place
+  end
+  doblock[1] = aster.VarDecl{'local', {aster.IdDecl{oname}}, {subjectnode}}
         doblock[1]:recursive_update_location(condnode.src, condnode.pos, condnode.endpos)
         doblock[2] = aster.If{{aster.CallMethod{'has', {}, aster.Id{oname}}, thenblock}, build_rest(i+2, dochain)}
         doblock[2]:recursive_update_location(node.src, node.pos, node.endpos)
@@ -2416,6 +2420,15 @@ local function visitor_match(context, node)
     context:pop_scope()
     return false -- wait for the type
   end
+  -- a pointer to a variant or an optional is matched through, without copying
+  local subjectisptr = false
+  if exprtype.is_pointer and exprtype.subtype and
+     (exprtype.subtype.is_variant or exprtype.subtype.is_optional) then
+    exprtype = exprtype.subtype
+    subjectisptr = true
+  end
+  -- an lvalue subject is also taken by address, so cases can bind references into it
+  local subjectislvalue = exprnode.attr.lvalue and not exprnode.attr.comptime
   local membertypes
   if exprtype.is_variant then
     membertypes = exprtype.subtypes
@@ -2430,8 +2443,9 @@ local function visitor_match(context, node)
     for i,T in ipairs(membertypes) do names[i] = tostring(T) end
     return table.concat(names, ', ')
   end
-  -- resolves a pattern type node to its 1-based member index
-  local function resolve_type(typenode)
+  -- resolves a pattern type node to its 1-based member index,
+  -- the second result is true when the pattern is a pointer to a member (binding by reference)
+  local function resolve_type(typenode, allowref)
     context:push_forked_state{intypeexpr = true}
     context:traverse_node(typenode)
     context:pop_state()
@@ -2441,14 +2455,20 @@ local function visitor_match(context, node)
       typenode:raisef("invalid type in `match` case")
     end
     for i,U in ipairs(membertypes) do
-      if U == T then return i end
+      if U == T then return i, false end
     end
+    if allowref and T.is_pointer and T.subtype then
+      for i,U in ipairs(membertypes) do
+        if U == T.subtype then return i, true end
+      end
+    end
+    local orref = allowref and ' or a pointer to one' or ''
     if exprtype.is_variant then
-      typenode:raisef("`match` case type '%s' is not a member of '%s' (members: %s)",
-        T, exprtype, memberlist())
+      typenode:raisef("`match` case type '%s' is not a member of '%s'%s (members: %s)",
+        T, exprtype, orref, memberlist())
     end
-    typenode:raisef("`match` case type '%s' is not the held type '%s' of '%s'",
-      T, membertypes[1], exprtype)
+    typenode:raisef("`match` case type '%s' is not the held type '%s' of '%s'%s",
+      T, membertypes[1], exprtype, orref)
   end
   -- tag 0 is the empty state, tag `i` the member `i`
   local seen = {} -- tag -> pattern node
@@ -2467,9 +2487,14 @@ local function visitor_match(context, node)
           patnode:raisef("`case local` binds a single type, list types in a `case` without a binding")
         end
         local declnode = patnode[1]
-        tag = resolve_type(declnode[2])
+        if not declnode[2] then
+          declnode:raisef("`case local` needs a type annotation (`case local x: T then`)")
+        end
+        local byref
+        tag, byref = resolve_type(declnode[2], true)
         case.decl = declnode
         case.tag = tag
+        case.byref = byref
       end
       if seen[tag] then
         if tag == 0 then
@@ -2502,6 +2527,9 @@ local function visitor_match(context, node)
   -- rewrite
   local oname = context.scope:generate_name('__match')
   local function bind(case, valnode)
+    if case.byref then -- `case local x: *T` binds the address of the held value
+      valnode = aster.UnaryOp{'ref', valnode}
+    end
     local valdecl = aster.VarDecl{'local', {case.decl}, {valnode}}
     valdecl:recursive_update_location(case.decl.src, case.decl.pos, case.decl.endpos)
     table.insert(case.block, 1, valdecl)
@@ -2540,7 +2568,11 @@ local function visitor_match(context, node)
     end
     dispatch = aster.If{ifpairs, elsenode or false}
   end
-  doblock[1] = aster.VarDecl{'local', {aster.IdDecl{oname}}, {exprnode}}
+  local subjectnode = exprnode
+  if subjectislvalue and not subjectisptr then
+    subjectnode = aster.UnaryOp{'ref', exprnode} -- no copy, the cases read the subject in place
+  end
+  doblock[1] = aster.VarDecl{'local', {aster.IdDecl{oname}}, {subjectnode}}
   doblock[2] = dispatch
   local newnode = aster.Do{doblock}
   newnode:recursive_update_location(node.src, node.pos, node.endpos)
