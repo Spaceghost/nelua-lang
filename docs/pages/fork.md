@@ -35,6 +35,7 @@ it by writing new syntax or by requiring a new library, never by accident.
 | [Freestanding](#freestanding) | `## pragmas.freestanding = true` | nothing: it removes code, never adds it |
 | [Cross compiling](#cross-compiling) | `nelua --target aarch64-linux-musl` | the target's type sizes and ABI |
 | [Bindings](#generated-c-bindings) | `nelua-bindgen zlib.h -o zlib.nelua` | `<cimport>` declarations, no wrappers |
+| [Compile-time evaluation](#compile-time-evaluation) | `comptime(f(x))`, `function f() <comptime>` | only the folded result |
 | [Libraries](#libraries) | `require 'algorithm'`, `heapqueue`, `tuple` | ordinary generic records |
 
 ## Variants
@@ -320,6 +321,42 @@ tools/nelua-bindgen/nelua-bindgen.py zlib.h --include-as '<zlib.h>' -o zlib.nelu
 ```
 
 Read more: [nelua-bindgen README](https://github.com/Spaceghost/nelua-lang/blob/master/tools/nelua-bindgen/README.md).
+
+## Compile-time evaluation
+
+Some values are easiest to describe with a loop: a CRC table, a lookup of powers, a parsed
+constant. Upstream Nelua can compute those in its Lua preprocessor, which means writing the
+algorithm twice, once in Lua and once in Nelua. The fork can run an *ordinary Nelua function*
+inside the compiler and put the result in the program:
+
+```nelua
+local function crc32_table(): [256]uint32
+  local t: [256]uint32
+  for i: uint32 = 0, 255 do
+    local c: uint32 = i
+    for _ = 1, 8 do
+      if c & 1 == 1 then c = 0xEDB88320 ~ (c >> 1) else c = c >> 1 end
+    end
+    t[i] = c
+  end
+  return t
+end
+
+local CRC = comptime(crc32_table())  -- emitted as a C static initializer, no code runs at startup
+print(CRC[1])                        -- outputs: 1996959894
+```
+
+Annotating a function `<comptime>` evaluates every call to it and never emits the function to C;
+a call with an argument that is not known at compile time is an error naming that argument.
+
+The function is translated to Lua and run in a sandbox that keeps C semantics: integers wrap at
+their width, `uint64` divides as unsigned, `float32` rounds to single precision, records and
+arrays are values. Each evaluation is bounded (`pragmas.comptime_steps`, `pragmas.comptime_stack`)
+and cached per argument values. What it does not run: pointers other than references to records
+and arrays, allocators and the GC, `io`/`os`, closures, `defer`, optionals and variants; each is
+rejected with an error at the offending line. Records cannot be passed as arguments yet.
+
+Read more: [Compile-time function evaluation in the overview](/overview/#compile-time-function-evaluation).
 
 ## Libraries
 
