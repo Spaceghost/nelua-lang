@@ -62,6 +62,9 @@ Type.shape = shaper.shape {
   binary_operators = shaper.table,
   -- Table of meta fields (global methods/variables of the type).
   metafields = shaper.table:is_optional(),
+  -- The `__eq` metamethod instance comparing two values of the type, set by the analyzer
+  -- when a record holding such values (directly or in arrays) is compared with `==` or `~=`.
+  eqsym = shaper.attr:is_optional(),
   -- A generic type that the type can represent when used as generic.
   generic = shaper.type:is_optional(),
   -- Whether the code generator should omit the type declaration.

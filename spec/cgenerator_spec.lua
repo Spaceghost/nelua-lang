@@ -1681,6 +1681,187 @@ it("record comparisons", function()
     assert(($pq ~= 0) == true)
 ]])
 end)
+it("record comparisons with field metamethods", function()
+  -- a field type's `__eq` is called instead of comparing its bytes
+  expect.generate_c([[
+    local P = @record{x: number}
+    function P.__eq(a: P, b: P): boolean return a.x == b.x end
+    local R = @record{p: P, n: integer}
+    local a: R, b: R
+    local x = a == b
+  ]], "return P___eq(a.p, b.p) && a.n == b.n;")
+  -- arrays of such types loop over the elements, arrays of scalars keep the memcmp fast path
+  expect.generate_c([[
+    local P = @record{x: number}
+    function P.__eq(a: P, b: P): boolean return a.x == b.x end
+    local R = @record{ps: [2]P, ns: [2]integer}
+    local a: R, b: R
+    local x = a == b
+  ]], {"if(!P___eq(a[i], b[i])) return false;",
+       "return nelua_eq_P_arr2((P_ptr)a.ps, (P_ptr)b.ps) && memcmp(a.ns, b.ns, sizeof(a.ns)) == 0;"})
+  -- an `__eq` taking pointers gets the fields (and array elements) referenced
+  expect.generate_c([[
+    local P = @record{x: number}
+    function P.__eq(a: *P, b: *P): boolean return a.x == b.x end
+    local R = @record{p: P, ps: [2]P}
+    local a: R, b: R
+    local x = a == b
+  ]], {"if(!P___eq(&a[i], &b[i])) return false;",
+       "return P___eq(&a.p, &b.p) && nelua_eq_P_arr2((P_ptr)a.ps, (P_ptr)b.ps);"})
+  -- string fields compare by content like a direct `==`, without requiring 'string'
+  expect.generate_c([[
+    local R = @record{s: string, ss: [2]string, n: integer}
+    local a: R, b: R
+    local x = a == b
+  ]], {"if(!nelua_eq_string(a[i], b[i])) return false;",
+       "return nelua_eq_string(a.s, b.s) && nelua_eq_nlstring_arr2((nlstring_ptr)a.ss, (nlstring_ptr)b.ss) && a.n == b.n;"})
+  expect.generate_c([[
+    require 'string'
+    local R = @record{s: string}
+    local a: R, b: R
+    local x = a == b
+  ]], "return nelua_eq_string(a.s, b.s);")
+  -- comparing pointers to such records compares the pointers
+  expect.generate_c([[
+    local P = @record{x: number}
+    function P.__eq(a: P, b: P): boolean return a.x == b.x end
+    local R = @record{p: P}
+    local a: R, b: R
+    local pa: *R, pb: *R = &a, &b
+    local x = pa == pb
+  ]], "x = (pa == pb);")
+  -- a custom `__eq` on a field (tolerance compare) decides the record equality
+  expect.run_c([[
+    require 'math'
+    local Point = @record{x: number, y: number}
+    function Point.__eq(a: Point, b: Point): boolean
+      return math.abs(a.x - b.x) < 0.01 and math.abs(a.y - b.y) < 0.01
+    end
+    local S = @record{p: Point, n: integer}
+    local s1: S = {p = {1.0, 2.0}, n = 1}
+    local s2: S = {p = {1.001, 2.0}, n = 1}
+    assert(s1.p == s2.p)
+    assert(s1 == s2) assert(not (s1 ~= s2))
+    s2.n = 2
+    assert(s1 ~= s2) assert(not (s1 == s2))
+    s2.n = 1
+    s2.p.x = 1.5
+    assert(s1 ~= s2)
+
+    -- arrays of such records, nested arrays, plain arrays and nested plain records
+    local Inner = @record{p: Point, k: integer}
+    local A = @record{ps: [2]Point, grid: [2][2]Point, ns: [3]integer, inner: Inner}
+    local a1: A = {ps = {{1,2},{3,4}}, grid = {{{1,2},{3,4}},{{5,6},{7,8}}}, ns = {1,2,3}, inner = {{1,1}, 1}}
+    local a2: A = {ps = {{1.001,2},{3,4}}, grid = {{{1,2},{3,4}},{{5,6},{7,8.001}}}, ns = {1,2,3}, inner = {{1,1.001}, 1}}
+    assert(a1 == a2) assert(not (a1 ~= a2))
+    a2.ns[2] = 4
+    assert(a1 ~= a2)
+    a2.ns[2] = 3
+    a2.grid[1][1].y = 9
+    assert(a1 ~= a2)
+    a2.grid[1][1].y = 8
+    a2.inner.p.x = 2
+    assert(a1 ~= a2)
+
+    -- an `__eq` with `auto` arguments is instantiated for the field type
+    local Int = @record{x: integer, junk: integer}
+    function Int.__eq(a: auto, b: auto): boolean return a.x == b.x end
+    local Z = @record{i: Int}
+    local z1: Z = {i = {1, 10}}
+    local z2: Z = {i = {1, 20}}
+    assert(z1 == z2)
+    z2.i.x = 2
+    assert(z1 ~= z2)
+
+    -- an `__eq` that cannot compare two values of the field type is not used
+    local Odd = @record{x: integer}
+    function Odd.__eq(a: Odd, b: integer): boolean return a.x == b end
+    local W = @record{o: Odd}
+    local function same(a: W, b: W): boolean return a == b end
+    assert(same({{1}}, {{1}}))
+    assert(not same({{1}}, {{2}}))
+
+    -- an `__eq` taking its arguments by pointer agrees with the direct field compare
+    local Q = @record{x: integer, junk: integer}
+    function Q.__eq(a: *Q, b: *Q): boolean return a.x == b.x end
+    local QR = @record{q: Q, qs: [2]Q}
+    local qr1: QR = {q = {1, 10}, qs = {{1, 10}, {2, 20}}}
+    local qr2: QR = {q = {1, 20}, qs = {{1, 11}, {2, 21}}}
+    assert(qr1.q == qr2.q)
+    assert(qr1 == qr2) assert(not (qr1 ~= qr2))
+    qr2.qs[1].x = 3
+    assert(qr1 ~= qr2)
+
+    -- pointers to such records are compared as pointers
+    local pz1: *Z, pz2: *Z = &z1, &z2
+    assert(pz1 ~= pz2) assert(not (pz1 == pz2))
+    assert(pz1 == &z1)
+  ]])
+  -- an error instantiating a field `__eq` points at the `==`
+  expect.run_error_c([[
+    local P = @record{x: integer}
+    function P.__eq(a: auto, b: auto): boolean return a.x == b.nope end
+    local R = @record{p: P}
+    local r1: R, r2: R
+    local x = r1 == r2
+  ]], {"cannot index field 'nope'", ":5:18: from: polymorphic function instantiation"})
+  -- string fields compare by content, with or without the 'string' module
+  expect.run_c([[
+    local R = @record{s: string, ss: [2]string, n: integer}
+    local buf: [4]cchar = {97, 98, 99, 0}
+    local s1: string = "abc"
+    local s2: string = {data = (@*[0]byte)(&buf[0]), size = 3}
+    assert(s1 == s2 and s1.data ~= s2.data)
+    local r1: R = {s = s1, ss = {s1, "x"}, n = 1}
+    local r2: R = {s = s2, ss = {s2, "x"}, n = 1}
+    assert(r1 == r2) assert(not (r1 ~= r2))
+    r2.ss[1] = "y"
+    assert(r1 ~= r2)
+    r2.ss[1] = "x"
+    r2.s = "abd"
+    assert(r1 ~= r2)
+  ]])
+  expect.run_c([[
+    require 'string'
+    local R = @record{s: string, n: integer}
+    local s1: string = "abc"
+    local s2: string = string.copy("abc")
+    assert(s1 == s2 and s1.data ~= s2.data)
+    local r1: R = {s = s1, n = 1}
+    local r2: R = {s = s2, n = 1}
+    assert(r1 == r2) assert(not (r1 ~= r2))
+    r2.n = 2
+    assert(r1 ~= r2)
+  ]])
+  -- a variant field compares through its `__eq`, the unused union bytes are ignored
+  expect.run_c([[
+    require 'variant'
+    local V = @variant(integer, string)
+    local R = @record{v: V, n: integer}
+    local a: R, b: R
+    a.v:set("hello world, a long string")
+    a.v:set(1)
+    b.v:set(1)
+    assert(a.v == b.v)
+    assert(a == b) assert(not (a ~= b))
+    b.v:set(2)
+    assert(a ~= b) assert(not (a == b))
+    b.v:set("hello world, a long string")
+    assert(a ~= b)
+    a.v:set("hello world, a long string")
+    assert(a == b)
+    a.v:clear()
+    assert(a ~= b)
+    b.v:clear()
+    assert(a == b)
+    local vs1: [2]V, vs2: [2]V
+    vs1[0]:set("padding") vs1[0]:set(3) vs2[0]:set(3)
+    local AV = @record{vs: [2]V}
+    assert((@AV){vs1} == (@AV){vs2})
+    vs2[1]:set(4)
+    assert((@AV){vs1} ~= (@AV){vs2})
+  ]])
+end)
 
 it("binary conditional operators", function()
   expect.generate_c("local a: pointer, b: pointer; local x = a or b",  [[({
