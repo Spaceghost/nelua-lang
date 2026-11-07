@@ -2622,12 +2622,24 @@ ConceptType.is_nilable = true
 ConceptType.is_concept = true
 
 -- Create a concept from a lua function defined in the preprocessor.
--- Checks whether `type` is an optional or an array holding optionals (any depth).
-function types.type_has_optional(type)
+-- Checks whether `type` is an optional or embeds one by value (any depth),
+-- looking through arrays and record/union fields but never through pointers.
+function types.type_has_optional(type, visited)
   while type do
     if type.is_optional then return true end
-    if not type.is_array then return false end
-    type = type.subtype
+    if type.is_array then
+      type = type.subtype
+    elseif (type.is_record or type.is_union) and type.fields then
+      visited = visited or {}
+      if visited[type] then return false end
+      visited[type] = true
+      for _,field in ipairs(type.fields) do
+        if types.type_has_optional(field.type, visited) then return true end
+      end
+      return false
+    else
+      return false
+    end
   end
   return false
 end

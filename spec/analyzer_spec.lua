@@ -2725,6 +2725,56 @@ it("optional types", function()
   ]])
   expect.analyze_error([[
     require 'optional'
+    local Inner = @record{o: integer?}
+    local Outer <cimport,nodecl> = @record{inner: Inner}
+  ]], "optional types cannot be used in a <cimport> record field")
+  expect.analyze_error([[
+    require 'optional'
+    local Inner = @record{o: integer?}
+    local Outer <cimport,nodecl> = @record{a: [2]Inner}
+  ]], "optional types cannot be used in a <cimport> record field")
+  expect.analyze_error([[
+    require 'optional'
+    local Inner = @record{o: integer?}
+    local U = @union{i: Inner, n: integer}
+    local Outer <cimport,nodecl> = @record{u: U}
+  ]], "optional types cannot be used in a <cimport> record field")
+  expect.analyze_error([[
+    require 'optional'
+    local Outer <cimport,nodecl,forwarddecl> = @record{}
+    Outer = @record{o: integer?}
+  ]], "optional types cannot be used in a <cimport> record field")
+  expect.analyze_error([[
+    require 'optional'
+    local Inner = @record{o: integer?}
+    local Outer <cimport,nodecl,forwarddecl> = @record{}
+    Outer = @record{p: *Outer, i: Inner}
+  ]], "optional types cannot be used in a <cimport> record field")
+  expect.analyze_ast([[
+    require 'optional'
+    local Inner = @record{o: integer?}
+    local Outer <cimport,nodecl> = @record{p: *Inner, a: [2]*Inner}
+    local x: Outer
+    local o: *Inner = x.p
+  ]])
+  expect.analyze_ast([[
+    require 'optional'
+    local Inner = @record{o: integer?}
+    local Outer <cimport,nodecl,forwarddecl> = @record{}
+    Outer = @record{p: *Inner, q: *Outer, n: integer}
+    local x: Outer
+    local o: *Inner = x.p
+    local n: integer = x.n
+  ]])
+  expect.analyze_ast([[
+    local Inner <forwarddecl> = @record{}
+    local Outer <cimport,nodecl> = @record{p: *Inner}
+    Inner = @record{n: integer}
+    local x: Outer
+    local n: integer = x.p.n
+  ]])
+  expect.analyze_error([[
+    require 'optional'
     local function find(k: integer): integer? return nil end
     local function f(k: integer): integer?
       local a, b = find(k)?

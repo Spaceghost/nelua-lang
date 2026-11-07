@@ -950,6 +950,15 @@ function visitors.RecordType(context, node, opts)
   local fieldnodes = node
   context:traverse_nodes(fieldnodes, recordtype)
   recordtype:update_fields()
+  if recordtype.cimport then
+    -- completing a <cimport, forwarddecl> record, the annotation check ran before any field existed
+    for i=1,#fieldnodes do
+      local fieldnode = fieldnodes[i]
+      if types.type_has_optional(fieldnode.attr.value) then
+        fieldnode:raisef("optional types cannot be used in a <cimport> record field, use a plain pointer")
+      end
+    end
+  end
   node.done = true
 end
 
