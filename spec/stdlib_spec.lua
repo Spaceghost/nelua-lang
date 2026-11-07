@@ -37,8 +37,7 @@ it("gc realloc", function()
   local ccinfo = ccompiler.get_cc_info()
   local args = {'--generator', 'c', '--sanitize', 'tests/gc_realloc_test.nelua'}
   if ccinfo.is_gcc and not ccinfo.is_clang and ccinfo.gnuc >= 12 then
-    table.insert(args, 1, '--cflags')
-    table.insert(args, 2, '-Werror=use-after-free -Wall')
+    table.insert(args, 1, '--cflags=-Werror=use-after-free -Wall')
   end
   expect.run(args, 'gc realloc ok')
 end)
