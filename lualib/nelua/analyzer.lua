@@ -2983,9 +2983,10 @@ function visitors.VarDecl(context, node)
         end
       end
       if varnode.attr.comptime then
-        if not (valnode.attr.comptime and valtype) then
+        -- a pending `comptime(...)` call has no type yet, it is checked once resolved
+        if valtype and not valnode.attr.comptime then
           varnode:raisef("compile time variables can only assign to compile time expressions")
-        elseif (valnode.attr.value == nil and valnode.attr.type ~= primtypes.niltype) then
+        elseif valtype and (valnode.attr.value == nil and valnode.attr.type ~= primtypes.niltype) then
           varnode:raisef("compile time variables cannot be of type '%s'", vartype)
         end
       end
