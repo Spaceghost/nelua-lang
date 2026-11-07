@@ -14,7 +14,6 @@ end
 
 do -- pack
   local t = tuple.pack(1, true, 'x')
-  ## assert(t.type.is_record and #t.type.fields == 3)
   assert(t[0] == 1 and t[1] == true and t[2] == 'x')
   assert(t.e0 == 1 and t.e1 == true and t.e2 == 'x')
 end

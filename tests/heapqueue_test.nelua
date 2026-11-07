@@ -1,5 +1,16 @@
 require 'heapqueue'
 require 'allocators.general'
+require 'string'
+
+-- comparators passed as generic arguments are declared at file scope
+local function maxfirst(a: integer, b: integer): boolean
+  return a > b
+end
+
+local Task = @record{priority: integer, name: string}
+local function bypriority(a: Task, b: Task): boolean
+  return a.priority < b.priority
+end
 
 do -- braces initializer and pop order
   local hq: heapqueue(integer) = {5, 1, 4, 2, 3}
@@ -103,9 +114,6 @@ do -- to-be-closed variable
 end
 
 do -- custom comparator (max heap)
-  local function maxfirst(a: integer, b: integer): boolean
-    return a > b
-  end
   local hq: heapqueue(integer, (maxfirst)) = {5, 1, 4, 2, 3}
   assert(hq:top() == 5)
   assert(hq:pop() == 5 and hq:pop() == 4 and hq:pop() == 3 and hq:pop() == 2 and hq:pop() == 1)
@@ -113,10 +121,6 @@ do -- custom comparator (max heap)
 end
 
 do -- records with custom comparator
-  local Task = @record{priority: integer, name: string}
-  local function bypriority(a: Task, b: Task): boolean
-    return a.priority < b.priority
-  end
   local hq: heapqueue(Task, (bypriority))
   hq:push(Task{3, 'c'})
   hq:push(Task{1, 'a'})
