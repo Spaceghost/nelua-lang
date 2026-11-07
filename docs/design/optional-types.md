@@ -245,8 +245,8 @@ in the Nelua signature; `run.sh` gains one sample. No automatic `_Nullable` dete
 - `?` copies the operand; `nocopy` payloads rejected in v1; lvalue/pointer-based desugar is v2. `has` field and
   method overlap in the general layout; methods are the API.
 - `f()?:g()` statement and `x?.y = v` are syntax errors; `TryStat <== call '?'` is deliberately narrow.
-- Comptime wrapping covers `Nil`, comptime scalars and comptime init lists; `local x: integer? = f()` at top scope
-  still runs in `nelua_main`. `opt == nil` is never constant-folded (no "none" sentinel in `attr.value`).
+- Comptime wrapping covers `Nil`, comptime scalars and comptime init lists (an init list into `T?` is typed
+  against `T` and wrapped); `local x: integer? = f()` at top scope still runs in `nelua_main`. `opt == nil` is never constant-folded (no "none" sentinel in `attr.value`).
 - Codename dedup when `*FILE?` and `*const FILE?` coexist relies on `choose_codename`'s counter; readable, noted in
   the overview alert.
 - `orelse` precedence (below `|`, above comparison, Zig) is new to Nelua; `a orelse b == c` parses as
@@ -284,12 +284,18 @@ any record field of those types) is emitted as the C string literal `(char*)"...
 `nelua_string2cstring(...)`, which is not a constant expression (`local a: cstring? = 'xyz'` at the top scope
 compiled on master through `__convert` and broke once wrapped). Values that `T` cannot take (`3.5 -> integer?`)
 still go through `__convert` and keep its error, runtime values (`f()`, a variable) still go through `__convert`
-in `nelua_main`, and `opt == nil` is never constant-folded. Not wrapped: an init list written directly into
-`T?` (`local a: [2]integer? = {1, 2}`) never reaches `visitor_convert`, it is the optional record's own literal
-and fails in the record-literal visitor ("in record literal field 'v': no viable type conversion from 'int64'
-to 'array(int64, 2)'", on master too); spell the payload field (`{some = true, v = {1, 2}}`, `(@[2]integer?){v =
-{3, 4}}`) or convert a typed value (`local arr: [2]integer = {1, 2}; local a: [2]integer? = arr`). Spec'd in
-`analyzer_spec`/`cgenerator_spec` "optional static initializers" and "static initializers at top scope".
+in `nelua_main`, and `opt == nil` is never constant-folded. An init list written directly into `T?` (`local p:
+P? = {x = 1}`, `local a: [2]integer? = {1, 2}`, a record field or call argument of type `T?`, `return {...}`)
+is typed against `T` by `visitors.InitList` (the optional's `desiredtype` is redirected to its `subtype`) and then
+wrapped by `visitor_convert` like any other `T` value: comptime lists become the init list `{.some = true, .v =
+{...}}` (a static initializer at the top scope), lists with runtime fields go through `__convert`. The
+redirection is skipped for an empty list (`{}` is the empty optional) and for a list whose pairs all name the
+optional record's own fields (`{some = true, v = {1, 2}}`, `(@[2]integer?){v = {3, 4}}` keep working), so a
+payload record with a field named `some` or `v` must be spelled through the `v` pair. Before this fix the list
+was the optional record's own literal and failed in the record-literal visitor ("field 'x' is not present in
+record 'optional(P)'", "in record literal field 'v': no viable type conversion from 'int64' to 'array(int64,
+2)'"). Spec'd in `analyzer_spec`/`cgenerator_spec` "optional static initializers" and "static initializers at top
+scope".
 `tools/nelua-bindgen/nelua-bindgen.py --nullable-returns REGEX` (JSON `nullable_returns`) emits `local function
 name__c(...) <cimport'name'>` plus `global function name(...): *T? <inline>` (`function C.name` under
 `--prefix`; a plain `global function C.name` is not Nelua, the pre-existing prefix output never compiled), names

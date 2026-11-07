@@ -3232,15 +3232,32 @@ it("optional static initializers", function()
     ## static_assert(x.type == y.type and z.type == x.type)
     ## static_assert(p.type == q.type)
     ## static_assert(c.type.is_niche and c.type.subtype.is_cstring)
-    -- an init list into `T?` is the optional record's own literal, spell the payload field
+    -- an init list into `T?` is typed against `T` and wrapped, unless it spells the optional's own fields
     local a: [2]integer? = {some = true, v = {1, 2}}
     local b: [2]integer? = (@[2]integer?){v = {3, 4}}
     ## static_assert(a.type.is_optional and a.type.subtype.is_array and b.type == a.type)
+    local P = @record{x: integer}
+    local pa: P? = {x = 1}
+    local pb: [2]integer? = {1, 2}
+    local pe: P? = {}
+    local pr: P? = {x = f()}
+    local Q = @record{o: P?, a: [2]integer?}
+    local q: Q = {o = {x = 5}, a = {5, 6}}
+    local function opt(o: P?): P? return {x = o:get().x} end
+    opt({x = 9})
+    pa = {x = 3}
+    ## static_assert(pa.type.is_optional and pa.type.subtype == P.value and pr.type == pa.type)
+    ## static_assert(pb.type == a.type and pe.type == pa.type)
   ]])
   expect.analyze_error([[
     require 'optional'
-    local a: [2]integer? = {1, 2}
-  ]], "in record literal field 'v': no viable type conversion from 'int64' to 'array(int64, 2)'")
+    local a: [2]integer? = {1, 2, 3}
+  ]], "expected at most 2 values in array literal but got 3")
+  expect.analyze_error([[
+    require 'optional'
+    local P = @record{x: integer}
+    local p: P? = {y = 1}
+  ]], "field 'y' is not present in record 'P'")
   expect.analyze_error([[
     require 'optional'
     local x: integer? = 3.5

@@ -467,6 +467,22 @@ end
 
 function visitors.InitList(context, node, opts)
   local desiredtype = (opts and opts.desiredtype) or node.attr.desiredtype
+  if desiredtype and desiredtype.is_optional and #node > 0 then
+    -- an init list into `T?` is typed against `T` and then wrapped by `visitor_convert`
+    -- (comptime: init list, so top scope cases stay static initializers; otherwise `__convert`),
+    -- unless it spells the optional record's own fields (`{some = true, v = ...}`)
+    local ownliteral = true
+    for i=1,#node do
+      local childnode = node[i]
+      if not (childnode.is_Pair and luatype(childnode[1]) == 'string' and desiredtype.fields[childnode[1]]) then
+        ownliteral = false
+        break
+      end
+    end
+    if not ownliteral then
+      desiredtype = desiredtype.subtype
+    end
+  end
   if desiredtype then
     local objtype = desiredtype:implicit_deref_type()
     if objtype.metafields and objtype.metafields.__convert then
