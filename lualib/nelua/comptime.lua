@@ -464,7 +464,7 @@ local function attr_to_lua(attr, type, node, name)
   elseif type.is_string then
     if traits.is_string(value) then return value end
   elseif type.is_array then
-    if traits.is_table(value) and value.type then -- a compile-time array literal
+    if traits.is_table(value) and not value._bn and traits.is_type(value.type) then -- a compile-time array literal
       local t = lua_zero(type)
       for i=1,#value do
         t[i-1] = attr_to_lua(value[i], type.subtype, node, name)
@@ -479,7 +479,7 @@ end
 -- Serializes the compile-time value of `attr` for the evaluation cache key.
 local function attr_key(attr, type)
   local value = attr.value
-  if traits.is_table(value) and value.type then
+  if traits.is_table(value) and not value._bn and traits.is_type(value.type) then
     local parts = {}
     for i=1,#value do parts[i] = attr_key(value[i], type.subtype) end
     return '{'..table.concat(parts, ',')..'}'
