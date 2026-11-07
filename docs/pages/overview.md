@@ -1985,8 +1985,9 @@ In the standard library `heapqueue` and `list` are owned. `vector`, `sequence`, 
 (`utf8.char(vec)`, `span` conversions, `tostring(sb)`, `string.gsub(s, p, map)`,
 `io.stdin` copies, the global `arg`), so annotating them would require `move` or pointers
 in existing code. Of the generic containers, `vector(T)` and `sequence(T)` with an owned
-`T` own their elements (moves in and out, close what they drop, no `copy`); `hashmap`, `list`
-and `heapqueue` of owned elements still copy the element inside the library.
+`T`, and `hashmap(K, V)` with an owned `V`, own their elements (moves in and out, close what
+they drop, no copying operations); `list` and `heapqueue` of owned elements still copy the
+element inside the library.
 
 Errors name the variable, its type and the line of the move. The checks are an aid against
 double releases and use after release, not a memory safety guarantee: `move` zeroes the

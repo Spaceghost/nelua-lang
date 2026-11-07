@@ -226,8 +226,10 @@ In the standard library `heapqueue` and `list` are owned. A `vector` of an owned
 its elements and is owned itself: `push`/`insert` take a value with `move`, `pop`/`remove`
 hand it back, `clear`, a shrinking `resize`, `removeif` (whose predicate then takes a
 reference) and `destroy` close what they drop, and `copy`/`removevalue` are left out; a
-`sequence` of an owned type works the same way (and leaves out `unpack`). Other `vector`s and
-`sequence`s, and `hashmap`, `stringbuilder` and `filestream`, are not owned yet,
+`sequence` of an owned type works the same way (and leaves out `unpack`), and so does a
+`hashmap` with an owned value type: `set(key, move(v))` closes the value it replaces, `remove`
+hands it back, `erase`/`clear`/`destroy` close, and only `mpairs` iterates. Other containers,
+and `stringbuilder` and `filestream`, are not owned yet,
 because parts of the library still pass them by value; the overview lists the places.
 
 Read more: [Ownership in the overview](/overview/#ownership).

@@ -211,4 +211,29 @@ do -- custom allocator
   map:destroy()
 end
 
+-- a map of owned values moves them in and out and closes what it drops
+local map_closed = 0
+local MRes <owned> = @record{n: integer}
+function MRes:__close() if self.n ~= 0 then map_closed = map_closed + 1 end self.n = 0 end
+do
+  local m: hashmap(integer, MRes)
+  for i = 1, 40 do m:set(i, MRes{n=i}) end   -- grows and rehashes
+  assert(#m == 40 and map_closed == 0 and m[17].n == 17)
+  m:set(5, MRes{n=500})                       -- closes the old value
+  assert(map_closed == 1 and m:peek(5).n == 500)
+  local r = m:remove(7)
+  assert(r.n == 7 and #m == 39 and map_closed == 1)
+  r:__close()
+  assert(m:erase(8) and map_closed == 3)
+  local sum = 0
+  for k, v in mpairs(m) do sum = sum + v.n end
+  assert(sum == (40 * 41) // 2 - 5 - 7 - 8 + 500)
+  local m2 = move(m)                           -- the map itself is owned
+  m2:clear()
+  assert(map_closed == 3 + 38 and #m2 == 0)
+  m2:set(1, MRes{n=1})
+  m2:destroy()
+  assert(map_closed == 42)
+end
+
 print 'hashmap OK!'

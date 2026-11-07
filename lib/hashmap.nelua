@@ -13,6 +13,13 @@ the main differences are:
  * Can only use `pairs()` to iterate.
 
 Any failure when growing a hash map raises an error.
+
+A hash map whose value type is `<owned>` owns its values and is owned itself:
+`set(key, move(v))` stores a value and closes the one it replaces, `remove` hands
+the value back, and `erase`, `clear` and `destroy` close the values they drop.
+`pairs`, `next` and `has_and_get`, which would copy values, are not available for
+such maps; iterate with `mpairs` (references). Assigning through `map[key]`
+overwrites without closing the previous value.
 ]]
 
 require 'memory'
@@ -93,7 +100,23 @@ local INVALID_INDEX: usize <comptime> = (@usize)(-1)
   hashmapT.is_container = true
   hashmapT.K = K
   hashmapT.V = V
+  -- a map of owned values owns them, so it is owned itself
+  local owned_values = V.is_owned
+  local close_values = owned_values and V.is_record and V.metafields.__close ~= nil
+  if owned_values then
+    hashmapT.owned = true
+    hashmapT.is_owned = true
+  end
   ]]
+
+  -- Release the values of all filled nodes (owned values only).
+  local function hashmapT_drop_all(self: *hashmapT): void <inline>
+    ## if close_values then
+    for i: usize = 0, < self.nodes.size do
+      if self.nodes[i].filled then self.nodes[i].value:__close() end
+    end
+    ## end
+  end
 
   --[[
   Creates a hash map using a custom allocator instance.
@@ -111,6 +134,7 @@ local INVALID_INDEX: usize <comptime> = (@usize)(-1)
   *Complexity*: O(1).
   ]]
   function hashmapT:destroy(): void
+    hashmapT_drop_all(self)
     self.allocator:spandealloc(self.buckets)
     self.allocator:spandealloc(self.nodes)
     self.buckets = (@span(usize))()
@@ -131,6 +155,7 @@ local INVALID_INDEX: usize <comptime> = (@usize)(-1)
   *Complexity*: O(n).
   ]]
   function hashmapT:clear(): void
+    hashmapT_drop_all(self)
     self.size = 0
     memory.spanset(self.buckets, INVALID_INDEX)
     -- link free nodes
@@ -204,7 +229,11 @@ local INVALID_INDEX: usize <comptime> = (@usize)(-1)
       while j < self.nodes.size and self.nodes[j].filled do j = j + 1 end
       for i:usize=j,<self.nodes.size do
         if self.nodes[i].filled then
+          ## if owned_values then
+          self.nodes[j] = move(self.nodes[i])
+          ## else
           self.nodes[j] = self.nodes[i]
+          ## end
           j = j + 1
         end
       end
@@ -308,6 +337,19 @@ local INVALID_INDEX: usize <comptime> = (@usize)(-1)
 
   *Complexity*: Average case O(1).
   ]]
+  ## if owned_values then
+  --[[
+  Stores `v` under `key`, closing the value it replaces (owned values only).
+  ]]
+  function hashmapT:set(key: K, v: V): void
+    local node_index: usize = self:_at(key)
+    ## if close_values then
+    self.nodes[node_index].value:__close()
+    ## end
+    self.nodes[node_index].value = move(v)
+  end
+  ## end
+
   function hashmapT:peek(key: K): *V
     local node_index: usize = self:_find(key)
     if node_index ~= INVALID_INDEX then
@@ -331,11 +373,13 @@ local INVALID_INDEX: usize <comptime> = (@usize)(-1)
 
   *Complexity*: Average case O(1).
   ]]
+  ## if not owned_values then
   function hashmapT:has_and_get(key: K): (boolean, V)
     local value: *V = self:peek(key)
     if value == nilptr then return false, V() end
     return true, $value
   end
+  ## end
 
   --[[
   Removes an element with a key from the container (if it exists).
@@ -352,7 +396,11 @@ local INVALID_INDEX: usize <comptime> = (@usize)(-1)
     if unlikely(node_index == INVALID_INDEX) then return V() end
     -- unlink the removed node
     local node: *hashnodeT = &self.nodes[node_index]
+    ## if owned_values then
+    local value: V = move(node.value)
+    ## else
     local value: V = node.value
+    ## end
     if likely(prev_node_index == INVALID_INDEX) then
       self.buckets[bucket_index] = node.next
     else
@@ -379,6 +427,9 @@ local INVALID_INDEX: usize <comptime> = (@usize)(-1)
     if unlikely(node_index == INVALID_INDEX) then return false end
     -- unlink the removed node
     local node: *hashnodeT = &self.nodes[node_index]
+    ## if close_values then
+    node.value:__close()
+    ## end
     if likely(prev_node_index == INVALID_INDEX) then
       self.buckets[bucket_index] = node.next
     else
@@ -438,6 +489,7 @@ local INVALID_INDEX: usize <comptime> = (@usize)(-1)
     return nilptr
   end
 
+  ## if not owned_values then
   --[[
   Advances the container iterator returning its key and value.
 
@@ -448,6 +500,7 @@ local INVALID_INDEX: usize <comptime> = (@usize)(-1)
     if not node then return false, (@K)(), (@V)() end
     return true, node.key, node.value
   end
+  ## end
 
   --[[
   Advances the container iterator returning its key and value by reference.
@@ -460,10 +513,12 @@ local INVALID_INDEX: usize <comptime> = (@usize)(-1)
     return true, node.key, &node.value
   end
 
+  ## if not owned_values then
   -- Allow using `pairs()` to iterate the container.
   function hashmapT:__pairs(): (auto, hashmap_iteratorT, K) <inline>
     return hashmap_iteratorT.next, (@hashmap_iteratorT){container=self,index=INVALID_INDEX}, (@K)()
   end
+  ## end
 
   -- Allow using `mpairs()` to iterate the container.
   function hashmapT:__mpairs(): (auto, hashmap_iteratorT, K) <inline>
@@ -490,12 +545,14 @@ local INVALID_INDEX: usize <comptime> = (@usize)(-1)
     return nilptr
   end
 
+  ## if not owned_values then
   -- Allow using `next()` to iterate the container.
   function hashmapT:__next(key: facultative(K)): (boolean, K, V)
     local node: *hashnodeT = self:_next_node(key)
     if not node then return false, (@K)(), (@V)() end
     return true, node.key, node.value
   end
+  ## end
 
   -- Allow using `mnext()` to iterate the container.
   function hashmapT:__mnext(key: facultative(K)): (boolean, K, *V)
