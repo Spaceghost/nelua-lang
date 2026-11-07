@@ -106,4 +106,41 @@ do -- <comptime> function
   assert(P == 2187)
 end
 
+local function f32str(x: float32): string
+  return tostring(x) .. '|' .. tostring(x * 3)
+end
+
+do -- float32 formatting
+  local S <comptime> = comptime(f32str(1.1))
+  assert(S == f32str(1.1))
+end
+
+local Vec = @record{x: integer, y: integer}
+function Vec:add(o: Vec) self.x = self.x + o.x self.y = self.y + o.y end
+
+local function sumvec(n: integer): Vec
+  local acc: Vec
+  for i = 1, n do
+    acc:add(Vec{i, i * i})
+  end
+  local copy = acc
+  copy.x = 0 -- a copy, `acc` keeps its value
+  return acc
+end
+
+do -- records, methods and copies
+  local V = comptime(sumvec(4))
+  local v = sumvec(4)
+  assert(V.x == v.x and V.y == v.y and V.x == 10 and V.y == 30)
+end
+
+local function strops(s: string): string
+  return s:upper() .. string.rep('-', 2) .. s:sub(2, 2) .. tostring(#s) .. string.format('%03d', 7)
+end
+
+do -- string library
+  local T <comptime> = comptime(strops('ab'))
+  assert(T == strops('ab') and T == 'AB--b2007')
+end
+
 print('comptime OK!')

@@ -4213,4 +4213,261 @@ it("missing symbols error suggestions", function()
   expect.analyze_error("function f() end", "maybe you forgot to declare it as 'global' or 'local'?")
 end)
 
+it("comptime evaluation", function()
+  -- results are injected as compile time values
+  expect.analyze_ast([[
+    local function fib(n: integer): integer
+      if n < 2 then return n end
+      return fib(n - 1) + fib(n - 2)
+    end
+    local F <comptime> = comptime(fib(20))
+    local function f(): (integer, string, boolean) return 1, 'a', true end
+    local a <comptime>, b <comptime>, c <comptime> = comptime(f())
+    local function g(x: auto): auto return x end
+    local p <comptime> = comptime(g(2))
+    local q <comptime> = comptime(g('s'))
+    local function h(): float64 return 1.0 / 0.0 end
+    local inf <comptime> = comptime(h())
+    local function u(): uint64 return 0xFFFFFFFFFFFFFFFF end
+    local um <comptime> = comptime(u())
+    local function big(): int32 return 65536 * 65536 end
+    local w <comptime> = comptime(big())
+    comptime(f()) -- results of a statement are discarded
+    ## after_inference(function()
+      assert(F.value == 6765 and F.type == primtypes.integer)
+      assert(a.value == 1 and b.value == 'a' and c.value == true)
+      assert(p.value == 2 and q.value == 's')
+      assert(inf.value == math.huge)
+      assert(um.type == primtypes.uint64 and tostring(um.value) == '18446744073709551615')
+      assert(w.type == primtypes.int32 and w.value == 0)
+    ## end)
+  ]])
+  -- `<comptime>` functions evaluate at every call site, also recursively
+  expect.analyze_ast([[
+    local function fib(n: integer): integer <comptime>
+      if n < 2 then return n end
+      return fib(n - 1) + fib(n - 2)
+    end
+    local x <comptime> = fib(15)
+    local y <comptime> = comptime(fib(10))
+    ## after_inference(function() assert(x.value == 610 and y.value == 55) end)
+  ]])
+  -- aggregates are values, records can be referenced through `self`
+  expect.analyze_ast([[
+    local function f(): integer
+      local t: [2]integer = {1, 2}
+      local u = t
+      u[0] = 9
+      local p = &t
+      p[1] = 7
+      return t[0] * 100 + u[0] * 10 + t[1]
+    end
+    local x <comptime> = comptime(f())
+    local R = @record{v: [2]integer}
+    function R:bump() self.v[0] = self.v[0] + 1 end
+    local function g(): R
+      local r: R
+      r:bump() r:bump()
+      return r
+    end
+    local r = comptime(g())
+    ## after_inference(function()
+      assert(x.value == 197)
+      assert(r.type.is_record)
+    ## end)
+  ]])
+  -- `print`, `assert`, strings and `math` run inside the compiler
+  expect.analyze_ast([[
+    require 'string'
+    require 'math'
+    local function f(x: float32): string
+      assert(x > 0, 'positive')
+      local s: string = 'ab'
+      return s:upper() .. string.rep('x', 2) .. s:sub(2, 2) .. tostring(#s) .. tostring(x) .. tostring(2.0) ..
+        tostring(math.floor(2.5) + math.sqrt(16.0) + math.max(1, 2))
+    end
+    local s <comptime> = comptime(f(1.1))
+    ## after_inference(function() assert(s.value == 'ABxxb21.12.08.0', s.value) end)
+  ]])
+  -- forward declarations wait for their definition
+  expect.analyze_ast([[
+    local function f(): integer <forwarddecl> end
+    local x <comptime> = comptime(f())
+    function f(): integer return 7 end
+    ## after_inference(function() assert(x.value == 7) end)
+  ]])
+  -- `continue` inside `repeat` and non default `for` comparisons
+  expect.analyze_ast([[
+    local function f(): integer
+      local n = 0
+      repeat
+        local k = n
+        n = n + 1
+        if n < 3 then continue end
+      until k >= 5
+      for i=0,<5 do
+        if i == 2 then continue end
+        local k = i
+        n = n + k
+      end
+      return n
+    end
+    local x <comptime> = comptime(f())
+    ## after_inference(function() assert(x.value == 14) end)
+  ]])
+end)
+
+it("comptime evaluation errors", function()
+  expect.analyze_error([[
+    local function f(a: integer): integer <comptime> return a end
+    local x = 1
+    local y = f(x)
+  ]], "in call of compile-time function 'f': argument 1 is not a compile time value (it has type 'int64')")
+  expect.analyze_error([[
+    local function f(a: integer): integer return a end
+    local function g(): integer return 1 end
+    local x = comptime(f(g()))
+  ]], "in call of compile-time function 'f': argument 1 is not a compile time value")
+  expect.analyze_error([[
+    local R = @record{x: integer}
+    local function f(r: R): integer return r.x end
+    local x = comptime(f(R{1}))
+  ]], "argument 1 is not a compile time value (it has type 'R')")
+  expect.analyze_error("local x = comptime(1)", "in call of builtin 'comptime': expected a function call but got 'Number'")
+  expect.analyze_error("local x = comptime()", "in call of builtin 'comptime': expected 1 argument but got 0")
+  expect.analyze_error("local x = comptime(print('a'))", "builtin 'print' cannot be evaluated at compile time")
+  expect.analyze_error([[
+    local function f(): integer <comptime> return 1 end
+    local g = f
+  ]], "compile-time function 'f' can only be called, it has no runtime value")
+  expect.analyze_error("local f = function(): integer <comptime> return 1 end",
+    "annotation 'comptime' is only valid for named functions")
+  expect.analyze_error([[
+    local function f(): integer <forwarddecl> end
+    local x = comptime(f())
+  ]], "the call could not be resolved at compile time (the function is not defined or has unresolved types)")
+  -- rejected constructs are reported at their line
+  expect.analyze_error([[
+    local function f(): integer
+      defer end
+      return 1
+    end
+    local x = comptime(f())
+  ]], "in compile-time evaluation of function 'f': `defer` cannot be used at compile time")
+  expect.analyze_error([[
+    local function f(): integer
+      local a = 1
+      local p = &a
+      return $p
+    end
+    local x = comptime(f())
+  ]], "pointer type 'pointer(int64)' cannot be used at compile time (only references to records and arrays are)")
+  expect.analyze_error([[
+    local function f(): integer
+      local s: cstring = 'a'
+      return 1
+    end
+    local x = comptime(f())
+  ]], "pointer type 'cstring' cannot be used at compile time")
+  expect.analyze_error([[
+    local R = @record{p: *integer}
+    local function f(): integer
+      local r: R
+      return 1
+    end
+    local x = comptime(f())
+  ]], "record 'R' has the pointer field 'p', it cannot be used at compile time")
+  expect.analyze_error([[
+    local function g(): integer <cimport 'g'> end
+    local function f(): integer
+      return g()
+    end
+    local x = comptime(f())
+  ]], "imported C function 'g' cannot be called at compile time")
+  expect.analyze_error([[
+    local v = 1
+    local function f(): integer
+      return v
+    end
+    local x = comptime(f())
+  ]], "variable 'v' is declared outside the function and is not <comptime>, it cannot be read at compile time")
+  expect.analyze_error([[
+    local function f(): integer
+      local g = function(): integer return 1 end
+      return g()
+    end
+    local x = comptime(f())
+  ]], "closures cannot be used at compile time")
+  expect.analyze_error([[
+    local function f(): integer return 1 end
+    local function g(): integer local h = f return h() end
+    local x = comptime(g())
+  ]], "function values cannot be used at compile time, only calls")
+  expect.analyze_error([[
+    local function it(s: integer, c: integer): (boolean, integer) return false, 0 end
+    local function f(): integer
+      for i in it, 0, 0 do end
+      return 1
+    end
+    local x = comptime(f())
+  ]], "`for in` loops cannot be used at compile time (iterators are runtime functions)")
+  expect.analyze_error([[
+    local function f(): integer
+      local x: integer <static> = 1
+      return x
+    end
+    local x = comptime(f())
+  ]], "annotation 'static' cannot be used at compile time")
+  expect.analyze_error([[
+    local function f(): integer
+      local x: integer <close> = 1
+      return x
+    end
+    local x = comptime(f())
+  ]], "annotation 'close' cannot be used at compile time")
+  -- runtime failures become compile errors at the call
+  expect.analyze_error([[
+    local function f(): integer
+      assert(false, 'boom')
+      return 1
+    end
+    local x = comptime(f())
+  ]], "in compile-time evaluation of function 'f': boom")
+  expect.analyze_error([[
+    local function f(): integer
+      error('bad')
+      return 1
+    end
+    local x = comptime(f())
+  ]], "in compile-time evaluation of function 'f': bad")
+  expect.analyze_error([[
+    local function f(): integer
+      panic('worse')
+      return 1
+    end
+    local x = comptime(f())
+  ]], "in compile-time evaluation of function 'f': worse")
+  expect.analyze_error([[
+    local function f(a: integer, b: integer): integer return a // b end
+    local x = comptime(f(1, 0))
+  ]], "in compile-time evaluation of function 'f': attempt to perform 'n//0'")
+  -- step and stack limits
+  expect.analyze_error([[
+    ## pragmas.comptime_steps = 100000
+    local function f(): integer
+      local i = 0
+      while true do i = i + 1 end
+      return i
+    end
+    local x = comptime(f())
+  ]], "exceeded the limit of 100000 steps (raise it with `## pragmas.comptime_steps = N`)")
+  expect.analyze_error([[
+    ## pragmas.comptime_stack = 100
+    local function f(n: integer): integer
+      return f(n + 1) + 1
+    end
+    local x = comptime(f(0))
+  ]], "exceeded the limit of 100 nested calls (raise it with `## pragmas.comptime_stack = N`)")
+end)
+
 end)

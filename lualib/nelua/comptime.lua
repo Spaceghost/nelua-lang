@@ -364,7 +364,12 @@ function ComptimeLuaContext:push_forked_scope()
 end
 
 function ComptimeLuaContext:funcref(symbol)
-  return comptime.stdlib[symbol.name] or funcname(symbol)
+  local name = symbol.name
+  if name == 'tostring' then -- `float32` prints with 7 significant digits
+    local argtype = symbol.type.argtypes[1]
+    if argtype and argtype.is_float32 then return 'nelua_tostring_f32' end
+  end
+  return comptime.stdlib[name] or funcname(symbol)
 end
 
 -- Generates the Lua chunk evaluating to the function `symbol` with all its dependencies.

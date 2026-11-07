@@ -5942,4 +5942,80 @@ it("recursive function resolution", function()
   ]=])
 end)
 
+it("comptime evaluation", function()
+  -- results are folded into C as constants and static initializers
+  expect.generate_c([[
+    ## pragmas.nodce = true
+    local function fib(n: integer): integer
+      if n < 2 then return n end
+      return fib(n - 1) + fib(n - 2)
+    end
+    local K <comptime> = comptime(fib(10))
+    local x = K
+    local y = comptime(fib(11))
+    local function f(a: integer, b: integer): (integer, integer) return a + b, a * b end
+    local p, q = comptime(f(3, 4))
+    local function g(): boolean return true end
+    local z = comptime(g())
+    local function s(): string return 'a' .. 'b' end
+    local w = comptime(s())
+    local function h(): float32 return 1 / 3 end
+    local v = comptime(h())
+    local function u(a: uint8): uint8 return a + 10 end
+    local r = comptime(u(250))
+    local function m(): int32 return -5 end
+    local i = comptime(m())
+  ]], {
+    "static int64_t x = 55;",
+    "static int64_t y = 89;",
+    "static int64_t p = 7;",
+    "static int64_t q = 12;",
+    "static bool z = true;",
+    'static nlstring w = {(uint8_t*)"ab", 2};',
+    "static float v = 0.333333333f;",
+    "static uint8_t r = 4U;",
+    "static int32_t i = -5;",
+  })
+  expect.generate_c([[
+    ## pragmas.nodce = true
+    local function f(): [4]uint32
+      local t: [4]uint32
+      for i=0,3 do t[i] = (@uint32)(i) * 0xEDB88320 end
+      return t
+    end
+    local T = comptime(f())
+    local R = @record{x: integer, y: float64, s: string, b: boolean}
+    local function g(): R return R{x = 1, y = 2.5, s = 'hi', b = true} end
+    local r = comptime(g())
+  ]], {
+    "static nluint32_arr4 T = {.v = {0U, 3988292384U, 3681617472U, 3374942560U}};",
+    'static R r = {.x = 1, .y = 2.5, .s = {(uint8_t*)"hi", 2}, .b = true};',
+  })
+  -- a `<comptime>` function is never emitted, its calls are
+  local _, context = expect.analyze_ast([[
+    local function pw(b: integer, e: integer): integer <comptime>
+      local r = 1
+      for _=1,e do r = r * b end
+      return r
+    end
+    local x = pw(3, 7)
+    local function r(): integer return x end
+    local z = r()
+  ]], nil, 'c')
+  local code = assert(require('nelua.cgenerator').generate(context))
+  assert(not code:find('pw', 1, true), 'unexpected comptime function in C')
+  assert(code:find('static int64_t x = 2187;', 1, true), 'missing folded constant')
+  -- evaluation happens once per function and argument values
+  expect.run_c([[
+    local function f(): integer
+      print('evaluated')
+      return 1
+    end
+    local a = comptime(f())
+    local b = comptime(f())
+    local c <comptime> = comptime(f())
+    print(a + b + c)
+  ]], 'evaluated\n3')
+end)
+
 end)

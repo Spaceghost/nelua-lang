@@ -64,6 +64,12 @@ cost and limits; the list below is the short form:
   owned fields and arrays of owned values are owned implicitly, and `<close>` variables cannot
   be moved; `heapqueue` and `list` are owned in the stdlib, `vector`, `sequence`, `hashmap`,
   `stringbuilder` and `filestream` are not yet ([overview](docs/pages/overview.md#ownership)).
+- **Compile-time function evaluation**: `comptime(f(args))` runs an ordinary Nelua
+  function inside the compiler and folds its result (scalars, booleans, strings, and arrays
+  or records as static initializers); `<comptime>` on a function evaluates every call and
+  never emits it to C. Bodies are translated to Lua with the fork's Lua generator and run in
+  a sandbox that keeps the C integer widths, `float32` rounding, unsigned division and the
+  Nelua shifts, with step and call-depth limits ([overview](docs/pages/overview.md#compile-time-function-evaluation)).
 - **Optionals**: `T?` / `optional(T)` through `require 'optional'`, `nil` and `T` convert
   to it, `== nil` tests emptiness, `*T?` keeps the pointer size with `nilptr` as empty, and
   the postfix `expr?` propagates empty optionals, null pointers and the stdlib

@@ -223,6 +223,15 @@ function nelua_strlt(a, b) return a < b end]])
 define('nelua_strle', [[
 function nelua_strle(a, b) return a <= b end]])
 
+-- `tostring` of a `float32` (Nelua prints 7 significant digits, 14 for `float64` like Lua).
+define('nelua_tostring_f32', [[
+function nelua_tostring_f32(x)
+  if x ~= x then return 'nan' elseif x == math.huge then return 'inf' elseif x == -math.huge then return '-inf' end
+  local s = string.format('%.7g', x)
+  if not s:find('[%.eEn]') then s = s .. '.0' end
+  return s
+end]])
+
 -- `string.find` returning `0, 0` when there is no match, as in Nelua.
 define('nelua_string_find', [[
 function nelua_string_find(s, pattern, init, plain)

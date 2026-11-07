@@ -417,7 +417,20 @@ function visitors.Call(context, node, emitter)
       emitter:add(callee)
     end
     emitter:add('(')
-    emit_args(context, emitter, args, calleetype, 0)
+    if callee.attr.builtin and callee.attr.name == 'print' then -- `float32` prints with 7 digits
+      for i=1,#args do
+        if i > 1 then emitter:add(', ') end
+        local argnode = args[i]
+        local argtype = argnode.attr.type
+        if argtype and argtype.is_float32 then
+          emitter:add(context:ensure_builtin('nelua_tostring_f32'), '(', argnode, ')')
+        else
+          emitter:add(argnode)
+        end
+      end
+    else
+      emit_args(context, emitter, args, calleetype, 0)
+    end
     emitter:add(')')
   end
   if isblockcall then emitter:add_ln() end

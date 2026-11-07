@@ -2567,6 +2567,74 @@ Used to throw compile-time assertions:
 ## static_assert(_VERSION == 'Lua 5.4', 'not using Lua 5.4, got %s', _VERSION)
 ```
 
+### Compile-time function evaluation
+
+An ordinary Nelua function can be run by the compiler and its result folded into the program
+with the `comptime` builtin, the argument must be a call whose arguments are all compile time values:
+
+```nelua
+local function crc32_table(): [256]uint32
+  local t: [256]uint32
+  for i: uint32 = 0, 255 do
+    local c: uint32 = i
+    for _ = 1, 8 do
+      if c & 1 == 1 then c = 0xEDB88320 ~ (c >> 1) else c = c >> 1 end
+    end
+    t[i] = c
+  end
+  return t
+end
+
+local function fib(n: integer): integer
+  if n < 2 then return n end
+  return fib(n - 1) + fib(n - 2)
+end
+
+local CRC = comptime(crc32_table())   -- a C static initializer with the 256 values
+local F <comptime> = comptime(fib(20)) -- the constant 6765
+local q, r = comptime(fib(10)), 3     -- multiple returns spread over a multiple assignment too
+```
+
+A function annotated with `<comptime>` is evaluated at every call site, it is never emitted to C
+and a call with an argument that is not a compile time value is an error naming the argument:
+
+```nelua
+local function fast_pow(b: integer, e: integer): integer <comptime>
+  local r = 1
+  for _ = 1, e do r = r * b end
+  return r
+end
+local x = fast_pow(3, 7) -- x is initialized with 2187, no code for `fast_pow` is compiled
+```
+
+The compiler translates the function (and every function it calls) to Lua with the Lua generator
+and runs it in a sandbox that mirrors the C target: each integral type wraps at its width
+(`uint8`, `int32`, `uint32`, ..., `isize`/`usize` on 64 bits), `//` and `%` floor like Nelua,
+`///` and `%%%` truncate, `>>` is logical and `>>>` arithmetic, `uint64` compares and divides
+as unsigned, `float32` results are rounded to single precision, `float64` is the host double,
+records and arrays are values (copied on assignment, compared structurally) and `print`, `assert`,
+`error` and `panic` go to the compiler console or become compile errors at the `comptime` call.
+The pure parts of `math` and `string` (`floor`, `sqrt`, `sub`, `rep`, `format`, `tostring`, ...)
+map to their Lua counterparts; transcendental functions may differ from the C library in the
+last digit.
+
+Evaluated functions may use scalars, booleans, strings, enums, fixed arrays, records, nested
+calls to other evaluable functions, all control flow, `<comptime>` globals and `#[...]#` values.
+Pointers are only allowed as references to records and arrays (so `self` methods and `&arr` work),
+records with pointer fields, `cimport` functions, `defer`, closures, `for in` iterators, `span`,
+`vector`, `sequence`, optionals, variants, `io`, `os`, the allocators and the GC are rejected with
+an error at the offending line when the function is first evaluated. Variables declared outside
+the function can only be read when they are `<comptime>`. Arguments must be scalars, booleans,
+strings or compile time array literals (records cannot be passed yet). Results are scalars,
+booleans, strings, or arrays and records of those, injected as initializer lists which the C
+generator emits as static initializers at the top scope.
+
+Each evaluation is bounded by `pragmas.comptime_steps` (default 10 million Lua instructions) and
+`pragmas.comptime_stack` (default 10000 nested calls). Results are cached per function and
+argument values for the whole compilation, so a function printing from `comptime` prints once;
+since the folded values are part of the generated C they also drive the binary cache. Functions
+called only through `comptime` are still compiled unless they are `<comptime>` themselves.
+
 ## Generics
 
 A generic is a special type created using a preprocessor function

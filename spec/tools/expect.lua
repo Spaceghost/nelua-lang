@@ -178,6 +178,22 @@ function expect.generate_lua(nelua_code, expected_code)
   expect.same_string(stringer.rtrim(expected_code), stringer.rtrim(generated_code))
 end
 
+function expect.lua_gencode_contains(nelua_code, expected_codes)
+  local _, context = expect.analyze_ast(nelua_code, nil, 'lua')
+  local generated_code
+  pretty_input_onerror(nelua_code, function()
+    generated_code = assert(lua_generator.generate(context))
+  end)
+  if traits.is_string(expected_codes) then
+    expected_codes = {expected_codes}
+  end
+  for _,ecode in ipairs(expected_codes) do
+    errorer.assertf(generated_code:find(ecode, 1, true),
+      "Expected Lua code to contains.\nPassed in:\n%s\nExpected:\n%s",
+      generated_code, ecode)
+  end
+end
+
 function expect.generate_c(nelua_code, expected_code, ispattern)
   local _, context = expect.analyze_ast(nelua_code, nil, 'c')
   local generated_code
