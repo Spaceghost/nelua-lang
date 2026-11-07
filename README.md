@@ -35,7 +35,9 @@ nelua examples/snakesdl.nelua
 ## Fork additions
 
 This fork (Spaceghost/nelua-lang) tracks upstream `a5845056` (2025-06-24) and adds,
-each with specs in `spec/` and docs under `docs/pages/`:
+each with specs in `spec/` and docs under `docs/pages/`. The guide
+[What this fork adds](docs/pages/fork.md) explains each one with examples, run-time
+cost and limits; the list below is the short form:
 
 - **Const pointers**: `*const T` maps to C `const T*`; reads through it are
   read-only and dropping `const` needs an explicit cast ([overview](docs/pages/overview.md#const-pointers)).
