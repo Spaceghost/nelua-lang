@@ -1,0 +1,46 @@
+require 'allocators.gc'
+require 'vector'
+require 'string'
+require 'stringbuilder'
+
+-- Grow and shrink GC-tracked memory in a loop while collecting, so that
+-- `GCAllocator:realloc` and `GC:reregister` are exercised on both root and
+-- heap items, on moving and in-place reallocations.
+
+local function realloc_test() <noinline>
+  for round=1,8 do
+    local v: vector(integer) = {}
+    for i=1,2048 do
+      v:push(i)
+    end
+    assert(#v == 2048 and v[0] == 1 and v[2047] == 2048)
+    local sb: stringbuilder
+    for i=1,512 do
+      sb:write('x')
+    end
+    local s: string = sb:promote()
+    assert(#s == 512)
+    local p: pointer = gc_allocator:alloc(16)
+    assert(p ~= nilptr)
+    p = gc_allocator:realloc(p, 1024, 16)
+    assert(p ~= nilptr)
+    p = gc_allocator:realloc(p, 8, 1024)
+    assert(p ~= nilptr)
+    p = gc_allocator:realloc(p, 1 << 16, 8)
+    assert(p ~= nilptr)
+    gc_allocator:dealloc(p)
+    if round % 2 == 0 then
+      collectgarbage()
+    end
+  end
+end
+
+local function clear_stack() <noinline>
+  local buffer: [1024]byte <volatile>
+end
+
+realloc_test()
+clear_stack()
+collectgarbage()
+collectgarbage()
+print('gc realloc ok')

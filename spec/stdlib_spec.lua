@@ -31,6 +31,17 @@ end)
 it("allocators", function()
   expect.run_c_from_file('tests/allocators_test.nelua')
 end)
+it("gc realloc", function()
+  -- the GC must not read a pointer value after it was passed to realloc
+  -- (indeterminate after free): gcc 12 reports it as -Wuse-after-free
+  local ccinfo = ccompiler.get_cc_info()
+  local args = {'--generator', 'c', '--sanitize', 'tests/gc_realloc_test.nelua'}
+  if ccinfo.is_gcc and not ccinfo.is_clang and ccinfo.gnuc >= 12 then
+    table.insert(args, 1, '--cflags')
+    table.insert(args, 2, '-Werror=use-after-free -Wall')
+  end
+  expect.run(args, 'gc realloc ok')
+end)
 it("variant", function()
   expect.run_c_from_file('tests/variant_test.nelua')
   expect.run_c([[
