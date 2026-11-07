@@ -12,6 +12,12 @@ A sequence is typically used as a more efficient table that
 can hold only sequences of a fixed value type.
 
 Remarks: A sequence initialized from a list of unnamed fields is filled with the list elements.
+
+A sequence of an `<owned>` type owns its elements and is owned itself (its copies
+would share and close the same elements): `push` and `insert` take their value
+with `move`, `pop` and `remove` hand it back, and `clear`, `resize` (when
+shrinking), `removeif` and `destroy` close the elements they drop. `copy`,
+`removevalue` and `unpack` are not available for such sequences.
 ]]
 
 require 'memory'
@@ -46,7 +52,23 @@ require 'span'
   sequenceT.is_sequence = true
   sequenceT.is_oneindexing = true -- used in 'ipairs'
   sequenceT.subtype = T
+  -- a sequence of owned values owns them, so it is owned itself
+  local owned_elements = T.is_owned
+  local close_elements = owned_elements and T.is_record and T.metafields.__close ~= nil
+  if owned_elements then
+    sequenceT.owned = true
+    sequenceT.is_owned = true
+  end
   ]]
+
+  -- Release elements [from, to] of an owned element type (no-op otherwise).
+  local function sequenceT_drop(self: *sequenceT, from: usize, to: usize): void <inline>
+    ## if close_elements then
+    for i: usize = from, to do
+      self.impl.data[i]:__close()
+    end
+    ## end
+  end
 
   -- Concept matching fixed arrays of T.
   local an_arrayT: type = #[concept(function(x)
@@ -88,6 +110,7 @@ require 'span'
   ]]
   function sequenceT:clear(): void
     if not self.impl then return end
+    sequenceT_drop(self, 1, self.impl.size)
     self.impl.size = 0
   end
 
@@ -97,6 +120,7 @@ require 'span'
   ]]
   function sequenceT:destroy(): void
     if not self.impl then return end
+    sequenceT_drop(self, 1, self.impl.size)
     self.allocator:spandealloc(self.impl.data)
     self.allocator:delete(self.impl)
     self.impl = nilptr
@@ -125,10 +149,13 @@ require 'span'
     self:reserve(n)
     if n > self.impl.size then
       memory.zero(&self.impl.data[self.impl.size+1], (n-self.impl.size) * #T)
+    else
+      sequenceT_drop(self, n + 1, self.impl.size)
     end
     self.impl.size = n
   end
 
+  ## if not owned_elements then
   -- Returns a shallow copy of the sequence, allocating a new sequence.
   function sequenceT:copy(): sequenceT
     local clone: sequenceT
@@ -141,6 +168,7 @@ require 'span'
     clone.allocator = self.allocator
     return clone
   end
+  ## end
 
   -- Grow sequence storage to accommodate at least one more element, used internally.
   local function sequenceT_grow(self: *sequenceT): void <noinline>
@@ -161,7 +189,11 @@ require 'span'
     if unlikely(self.impl.size + 1 >= self.impl.data.size) then
       sequenceT_grow(self)
     end
+    ## if owned_elements then
+    self.impl.data[self.impl.size] = move(v)
+    ## else
     self.impl.data[self.impl.size] = v
+    ## end
   end
 
   --[[
@@ -170,7 +202,11 @@ require 'span'
   ]]
   function sequenceT:pop(): T <inline>
     assert(self.impl ~= nilptr and self.impl.size > 0, 'attempt to pop an empty sequence')
+    ## if owned_elements then
+    local ret: T = move(self.impl.data[self.impl.size])
+    ## else
     local ret: T = self.impl.data[self.impl.size]
+    ## end
     self.impl.size = self.impl.size - 1
     return ret
   end
@@ -190,7 +226,11 @@ require 'span'
     if self.impl.size > pos then
       memory.move(&self.impl.data[pos + 1], &self.impl.data[pos], (self.impl.size - pos) * #T)
     end
+    ## if owned_elements then
+    self.impl.data[pos] = move(v)
+    ## else
     self.impl.data[pos] = v
+    ## end
   end
 
   --[[
@@ -200,7 +240,11 @@ require 'span'
   ]]
   function sequenceT:remove(pos: usize): T
     assert(self.impl ~= nilptr and self.impl.size > 0 and pos <= self.impl.size, 'position out of bounds')
+    ## if owned_elements then
+    local ret: T = move(self.impl.data[pos])
+    ## else
     local ret: T = self.impl.data[pos]
+    ## end
     if self.impl.size > pos then
       memory.move(&self.impl.data[pos], &self.impl.data[pos+1], (self.impl.size - pos) * #T)
     end
@@ -213,6 +257,7 @@ require 'span'
   The remaining elements are shifted.
   Returns `true` if the item was removed, otherwise `false`.
   ]]
+  ## if not owned_elements then
   function sequenceT:removevalue(v: T): boolean
     if not self.impl then return false end
     for i:usize=1,self.impl.size do
@@ -223,11 +268,28 @@ require 'span'
     end
     return false
   end
+  ## end
 
   --[[
   Removes all elements from the sequence where `pred` function returns `true`.
   The remaining elements are shifted.
   ]]
+  ## if owned_elements then
+  -- For owned elements `pred` gets a reference, and removed elements are closed.
+  function sequenceT:removeif(pred: function(v: *T): boolean): void
+    if not self.impl then return end
+    local j: usize = 1
+    for i:usize=1,self.impl.size do
+      if not pred(&self.impl.data[i]) then
+        if j ~= i then self.impl.data[j] = move(self.impl.data[i]) end
+        j = j + 1
+      else
+        sequenceT_drop(self, i, i)
+      end
+    end
+    self.impl.size = j - 1
+  end
+  ## else
   function sequenceT:removeif(pred: function(v: T): boolean): void
     if not self.impl then return end
     local j: usize = 1
@@ -239,6 +301,7 @@ require 'span'
     end
     self.impl.size = j - 1
   end
+  ## end
 
   -- Returns the number of elements the sequence can store before triggering a reallocation.
   function sequenceT:capacity(): isize <inline>
@@ -287,7 +350,11 @@ require 'span'
     self:reserve(#values)
     self.impl.size = #values
     for i:usize=1,#values do
+      ## if owned_elements then
+      self.impl.data[i] = move(values[i-1])
+      ## else
       self.impl.data[i] = values[i-1]
+      ## end
     end
     return self
   end
@@ -301,6 +368,7 @@ require 'span'
   return seq[i], seq[i+1], ..., seq[j]
   ```
   ]]
+  ## if not owned_elements then
   function sequenceT:unpack(i: isize <comptime>, j: isize <comptime>) <inline>
     ## local rets = {}
     assert(i >= 1 and j <= #self and i <= j, 'unpack out of range')
@@ -310,6 +378,7 @@ require 'span'
     ## end
     return #[aster.unpack(rets)]#
   end
+  ## end
 
   ## return sequenceT
 ## end

@@ -1984,8 +1984,8 @@ In the standard library `heapqueue` and `list` are owned. `vector`, `sequence`, 
 `stringbuilder` and `filestream` are not: their APIs still pass them by value in places
 (`utf8.char(vec)`, `span` conversions, `tostring(sb)`, `string.gsub(s, p, map)`,
 `io.stdin` copies, the global `arg`), so annotating them would require `move` or pointers
-in existing code. Of the generic containers, `vector(T)` with an owned `T` owns its
-elements (moves in and out, closes what it drops, no `copy`); `sequence`, `hashmap`, `list`
+in existing code. Of the generic containers, `vector(T)` and `sequence(T)` with an owned
+`T` own their elements (moves in and out, close what they drop, no `copy`); `hashmap`, `list`
 and `heapqueue` of owned elements still copy the element inside the library.
 
 Errors name the variable, its type and the line of the move. The checks are an aid against

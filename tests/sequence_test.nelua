@@ -197,4 +197,38 @@ do -- custom allocator
   seq:destroy()
 end
 
+-- a sequence of owned values moves them in and out and closes what it drops
+local seq_closed = 0
+local SRes <owned> = @record{n: integer}
+function SRes:__close() if self.n ~= 0 then seq_closed = seq_closed + 1 end self.n = 0 end
+do
+  local s: sequence(SRes)
+  s:push(SRes{n=1}); s:push(SRes{n=2}); s:push(SRes{n=3})
+  local r = SRes{n=4}
+  s:insert(1, move(r))
+  local p = s:pop()
+  assert(p.n == 3 and #s == 3 and s[1].n == 4)
+  p:__close()
+  local q = s:remove(2)
+  assert(q.n == 1 and s[1].n == 4 and s[2].n == 2)
+  q:__close()
+  s:push(SRes{n=5}); s:push(SRes{n=6})
+  s:removeif(function(x: *SRes) return x.n % 2 == 0 end)
+  assert(#s == 1 and s[1].n == 5 and seq_closed == 5)
+  s:resize(0)
+  assert(seq_closed == 6)
+  s:push(SRes{n=7}); s:push(SRes{n=8})
+  s:clear()
+  assert(seq_closed == 8 and #s == 0)
+  s:push(SRes{n=9})
+  local t = move(s)
+  assert(#t == 1)
+  t:destroy()
+  assert(seq_closed == 9)
+  local u: sequence(SRes) = {SRes{n=10}, SRes{n=11}}
+  assert(#u == 2 and u[2].n == 11)
+  u:destroy()
+  assert(seq_closed == 11)
+end
+
 print 'sequence OK!'
