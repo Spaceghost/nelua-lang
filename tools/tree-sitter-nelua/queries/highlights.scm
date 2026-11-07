@@ -24,3 +24,5 @@
 (try_expression "?" @operator)
 (try_statement "?" @operator)
 (if_local "local" @keyword)
+(match_statement "match" @keyword)
+(match_local "local" @keyword)

@@ -141,9 +141,11 @@ Two editor grammars live in the repository and follow the fork syntax:
   expressions and the optional syntax: the type suffix `T?` (`optional_type`,
   binding looser than `*`, `[N]` and tighter than `|`), the try suffix `expr?`
   (`try_expression`) and statement `f()?` (`try_statement`), the `orelse`
-  operator (between comparison and `|`) and `if local x = e then` /
-  `elseif local` (`if_local`); `queries/highlights.scm` captures `orelse` as
-  `@keyword.operator` and the `?` tokens as `@operator`.
+  operator (between comparison and `|`), `if local x = e then` /
+  `elseif local` (`if_local`) and the `match` statement (`match_statement`
+  with `match_local` for `case local x: T`; `match` stays an identifier in
+  `s:match(p)`); `queries/highlights.scm` captures `orelse` as
+  `@keyword.operator`, the `?` tokens as `@operator` and `match` as `@keyword`.
   The checked-in `src/parser.c` is generated from the compiler
   pin named in the tool README with Tree-sitter CLI 0.25.10 and parses the
   fork syntax; the corpus under `test/corpus` exercises it.
@@ -154,8 +156,10 @@ Two editor grammars live in the repository and follow the fork syntax:
   after a name, a `)` or a `]` elsewhere (also after a method call such as
   `f:write(x)?`, whose `:` opened a type context) is the try suffix
   `keyword.operator.try` (so `variant(A, B)?` is scoped as try), `orelse` is
-  `keyword.operator.orelse` and the `local` of `if local` / `elseif local` is
-  wrapped in `meta.if-local`. A type
+  `keyword.operator.orelse`, the `local` of `if local` / `elseif local` is
+  wrapped in `meta.if-local` and a `match` not preceded by `.` or `:` whose
+  line goes on to `do` or `case` is `keyword.control.match` (`s:match(p)`
+  stays a method name). A type
   context is a line heuristic, not compiler parsing: it opens after any
   `name:` (a declaration, a `):` return type, but also a method call such as
   `obj:method(...)`) or after `@`, and closes at `=`, `,`, `;`, `<`, a closing

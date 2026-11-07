@@ -194,10 +194,10 @@ static NELUA_INLINE int32_t nelua_idiv_nlint32(int32_t a, int32_t b);
 static NELUA_INLINE int32_t nelua_imod_nlint32(int32_t a, int32_t b);
 static void grammar_emit(uint32_t id, uint32_t depth);
 static void nelua_assert_line_7(bool cond);
-typedef struct NELUA_MAYALIAS nlcstring_arr2_arr10 {char* v[10][2];} nlcstring_arr2_arr10;
-typedef union NELUA_MAYALIAS nlcstring_arr2_arr10_cast {nlcstring_arr2_arr10 a; char* p[10][2];} nlcstring_arr2_arr10_cast;
-NELUA_STATIC_ASSERT(sizeof(nlcstring_arr2_arr10) == 160 && NELUA_ALIGNOF(nlcstring_arr2_arr10) == 8, "Nelua and C disagree on type size or align");
-static nlcstring_arr2_arr10 grammar_conflicts = {.v = {{(char*)"_stat_prefix", (char*)"_expression"}, {(char*)"_stat_prefix", (char*)"call_statement"}, {(char*)"_name", (char*)"record_type"}, {(char*)"_name", (char*)"union_type"}, {(char*)"_name", (char*)"enum_type"}, {(char*)"_name", (char*)"variant_type"}, {(char*)"function_body", (char*)"function_type"}, {(char*)"parameter", (char*)"type_field"}, {(char*)"_expression", (char*)"_type_simple"}, {(char*)"parameter", (char*)"_type_simple"}}};
+typedef struct NELUA_MAYALIAS nlcstring_arr2_arr11 {char* v[11][2];} nlcstring_arr2_arr11;
+typedef union NELUA_MAYALIAS nlcstring_arr2_arr11_cast {nlcstring_arr2_arr11 a; char* p[11][2];} nlcstring_arr2_arr11_cast;
+NELUA_STATIC_ASSERT(sizeof(nlcstring_arr2_arr11) == 176 && NELUA_ALIGNOF(nlcstring_arr2_arr11) == 8, "Nelua and C disagree on type size or align");
+static nlcstring_arr2_arr11 grammar_conflicts = {.v = {{(char*)"_stat_prefix", (char*)"_expression"}, {(char*)"_stat_prefix", (char*)"call_statement"}, {(char*)"_name", (char*)"record_type"}, {(char*)"_name", (char*)"union_type"}, {(char*)"_name", (char*)"enum_type"}, {(char*)"_name", (char*)"variant_type"}, {(char*)"function_body", (char*)"function_type"}, {(char*)"parameter", (char*)"type_field"}, {(char*)"_expression", (char*)"_type_simple"}, {(char*)"parameter", (char*)"_type_simple"}, {(char*)"_name", (char*)"match_statement"}}};
 typedef struct NELUA_MAYALIAS nlcstring_arr30 {char* v[30];} nlcstring_arr30;
 typedef union NELUA_MAYALIAS nlcstring_arr30_cast {nlcstring_arr30 a; char* p[30];} nlcstring_arr30_cast;
 NELUA_STATIC_ASSERT(sizeof(nlcstring_arr30) == 240 && NELUA_ALIGNOF(nlcstring_arr30) == 8, "Nelua and C disagree on type size or align");
@@ -422,20 +422,21 @@ int nelua_main(int argc, char** argv) {
     _tmp.v[4] = grammar_sym((char*)"call_statement");
     _tmp.v[5] = grammar_sym((char*)"if_statement");
     _tmp.v[6] = grammar_sym((char*)"switch_statement");
-    _tmp.v[7] = grammar_sym((char*)"for_statement");
-    _tmp.v[8] = grammar_sym((char*)"while_statement");
-    _tmp.v[9] = grammar_sym((char*)"repeat_statement");
-    _tmp.v[10] = grammar_sym((char*)"do_statement");
-    _tmp.v[11] = grammar_sym((char*)"defer_statement");
-    _tmp.v[12] = grammar_sym((char*)"return_statement");
-    _tmp.v[13] = grammar_sym((char*)"in_statement");
-    _tmp.v[14] = grammar_sym((char*)"break_statement");
-    _tmp.v[15] = grammar_sym((char*)"continue_statement");
-    _tmp.v[16] = grammar_sym((char*)"fallthrough_statement");
-    _tmp.v[17] = grammar_sym((char*)"goto_statement");
-    _tmp.v[18] = grammar_sym((char*)"label_statement");
-    _tmp.v[19] = grammar_sym((char*)"preprocessor");
-    _tmp.v[20] = grammar_literal((char*)";");
+    _tmp.v[7] = grammar_sym((char*)"match_statement");
+    _tmp.v[8] = grammar_sym((char*)"for_statement");
+    _tmp.v[9] = grammar_sym((char*)"while_statement");
+    _tmp.v[10] = grammar_sym((char*)"repeat_statement");
+    _tmp.v[11] = grammar_sym((char*)"do_statement");
+    _tmp.v[12] = grammar_sym((char*)"defer_statement");
+    _tmp.v[13] = grammar_sym((char*)"return_statement");
+    _tmp.v[14] = grammar_sym((char*)"in_statement");
+    _tmp.v[15] = grammar_sym((char*)"break_statement");
+    _tmp.v[16] = grammar_sym((char*)"continue_statement");
+    _tmp.v[17] = grammar_sym((char*)"fallthrough_statement");
+    _tmp.v[18] = grammar_sym((char*)"goto_statement");
+    _tmp.v[19] = grammar_sym((char*)"label_statement");
+    _tmp.v[20] = grammar_sym((char*)"preprocessor");
+    _tmp.v[21] = grammar_literal((char*)";");
     _tmp;
   })));
   grammar_define((char*)"block", grammar_repeated1(grammar_sym((char*)"_statement")));
@@ -452,6 +453,7 @@ int nelua_main(int argc, char** argv) {
       _tmp.v[4] = grammar_literal((char*)"pointer");
       _tmp.v[5] = grammar_literal((char*)"variant");
       _tmp.v[6] = grammar_literal((char*)"const");
+      _tmp.v[7] = grammar_literal((char*)"match");
       _tmp;
     })));
     _tmp;
@@ -978,6 +980,71 @@ int nelua_main(int argc, char** argv) {
       _tmp;
     }));
     _tmp.v[5] = grammar_literal((char*)"end");
+    _tmp;
+  })));
+  grammar_define((char*)"match_statement", grammar_sequence(({
+    nluint32_arr32 _tmp = {0};
+    _tmp.v[0] = grammar_literal((char*)"match");
+    _tmp.v[1] = grammar_sym((char*)"_expression");
+    _tmp.v[2] = grammar_choice(({
+      nluint32_arr32 _tmp = {0};
+      _tmp.v[0] = grammar_literal((char*)"do");
+      _tmp.v[1] = grammar_blank();
+      _tmp;
+    }));
+    _tmp.v[3] = grammar_repeated1(grammar_sequence(({
+      nluint32_arr32 _tmp = {0};
+      _tmp.v[0] = grammar_literal((char*)"case");
+      _tmp.v[1] = grammar_sequence(({
+        nluint32_arr32 _tmp = {0};
+        _tmp.v[0] = grammar_sym((char*)"_match_pattern");
+        _tmp.v[1] = grammar_repeated(grammar_sequence(({
+          nluint32_arr32 _tmp = {0};
+          _tmp.v[0] = grammar_literal((char*)",");
+          _tmp.v[1] = grammar_sym((char*)"_match_pattern");
+          _tmp;
+        })));
+        _tmp;
+      }));
+      _tmp.v[2] = grammar_literal((char*)"then");
+      _tmp.v[3] = grammar_choice(({
+        nluint32_arr32 _tmp = {0};
+        _tmp.v[0] = grammar_sym((char*)"block");
+        _tmp.v[1] = grammar_blank();
+        _tmp;
+      }));
+      _tmp;
+    })));
+    _tmp.v[4] = grammar_choice(({
+      nluint32_arr32 _tmp = {0};
+      _tmp.v[0] = grammar_sequence(({
+        nluint32_arr32 _tmp = {0};
+        _tmp.v[0] = grammar_literal((char*)"else");
+        _tmp.v[1] = grammar_choice(({
+          nluint32_arr32 _tmp = {0};
+          _tmp.v[0] = grammar_sym((char*)"block");
+          _tmp.v[1] = grammar_blank();
+          _tmp;
+        }));
+        _tmp;
+      }));
+      _tmp.v[1] = grammar_blank();
+      _tmp;
+    }));
+    _tmp.v[5] = grammar_literal((char*)"end");
+    _tmp;
+  })));
+  grammar_define((char*)"_match_pattern", grammar_choice(({
+    nluint32_arr32 _tmp = {0};
+    _tmp.v[0] = grammar_sym((char*)"nil");
+    _tmp.v[1] = grammar_sym((char*)"match_local");
+    _tmp.v[2] = grammar_sym((char*)"_type");
+    _tmp;
+  })));
+  grammar_define((char*)"match_local", grammar_sequence(({
+    nluint32_arr32 _tmp = {0};
+    _tmp.v[0] = grammar_literal((char*)"local");
+    _tmp.v[1] = grammar_sym((char*)"parameter");
     _tmp;
   })));
   grammar_define((char*)"while_statement", grammar_sequence(({
@@ -1865,7 +1932,7 @@ int nelua_main(int argc, char** argv) {
   grammar_emit(grammar_sym((char*)"preprocessor"), 0U);
   grammar_character(93);
   grammar_out((char*)",\"conflicts\":[");
-  for(uint32_t i = 0U; i < 10U; i += 1) {
+  for(uint32_t i = 0U; i < 11U; i += 1) {
     if((i > 0)) {
       grammar_character(44);
     }

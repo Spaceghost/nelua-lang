@@ -475,3 +475,51 @@ local v = t.orelse
       (identifier))
     (identifier))
   (ERROR))
+
+==================
+match statement
+==================
+match v do
+case local n: integer then return n
+case string, nil then
+case boolean then
+else
+end
+match find(1) case nil then end
+local s = str:match(p)
+match(x)
+---
+
+(source_file
+  (match_statement
+    (identifier)
+    (match_local
+      (parameter
+        (identifier)
+        (identifier)))
+    (block
+      (return_statement
+        (identifier)))
+    (identifier)
+    (nil)
+    (identifier))
+  (match_statement
+    (call_expression
+      (identifier)
+      (arguments
+        (number)))
+    (nil))
+  (variable_declaration
+    (parameter
+      (identifier))
+    (call_expression
+      (member_expression
+        (identifier)
+        (identifier))
+      (arguments
+        (identifier))))
+  (call_statement
+    (call_expression
+      (identifier)
+      (arguments
+        (identifier)))))

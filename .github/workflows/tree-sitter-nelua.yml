@@ -34,7 +34,7 @@ jobs:
         run: |
           npm install --prefix "$RUNNER_TEMP/nelua-tree-sitter" tree-sitter-cli@0.25.10
           git clone --filter=blob:none https://github.com/Spaceghost/nelua-lang "$RUNNER_TEMP/nelua-fork"
-          git -C "$RUNNER_TEMP/nelua-fork" checkout --detach b8ea333eca77eabc8add419f88f9ce5a4d0d00f5
+          git -C "$RUNNER_TEMP/nelua-fork" checkout --detach 6a4246a99166c596e7fa9ed74c5e61866712bfc6
           make -C "$RUNNER_TEMP/nelua-fork" -j2
       - name: Verify clean parser/scanner generation, corpus and scanner ABI
         working-directory: tools/tree-sitter-nelua

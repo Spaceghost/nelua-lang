@@ -80,6 +80,10 @@ return {
     -- `if local x = e then` / `elseif local`: the binding keyword keeps its
     -- storage scope inside a `meta.if-local` span so themes can tell it apart.
     keywords={patterns={
+      -- `match` is contextual in the compiler (`s:match(p)` is a method call): the
+      -- statement keyword is a `match` not preceded by `.`/`:` whose line goes on
+      -- to a `do` or a `case`.
+      {name='keyword.control.match.nelua',match='(?<![\\p{L}\\p{N}_.:])match(?=\\s+[^=\\s].*\\b(?:do|case)\\b)'},
       {name='meta.if-local.nelua',match='\\b(if|elseif)\\s+(local)\\b',
         captures={['1']={name='keyword.control.nelua'},['2']={name='storage.modifier.nelua'}}},
       {name='storage.modifier.nelua',match='\\b(?:local|global)\\b'},

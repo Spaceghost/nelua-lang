@@ -80,10 +80,10 @@ end
 -- Rules are appended below as typed graph construction, not emitted C bodies.
 define("source_file",sequence{choice{sym("shebang"),blank()},repeated(sym("_statement"))})
 define("shebang",pattern("#![^\\n]*"))
-define("_statement",choice{sym("variable_declaration"),sym("function_declaration"),sym("assignment_statement"),sym("try_statement"),sym("call_statement"),sym("if_statement"),sym("switch_statement"),sym("for_statement"),sym("while_statement"),sym("repeat_statement"),sym("do_statement"),sym("defer_statement"),sym("return_statement"),sym("in_statement"),sym("break_statement"),sym("continue_statement"),sym("fallthrough_statement"),sym("goto_statement"),sym("label_statement"),sym("preprocessor"),literal(";")})
+define("_statement",choice{sym("variable_declaration"),sym("function_declaration"),sym("assignment_statement"),sym("try_statement"),sym("call_statement"),sym("if_statement"),sym("switch_statement"),sym("match_statement"),sym("for_statement"),sym("while_statement"),sym("repeat_statement"),sym("do_statement"),sym("defer_statement"),sym("return_statement"),sym("in_statement"),sym("break_statement"),sym("continue_statement"),sym("fallthrough_statement"),sym("goto_statement"),sym("label_statement"),sym("preprocessor"),literal(";")})
 define("block",repeated1(sym("_statement")))
 define("identifier",pattern("[a-zA-Z_\\u0080-\\uffff][a-zA-Z_0-9\\u0080-\\uffff]*"))
-define("_name",choice{sym("identifier"),alias_named("identifier",choice{literal("record"),literal("union"),literal("enum"),literal("array"),literal("pointer"),literal("variant"),literal("const")})})
+define("_name",choice{sym("identifier"),alias_named("identifier",choice{literal("record"),literal("union"),literal("enum"),literal("array"),literal("pointer"),literal("variant"),literal("const"),literal("match")})})
 define("variable_declaration",sequence{choice{literal("local"),literal("global")},sequence{sym("parameter"),repeated(sequence{literal(","),sym("parameter")})},choice{sequence{literal("="),sequence{sym("_expression"),repeated(sequence{literal(","),sym("_expression")})}},blank()}})
 define("declaration_name",left(1,sequence{sym("_name"),repeated1(sequence{literal("."),sym("_name")})}))
 define("parameter",sequence{field("name",choice{sym("_name"),sym("declaration_name"),sym("preprocess_name")}),choice{sequence{literal(":"),sym("_type")},blank()},choice{sym("annotations"),blank()}})
@@ -114,6 +114,11 @@ define("defer_statement",sequence{literal("defer"),choice{sym("block"),blank()},
 define("if_statement",sequence{literal("if"),choice{sym("if_local"),sym("_expression")},literal("then"),choice{sym("block"),blank()},repeated(sequence{literal("elseif"),choice{sym("if_local"),sym("_expression")},literal("then"),choice{sym("block"),blank()}}),choice{sequence{literal("else"),choice{sym("block"),blank()}},blank()},literal("end")})
 define("if_local",sequence{literal("local"),sym("parameter"),literal("="),sym("_expression")})
 define("switch_statement",sequence{literal("switch"),sym("_expression"),choice{literal("do"),blank()},repeated1(sequence{literal("case"),sequence{sym("_expression"),repeated(sequence{literal(","),sym("_expression")})},literal("then"),choice{sym("block"),blank()}}),choice{sequence{literal("else"),choice{sym("block"),blank()}},blank()},literal("end")})
+-- `match` is contextual in the compiler (`s:match(p)`, `local match = 1` stay valid), so it is a
+-- `_name` too and the statement wins only when `case` follows the subject.
+define("match_statement",sequence{literal("match"),sym("_expression"),choice{literal("do"),blank()},repeated1(sequence{literal("case"),sequence{sym("_match_pattern"),repeated(sequence{literal(","),sym("_match_pattern")})},literal("then"),choice{sym("block"),blank()}}),choice{sequence{literal("else"),choice{sym("block"),blank()}},blank()},literal("end")})
+define("_match_pattern",choice{sym("nil"),sym("match_local"),sym("_type")})
+define("match_local",sequence{literal("local"),sym("parameter")})
 define("while_statement",sequence{literal("while"),sym("_expression"),literal("do"),choice{sym("block"),blank()},literal("end")})
 define("repeat_statement",sequence{literal("repeat"),choice{sym("block"),blank()},literal("until"),sym("_expression")})
 define("for_statement",sequence{literal("for"),choice{sequence{sym("parameter"),literal("="),sym("_expression"),literal(","),choice{choice{literal("<"),literal("<="),literal(">"),literal(">="),literal("~="),literal("==")},blank()},sym("_expression"),choice{sequence{literal(","),sym("_expression")},blank()}},sequence{sequence{sym("parameter"),repeated(sequence{literal(","),sym("parameter")})},literal("in"),sequence{sym("_expression"),repeated(sequence{literal(","),sym("_expression")})}}},literal("do"),choice{sym("block"),blank()},literal("end")})
@@ -176,7 +181,7 @@ out(',"conflicts":[')
 -- GLR forks (`tree-sitter generate` warns about any that becomes unnecessary): statement-level call
 -- chains run parallel to expressions until the chain ends in a call or `=`; contextual type names;
 -- simple types against expressions in generic/variant arguments.
-local conflicts: [10][2]cstring = {
+local conflicts: [11][2]cstring = {
   {'_stat_prefix','_expression'},
   {'_stat_prefix','call_statement'},
   {'_name','record_type'},
@@ -186,14 +191,15 @@ local conflicts: [10][2]cstring = {
   {'function_body','function_type'},
   {'parameter','type_field'},
   {'_expression','_type_simple'},
-  {'parameter','_type_simple'}}
-for i: uint32 = 0, < 10 do
+  {'parameter','_type_simple'},
+  {'_name','match_statement'}}
+for i: uint32 = 0, < 11 do
   if i > 0 then character(44) end
   character(91); text(conflicts[i][0]); character(44); text(conflicts[i][1]); character(93)
 end
 character(93)
 -- Reserved words: the compiler's keywords (`local orelse = 1` is a syntax error there too);
--- `record`/`union`/`enum`/`array`/`pointer`/`variant`/`const` stay contextual names.
+-- `record`/`union`/`enum`/`array`/`pointer`/`variant`/`const`/`match` stay contextual names.
 out(',"reserved":{"global":[')
 local keywords: [30]cstring = {'and','break','case','continue','defer','do','else','elseif','end','fallthrough',
   'false','for','function','global','goto','if','in','local','nil','nilptr','not','or','orelse','repeat','return',
