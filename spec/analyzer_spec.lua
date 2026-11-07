@@ -2870,17 +2870,21 @@ it("optional and/or with a boolean", function()
     local x: integer? = 1
     local p: *integer? = nilptr
     local function t(): boolean return true end
-    local a = x and true   ## assert(a.type.is_boolean)
-    local b = x or true    ## assert(b.type.is_boolean)
-    local c = x or false   ## assert(c.type.is_boolean)
-    local d = true and x   ## assert(d.type.is_boolean)
-    local e = false or x   ## assert(e.type.is_boolean)
-    local f = x and t()    ## assert(f.type.is_boolean)
-    local g = p or t()     ## assert(g.type.is_boolean)
-    local h = x and true or false ## assert(h.type.is_boolean)
+    local a = x and true
+    local b = x or true
+    local c = x or false
+    local d = true and x
+    local e = false or x
+    local f = x and t()
+    local g = p or t()
+    local h = x and true or false
     local y: integer? = 2
-    local z = x or y       ## assert(z.type == x.type)
-    local w = x and y      ## assert(w.type == x.type)
+    local z = x or y
+    local w = x and y
+    ## after_inference(function()
+    ##   for _,s in ipairs{a, b, c, d, e, f, g, h} do assert(s.type.is_boolean, s.name) end
+    ##   assert(z.type == x.type and w.type == x.type)
+    ## end)
   ]])
   expect.analyze_error([[
     require 'optional'
