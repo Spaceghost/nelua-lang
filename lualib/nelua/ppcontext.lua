@@ -245,6 +245,13 @@ function PPContext.inject_value(self, value, dest, destpos, orignode)
       dest[destpos+i-1] = aster.value(value[i], orignode)
     end
   else -- a single value
+    if dest.origargs and not dest.is_Call and valueluatype ~= 'function' then
+      -- `dest` is the template of a call whose callee was a macro in an earlier
+      -- preprocessing (e.g. another instantiation of the same generic), which
+      -- turned it into a DoExpr: make it a call again before injecting the callee
+      dest:transform(aster.Call{dest.origargs, aster.Nil{}})
+      destpos = 2
+    end
     if valueluatype == 'function' and (dest.is_Call or dest.origargs) then
       -- the dest node will be transformed, thus it will be invalid in the next `inject_value`,
       -- so we must save the argnodes and use it in the next time

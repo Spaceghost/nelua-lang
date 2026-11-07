@@ -831,4 +831,30 @@ require 'myclib'
 ]=])
 end)
 
+it("generic callee that is a macro in one instantiation and a function in another", function()
+  -- the template call node turned into a macro expansion by the first
+  -- instantiation must become a call again for the second one
+  expect.run_c([=[
+    ## local function make_picker(T, Pick)
+      ## if not Pick then
+        ## function Pick(a, b)
+          in #[a]# < #[b]# and #[a]# or #[b]#
+        ## end
+      ## end
+      local PickerT = @record{x: #[T]#}
+      function PickerT:pick(y: #[T]#): #[T]#
+        local x = self.x
+        return #[Pick]#(x, y)
+      end
+      ## return PickerT
+    ## end
+    local picker: type = #[generalize(make_picker)]#
+    local function bigger(a: integer, b: integer): integer return a > b and a or b end
+    local p1: picker(integer) = {x = 3}
+    local p2: picker(integer, bigger) = {x = 3}
+    local p3: picker(number) = {x = 2.5}
+    print(p1:pick(5), p2:pick(5), p3:pick(1.5))
+  ]=], "3\t5\t1.5")
+end)
+
 end)
