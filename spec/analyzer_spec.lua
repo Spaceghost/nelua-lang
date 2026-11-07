@@ -4215,7 +4215,7 @@ end)
 
 it("comptime evaluation", function()
   -- results are injected as compile time values
-  expect.analyze_ast([[
+  expect.analyze_ast([=[
     local function fib(n: integer): integer
       if n < 2 then return n end
       return fib(n - 1) + fib(n - 2)
@@ -4241,9 +4241,9 @@ it("comptime evaluation", function()
       assert(um.type == primtypes.uint64 and tostring(um.value) == '18446744073709551615')
       assert(w.type == primtypes.int32 and w.value == 0)
     end) ]]
-  ]])
+  ]=])
   -- `<comptime>` functions evaluate at every call site, also recursively
-  expect.analyze_ast([[
+  expect.analyze_ast([=[
     local function fib(n: integer): integer <comptime>
       if n < 2 then return n end
       return fib(n - 1) + fib(n - 2)
@@ -4251,9 +4251,9 @@ it("comptime evaluation", function()
     local x <comptime> = fib(15)
     local y <comptime> = comptime(fib(10))
     ##[[ after_inference(function() assert(x.value == 610 and y.value == 55) end) ]]
-  ]])
+  ]=])
   -- aggregates are values, records can be referenced through `self`
-  expect.analyze_ast([[
+  expect.analyze_ast([=[
     local function f(): integer
       local t: [2]integer = {1, 2}
       local u = t
@@ -4275,9 +4275,9 @@ it("comptime evaluation", function()
       assert(x.value == 197)
       assert(r.type.is_record)
     end) ]]
-  ]])
+  ]=])
   -- `print`, `assert`, strings and `math` run inside the compiler
-  expect.analyze_ast([[
+  expect.analyze_ast([=[
     require 'string'
     require 'math'
     local function f(x: float32): string
@@ -4288,16 +4288,16 @@ it("comptime evaluation", function()
     end
     local s <comptime> = comptime(f(1.1))
     ##[[ after_inference(function() assert(s.value == 'ABxxb21.12.08.0', s.value) end) ]]
-  ]])
+  ]=])
   -- forward declarations wait for their definition
-  expect.analyze_ast([[
+  expect.analyze_ast([=[
     local function f(): integer <forwarddecl> end
     local x <comptime> = comptime(f())
     function f(): integer return 7 end
     ##[[ after_inference(function() assert(x.value == 7) end) ]]
-  ]])
+  ]=])
   -- `continue` inside `repeat` and non default `for` comparisons
-  expect.analyze_ast([[
+  expect.analyze_ast([=[
     local function f(): integer
       local n = 0
       repeat
@@ -4314,7 +4314,7 @@ it("comptime evaluation", function()
     end
     local x <comptime> = comptime(f())
     ##[[ after_inference(function() assert(x.value == 14) end) ]]
-  ]])
+  ]=])
 end)
 
 it("comptime evaluation errors", function()
