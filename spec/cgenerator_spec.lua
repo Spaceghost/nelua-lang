@@ -1804,7 +1804,7 @@ it("record comparisons with field metamethods", function()
     local R = @record{p: P}
     local r1: R, r2: R
     local x = r1 == r2
-  ]], {"cannot index field 'nope'", ":6:15: from: polymorphic function instantiation"})
+  ]], {"cannot index field 'nope'", ":5:18: from: polymorphic function instantiation"})
   -- string fields compare by content, with or without the 'string' module
   expect.run_c([[
     local R = @record{s: string, ss: [2]string, n: integer}
