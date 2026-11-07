@@ -1587,8 +1587,7 @@ end
 -- Implementation of reference operator (`&`).
 function cbuiltins.operators.ref(_, _, emitter, argattr, argname)
   if not argattr.lvalue and argattr.type.is_aggregate then -- taking reference of a literal
-    emitter:add_builtin('NELUA_LITERAL_REF')
-    emitter:add('(', argattr.type, ', (', argname, '))')
+    emitter:add_literal_ref(argattr.type, argname)
   else
     -- we expect an lvalue
     assert(argattr.lvalue)

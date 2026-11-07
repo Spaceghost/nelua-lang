@@ -146,6 +146,11 @@ local function build_configs(conf)
     end
   end
 
+  if conf.pragma or conf.maximum_performance or conf.release then
+    -- pragmas set by this build must not leak into the shared defaults used by later builds
+    conf.pragmas = tabler.copy(conf.pragmas)
+  end
+
   if conf.pragma then
     local pragmas = {}
     for _,code in ipairs(conf.pragma) do

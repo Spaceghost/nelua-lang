@@ -868,7 +868,24 @@ end
 function visitors.Block(context, node, emitter)
   local scope = context:push_forked_scope(node)
   emitter:inc_indent()
-  emitter:add_list(node, '')
+  local parentnode = context:get_visiting_node(1)
+  if parentnode and parentnode.is_DoExpr and parentnode.attr.tryexpr then
+    -- the statements of a `?` rewrite belong to the statement containing the `?`
+    emitter:add_list(node, '')
+  else
+    -- track each statement, so values referenced inside a `?` can be declared before it
+    local oldhoist = context.stathoist
+    for i=1,#node do
+      local hoist = {pos=emitter:get_pos(), depth=emitter.depth, trydepth=0,
+                     funcscope=context.state.funcscope}
+      context.stathoist = hoist
+      emitter:add_value(node[i])
+      if hoist.decls then
+        emitter:insert(hoist.pos, hoist.decls)
+      end
+    end
+    context.stathoist = oldhoist
+  end
   if scope.parent.is_repeat_loop then
     scope.parent.emit_repeat_stop(emitter)
   end
@@ -1093,7 +1110,14 @@ function visitors.DoExpr(context, node, emitter)
     emitter:add_indent_ln(attr.type, ' _expr;')
     emitter:dec_indent()
     local scope = context:push_forked_scope(node)
+    local hoist = attr.tryexpr and context.stathoist
+    if hoist then
+      hoist.trydepth = hoist.trydepth + 1
+    end
     emitter:add(blocknode)
+    if hoist then
+      hoist.trydepth = hoist.trydepth - 1
+    end
     context:pop_scope()
     emitter:inc_indent()
     local doexprlabel = scope.doexprlabel

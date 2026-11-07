@@ -74,6 +74,33 @@ function CEmitter:add_zeroed_type_literal(type, typed)
 end
 
 --[[
+Adds a pointer to the rvalue `val` of aggregate type `type`.
+Usually this is a compound literal, which lives until the end of the enclosing C block.
+Inside the statement expression of a `?` the compound literal would die with the statement
+expression, even though the pointer may be yielded from it (e.g. `f()?:method()?` returning `self`),
+so the value is stored in a local declared before the enclosing statement instead,
+giving it the same lifetime it has when `?` is not used.
+]]
+function CEmitter:add_literal_ref(type, val)
+  local context = self.context
+  local hoist = context.stathoist
+  local funcscope = context.state.funcscope
+  if hoist and hoist.trydepth > 0 and hoist.funcscope == funcscope then
+    local name = funcscope:generate_name('__ref')
+    local decls = hoist.decls
+    if not decls then
+      decls = CEmitter(context, hoist.depth)
+      hoist.decls = decls
+    end
+    decls:add_indent_ln(type, ' ', name, ';')
+    self:add('(', name, ' = (', val, '), &', name, ')')
+  else
+    self:add_builtin('NELUA_LITERAL_REF')
+    self:add('(', type, ', (', val, '))')
+  end
+end
+
+--[[
 Adds `val` of type `valtype` converted to a boolean.
 If `valtype` is unset then the type automatically detected from `val`.
 All types can be converted to a boolean.
@@ -219,8 +246,7 @@ function CEmitter:add_converted_val(type, val, valtype, force, untypedinit)
         self:add('((', type, ')')
       end
       if valattr.promotelvalue then
-        self:add_builtin('NELUA_LITERAL_REF')
-        self:add('(', valtype, ', (', val, '))')
+        self:add_literal_ref(valtype, val)
       else
         self:add('(&', val, ')')
       end

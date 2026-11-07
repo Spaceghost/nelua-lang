@@ -204,6 +204,15 @@ function Emitter:merge(src)
   end
 end
 
+-- Inserts all chunks from emitter `src` after position `pos`.
+function Emitter:insert(pos, src)
+  local srcchunks = src.chunks
+  local chunks = self.chunks
+  local n = #srcchunks
+  table.move(chunks, pos+1, #chunks, pos+n+1)
+  table.move(srcchunks, 1, n, pos+1, chunks)
+end
+
 -- Concatenates all chunks into a large string.
 function Emitter:generate()
   return table.concat(self.chunks)

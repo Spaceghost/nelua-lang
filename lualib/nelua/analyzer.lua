@@ -1221,6 +1221,8 @@ local function visitor_try(context, node, isstat)
   else
     blocknode[3] = aster.In{valuenode}
     newnode = aster.DoExpr{blocknode}
+    -- the C generator keeps rvalues referenced inside the operand alive past the do expression
+    newnode.attr.tryexpr = true
   end
   newnode:recursive_update_location(node.src, node.pos, node.endpos)
   declnode[3][1] = exprnode -- the operand keeps its own location

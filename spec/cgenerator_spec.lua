@@ -3242,6 +3242,33 @@ it("optional types", function()
     end
     assert(viadoexpr(1) == 10 and viadoexpr(2) == nil)
   ]])
+  do -- a pointer yielded by `expr?:method()?` stays valid for the enclosing block, as without `?`
+    local code = [[
+      require 'optional'
+      local R = @record{b: integer}
+      function R:look(): *R? return self end
+      local function mk(k: integer): R?
+        if k >= 1 then return R{b=k*5} end
+        return nil
+      end
+      local function id(r: *R): *R? return r end
+      local function look(k: integer): integer?
+        local p = mk(k)?:look()? -- points at the receiver temporary
+        return p.b
+      end
+      local function both(k: integer): integer?
+        local p = mk(k)?:look()?
+        local q = id(&R{b=k})? -- reference of a literal inside `?`
+        return p.b * 100 + q.b
+      end
+      print(look(1):get(), look(2):get(), look(0) == nil, both(1):get(), both(0) == nil)
+    ]]
+    -- the receiver temporary is declared in the enclosing block,
+    -- not as a compound literal dying with the `?` statement expression
+    expect.generate_c(code, {"R __ref_1;\n%s*[%w_]+ p = %({", "%(__ref_1 = %("}, true)
+    expect.run_c(code, '5\t10\ttrue\t501\ttrue')
+    expect.run({'--generator', 'c', '--release', '--eval', code}, '5\t10\ttrue\t501\ttrue')
+  end
   expect.run_c([[
     require 'optional'
     local e: *integer?
