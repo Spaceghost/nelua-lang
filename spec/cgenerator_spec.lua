@@ -3489,13 +3489,13 @@ it("optional static initializers", function()
     local pb: [2]integer? = {1, 2}
     local pe: P? = {}
     local Q = @record{o: P?, a: [2]integer?}
-    local q: Q = {o = {x = 5}, a = {5, 6}}
+    local qq: Q = {o = {x = 5}, a = {5, 6}}
   ]], {
     "static nelua_optional_int64_ x = {.some = true, .v = 3};",
     "static nelua_optional_P_ pa = {.some = true, .v = {.x = 1}};",
     "static nelua_optional_array_int64__2__ pb = {.some = true, .v = {1, 2}};",
     "static nelua_optional_P_ pe = {0};",
-    "static Q q = {.o = {.some = true, .v = {.x = 5}}, .a = {.some = true, .v = {5, 6}}};",
+    "static Q qq = {.o = {.some = true, .v = {.x = 5}}, .a = {.some = true, .v = {5, 6}}};",
     "static nelua_optional_int64_ y = {0};",
     "static nelua_optional_pointer_R__ p = {0};",
     "static nelua_optional_pointer_R__ q = {.v = (&g)};",
