@@ -3898,6 +3898,285 @@ global optional: type = #[generalize(make_optionalT)]#
 Generic used to instantiate optional types in the form of `optional(T)` or `T?`.
 
 ---
+## algorithm
+
+The algorithm library provides algorithms that operate on contiguous containers
+(fixed arrays, spans, vectors and sequences), such as stable sort, heap sort,
+conditional removal, and packing/unpacking of elements.
+
+### algorithm.sort
+
+```nelua
+function algorithm.sort(a: as_span_concept, comp: auto): void
+```
+
+Sorts contiguous container `a` elements into ascending order.
+
+If `comp` is given, then it must be a function that receives two list elements
+and returns true when the first element must come before the second in the final order,
+so that, after the sort, `i <= j` implies `not comp(a[j],a[i])`.
+If `comp` is not given, then the standard operator `<` is used instead.
+
+The sort algorithm is stable, that is,
+different elements considered equal by the given order will preserve their relative positions.
+
+The sort algorithm may not be in-place, that is,
+it may allocate an auxiliary buffer temporarily (from `general_allocator`)
+to perform the sort operation, use `heapsort` if you wish to avoid that.
+
+### algorithm.heapsort
+
+```nelua
+function algorithm.heapsort(a: as_span_concept, comp: auto): void
+```
+
+Like `sort` but the operation is done in-place, that is, no temporary extra memory is allocated.
+Sorts all contiguous container `a` elements into ascending order (in-place).
+
+The sort algorithm is not stable, that is,
+different elements considered equal by the given order may have their
+relative positions changed by the sort.
+
+### algorithm.removeif
+
+```nelua
+function algorithm.removeif(a: as_span_concept, pred: auto, param: auto): usize
+```
+
+Removes all elements satisfying criteria `pred` from contiguous container `a`,
+and returns the new size of the container after removing the elements.
+
+Removing is done by shifting the elements in such a way that the elements
+that are not to be removed appear in the beginning of the container.
+Relative order of the elements that remain is preserved
+and the physical size of the container is unchanged.
+
+### algorithm.unpackn
+
+```nelua
+function algorithm.unpackn(a: as_span_concept, n: usize <comptime>)
+```
+
+Unpacks and returns the first `n` elements from contiguous container `a`.
+The count `n` must be a compile time constant.
+
+### algorithm.packn
+
+```nelua
+function algorithm.packn(...: varargs): auto
+```
+
+Packs all elements of `...` and returns a fixed array with them.
+The array element type is the type of the first argument.
+---
+## heapqueue
+
+The heap queue library provides a priority queue using a binary heap.
+
+Heap queues are designed such that its first element is always the smallest of the elements
+it contains, according to some ordering criteria.
+
+It is similar to a heap, where elements can be inserted at any moment,
+and only the minimum heap element is retrieved (the one at the top in the queue).
+
+### heapqueueT
+
+```nelua
+local heapqueueT: type <nickname(#[string.format('heapqueue(%s)', T)]#)> = @record{
+    data: span(T),
+    size: usize,
+    allocator: Allocator
+}
+```
+
+Heap queue record defined when instantiating the generic `heapqueue` with type `T`.
+
+### heapqueueT.make
+
+```nelua
+function heapqueueT.make(allocator: Allocator): heapqueueT
+```
+
+Creates a heap queue using a custom allocator instance.
+Useful only when using instanced allocators.
+
+### heapqueueT:clear
+
+```nelua
+function heapqueueT:clear(): void
+```
+
+Removes all elements from the queue.
+The internal storage buffer is not freed, and it may be reused.
+
+### heapqueueT:destroy
+
+```nelua
+function heapqueueT:destroy(): void
+```
+
+Free queue resources and resets it to a zeroed state.
+Useful only when not using the garbage collector.
+
+### heapqueueT:__close
+
+```nelua
+function heapqueueT:__close(): void
+```
+
+Effectively the same as `destroy`, called when a to-be-closed variable goes out of scope.
+
+### heapqueueT:reserve
+
+```nelua
+function heapqueueT:reserve(n: usize): void
+```
+
+Reserve at least `n` elements in the queue storage.
+
+### heapqueueT:push
+
+```nelua
+function heapqueueT:push(v: T): void
+```
+
+Inserts element `v` into the queue.
+Queue elements are shifted in order to maintain the heap property.
+
+### heapqueueT:remove
+
+```nelua
+function heapqueueT:remove(pos: usize): T
+```
+
+Removes element at position `pos` in the queue and returns its value.
+Queue elements are shifted in order to maintain the heap property.
+The position `pos` must be valid (within queue bounds).
+
+### heapqueueT:pop
+
+```nelua
+function heapqueueT:pop(): T
+```
+
+Removes the highest priority element in queue, returning its value.
+Queue elements are shifted in order to maintain the heap property.
+The heap queue must not be empty.
+
+### heapqueueT:top
+
+```nelua
+function heapqueueT:top(): T
+```
+
+Returns the value of the highest priority element in queue.
+
+### heapqueueT:capacity
+
+```nelua
+function heapqueueT:capacity(): isize
+```
+
+Returns the number of elements the heap queue can store before triggering a reallocation.
+
+### heapqueueT:__atindex
+
+```nelua
+function heapqueueT:__atindex(pos: usize): *T
+```
+
+Returns reference to element at position `pos`.
+Note that `pos` is not necessarily in priority order.
+Position `pos` must be valid (within queue bounds).
+The reference will remain valid until the queue is modified.
+Used when indexing elements with square brackets (`[]`).
+
+### heapqueueT:__len
+
+```nelua
+function heapqueueT:__len(): isize
+```
+
+Returns the number of elements in the queue.
+Used by the length operator (`#`).
+
+### heapqueueT.__convert
+
+```nelua
+function heapqueueT.__convert(values: an_arrayT): heapqueueT
+```
+
+Initializes queue elements from a fixed array.
+Used to initialize queue elements with curly braces (`{}`).
+
+### heapqueue
+
+```nelua
+global heapqueue: type
+```
+
+Generic used to instantiate a heap queue type in the form of `heapqueue(T, CompareFunc, Allocator)`.
+
+Argument `T` is the value type that the queue will store.
+Argument `CompareFunc` is a function to compare `T` values,
+in case absent then the `<` operator is used.
+Argument `Allocator` is an allocator type for the container storage,
+in case absent then `DefaultAllocator` is used.
+---
+## tuple
+
+The tuple library provides a generic record holding a fixed list of values of different types.
+
+A tuple instantiated as `tuple(A, B, C)` is a record with fields `e0: A`, `e1: B` and `e2: C`.
+Its elements can also be read and written by indexing with a compile time constant,
+`t[0]` is the same as `t.e0`.
+
+Remarks: A tuple initialized from a list of unnamed fields is filled with the list elements.
+
+### tupleT
+
+```nelua
+local tupleT: type
+```
+
+Tuple record defined when instantiating the generic `tuple` with types `...`.
+
+### tupleT.__atindex
+
+```nelua
+function tupleT.__atindex(self: *tupleT, index: integer <comptime>): auto
+```
+
+Returns reference to element at position `index`, which must be a compile time constant.
+Used when indexing elements with square brackets (`[]`).
+
+### tuple
+
+```nelua
+global tuple: type
+```
+
+Generic used to instantiate a tuple type in the form of `tuple(...)`,
+where each argument is the type of one tuple element.
+
+### tuple.pack
+
+```nelua
+function tuple.pack(...: varargs): auto
+```
+
+Packs all arguments `...` into a new tuple and returns it.
+The tuple type is deduced from the argument types.
+
+### tuple.unpack
+
+```nelua
+function tuple.unpack(t: auto)
+```
+
+Unpacks and returns all elements of tuple `t` as multiple values.
+---
+---
 ## allocators.default
 
 The default allocator library provides the default allocator used by the standard libraries.

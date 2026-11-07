@@ -68,6 +68,11 @@ each with specs in `spec/` and docs under `docs/pages/`:
   address of a static object (`&g`, `&arr[3]`, `&rec.field`), casts of those,
   or record/array literals built from them are emitted as C static initializers
   instead of statements in `nelua_main`, so they hold under `noentrypoint` too.
+- **`algorithm`, `heapqueue` and `tuple` libraries**: stable `algorithm.sort`,
+  `heapsort`, `removeif`, `unpackn`/`packn` over any contiguous container, a generic
+  binary-heap priority queue and a generic tuple record with `pack`/`unpack`, absorbed
+  from [nelua-batteries](https://github.com/edubart/nelua-batteries) (MIT, Eduardo Bart)
+  with the same API ([libraries](docs/pages/libraries.md#algorithm)).
 - **Compact C profile** (`lualib/nelua/compactc.lua`), Tree-sitter and TextMate
   grammars (`tools/`), and a binary cache that hashes imported C sources.
 

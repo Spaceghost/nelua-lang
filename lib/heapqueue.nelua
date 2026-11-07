@@ -41,13 +41,18 @@ require 'span'
   heapqueueT.subtype = T
   ]]
 
-  ## if not CompareFunc then
-    ## function CompareFunc(a, b)
-      in #[a]# < #[b]#
-    ## end
-  ## elseif CompareFunc.is_generic then
+  ## if CompareFunc and CompareFunc.is_generic then
     ## CompareFunc = CompareFunc.func
   ## end
+
+  -- Returns true when `a` has higher priority than `b`, used internally.
+  local function heapqueueT_less(a: T, b: T): boolean <inline>
+    ## if CompareFunc then
+    return #[CompareFunc]#(a, b)
+    ## else
+    return a < b
+    ## end
+  end
 
   --[[
   Creates a heap queue using a custom allocator instance.
@@ -104,7 +109,7 @@ require 'span'
       local parent_index: usize = (index - 1) // 2
       local child: T = self.data[index]
       local parent: T = self.data[parent_index]
-      if not #[CompareFunc]#(child, parent) then break end
+      if not heapqueueT_less(child, parent) then break end
       self.data[parent_index] = child
       self.data[index] = parent
       index = parent_index
@@ -120,14 +125,14 @@ require 'span'
       local left_index: usize = 2*index + 1
       if left_index < self.size then
         local left: T = self.data[left_index]
-        if #[CompareFunc]#(left, smallest) then
+        if heapqueueT_less(left, smallest) then
           smallest_index = left_index
           smallest = left
         end
         local right_index: usize = left_index + 1
         if right_index < self.size then
           local right: T = self.data[right_index]
-          if #[CompareFunc]#(right, smallest) then
+          if heapqueueT_less(right, smallest) then
             smallest_index = right_index
             smallest = right
           end
