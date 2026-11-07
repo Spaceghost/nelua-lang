@@ -4250,7 +4250,7 @@ it("comptime evaluation", function()
     end
     local x <comptime> = fib(15)
     local y <comptime> = comptime(fib(10))
-    ##[[ after_inference(function() assert(x.value == 610 and y.value == 55) end) ]]
+    ##[[ after_inference(function() assert(tostring(x.value) == '610' and tostring(y.value) == '55') end) ]]
   ]=])
   -- aggregates are values, records can be referenced through `self`
   expect.analyze_ast([=[
@@ -4272,7 +4272,7 @@ it("comptime evaluation", function()
     end
     local r = comptime(g())
     ##[[ after_inference(function()
-      assert(x.value == 197)
+      assert(tostring(x.value) == '197')
       assert(r.type.is_record)
     end) ]]
   ]=])
@@ -4294,7 +4294,7 @@ it("comptime evaluation", function()
     local function f(): integer <forwarddecl> end
     local x <comptime> = comptime(f())
     function f(): integer return 7 end
-    ##[[ after_inference(function() assert(x.value == 7) end) ]]
+    ##[[ after_inference(function() assert(tostring(x.value) == '7') end) ]]
   ]=])
   -- `continue` inside `repeat` and non default `for` comparisons
   expect.analyze_ast([=[
@@ -4313,7 +4313,7 @@ it("comptime evaluation", function()
       return n
     end
     local x <comptime> = comptime(f())
-    ##[[ after_inference(function() assert(x.value == 14) end) ]]
+    ##[[ after_inference(function() assert(tostring(x.value) == '14') end) ]]
   ]=])
 end)
 
