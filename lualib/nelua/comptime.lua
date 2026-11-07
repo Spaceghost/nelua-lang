@@ -148,6 +148,10 @@ local function get_defnode(symbol)
 end
 comptime.get_defnode = get_defnode
 
+-- Sentinel raised while a called function body still has unresolved types.
+local PENDING = setmetatable({}, {__tostring = function() return 'comptime pending' end})
+comptime.PENDING = PENDING
+
 local check_function
 
 -- Checks that function `symbol`, called from `node`, can be evaluated at compile time.
@@ -192,8 +196,8 @@ local function check_node(context, node, parent, fstate)
     end
   elseif node.is_Call then
     local calleetype = attr.calleetype
-    if not calleetype then
-      raise("call could not be resolved at compile time")
+    if not calleetype or not attr.type and not calleetype.is_type and not calleetype.is_function then
+      error(PENDING, 0) -- types still being resolved, try again in a later pass
     elseif not calleetype.is_type then
       local calleenode = node[2]
       if calleenode.attr.builtin then
@@ -204,6 +208,7 @@ local function check_node(context, node, parent, fstate)
       else
         local calleesym = attr.calleesym
         if not calleesym then
+          if calleetype.is_polyfunction then error(PENDING, 0) end
           raise("indirect calls of function values cannot be used at compile time")
         end
         check_callee(context, calleesym, node, fstate)
@@ -211,8 +216,8 @@ local function check_node(context, node, parent, fstate)
     end
   elseif node.is_CallMethod then
     local calleesym = attr.calleesym
-    if not calleesym then
-      raise("method call could not be resolved at compile time")
+    if not calleesym or not attr.calleetype then
+      error(PENDING, 0)
     end
     check_callee(context, calleesym, node, fstate)
   elseif node.is_Id or node.is_DotIndex then
@@ -712,7 +717,11 @@ function comptime.evaluate(context, symbol, args, node)
     context.comptimecache = {}
   end
   local info = {deps = {}, set = {}}
-  check_function(context, symbol, defnode, info)
+  local ok, err = pcall(check_function, context, symbol, defnode, info)
+  if not ok then
+    if err == PENDING then return nil end
+    error(err, 0)
+  end
   local funcinfo = context.comptimefuncs[symbol]
   local argtypes = symbol.type.argtypes
   local luaargs = {n = #argtypes}
@@ -838,6 +847,10 @@ function comptime.visit_builtin(context, node, argnodes, opts)
     return
   end
   local results = comptime.evaluate(context, calleesym, args, node)
+  if not results then -- the callee body is not fully resolved yet
+    set_pending(context, node, true)
+    return
+  end
   set_pending(context, node, false)
   inject_results(context, node, results, calleetype.rettypes, calleesym.name, opts)
 end
@@ -865,6 +878,10 @@ function comptime.visit_comptime_call(context, node, argnodes, calleeobjnode, op
     return true
   end
   local results = comptime.evaluate(context, calleesym, args, node)
+  if not results then -- the callee body is not fully resolved yet
+    set_pending(context, node, true)
+    return true
+  end
   set_pending(context, node, false)
   inject_results(context, node, results, calleetype.rettypes, calleesym.name, opts)
   return true
@@ -875,7 +892,8 @@ function comptime.check_pending(context)
   local pendings = context.comptimepending
   if not pendings then return end
   for node in pairs(pendings) do
-    node:raisef("in call of builtin 'comptime': the call could not be resolved at compile time")
+    node:raisef("in call of builtin 'comptime': the call could not be resolved at compile time \z
+      (the function or a function it calls has unresolved types)")
   end
 end
 
