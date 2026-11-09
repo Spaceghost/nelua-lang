@@ -372,7 +372,7 @@ The preprocessor can generate code, but it cannot change what the parser accepts
 *that file* is parsed with them. Each rule comes with a builder that turns what it matched into
 ordinary Nelua AST, so the type checker and both code generators never see anything new.
 
-Two extensions ship in `lib/syntax/`:
+Three extensions ship in `lib/syntax/`:
 
 ```nelua
 #syntax 'syntax.compound'
@@ -391,6 +391,18 @@ local function half(a: integer) return a // 2 end
 print(x |> half |> add(t[1]))     -- add(half(x), t[1]); outputs: 24
 ```
 
+`syntax.interp` adds string interpolation. `$"..."` becomes an ordinary concatenation while the
+file is parsed: `{expr}` is `tostring(expr)`, `{expr:%fmt}` is `string.format('%fmt', expr)` (a
+`:` followed by `%` starts the format, so `{s:upper()}` is still a method call), and `{{`/`}}` are
+literal braces. The pieces are evaluated left to right; `require 'string'` must be in scope.
+
+```nelua
+#syntax 'syntax.interp'
+require 'string'
+local name, n = 'world', 3
+print($"hello {name}, {n + 1} times, pi {math.pi:%.3f}")  -- hello world, 4 times, pi 3.142
+```
+
 Writing one inline:
 
 ```nelua
@@ -404,7 +416,9 @@ unless x > 10 then print('small') end
 ```
 
 The `syntax` table offers `statement(peg, builder)`, `expression(peg, builder)` (a new primary
-expression), `unary(token, builder)`, `binary(level, token, builder)` (at the precedence of an
+expression), `prefixexpr(peg, builder)` (an expression tried before the built-in prefix
+operators, so it can claim a prefix one of them also starts with: `$"` before `$` dereference),
+`unary(token, builder)`, `binary(level, token, builder)` (at the precedence of an
 existing operator: `or and cmp orelse bor bxor band bshift concat arit fact pow`, always left
 associative), `rules(text)` for helper rules, `error(label, message)`, `def(name, value)`,
 `gensym(prefix)` and `raise(message, ...)`. Patterns are [LPegRex](https://github.com/edubart/lpegrex)

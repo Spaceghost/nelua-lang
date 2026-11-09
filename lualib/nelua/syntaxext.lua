@@ -227,6 +227,15 @@ function State:make_api()
     end, builder)
   end
 
+  -- New expression matched at the level of the prefix operators and tried before
+  -- them, so it can claim a prefix a built-in operator also starts with (such as
+  -- `$"` against `$` dereference); builder(captures...).
+  function api.prefixexpr(peg, builder)
+    return state:add('unary', 'UNARY', function(id)
+      return string.format("%s : SyntaxExt <== $'%s' (%s)", id, id, peg)
+    end, builder)
+  end
+
   -- New prefix operator: `token` is an LPegRex token such as "`!!`"; builder(operand).
   function api.unary(token, builder)
     return state:add('unary', 'UNARY', function(id)

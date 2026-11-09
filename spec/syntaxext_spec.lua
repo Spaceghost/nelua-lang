@@ -134,6 +134,64 @@ it("pipe module", function()
   ]=], '14\t6\t20')
 end)
 
+it("interpolation module", function()
+  expect.run_c([=[
+    #syntax 'syntax.interp'
+    require 'string'
+    require 'math'
+    local name, n = 'world', 3
+    local s = 'abc'
+    local t: [3]integer = {1, 2, 3}
+    print($"hello {name}, {n + 1} times")
+    print($"pi {math.pi:%.3f} pad {n:%05d} {{lit}} {'}'} {s:upper()} {#s} {t[2]}")
+    print($"q \"x\" {(n > 2) and 'big' or 'small'}" .. $"" .. $"!")
+    local p: *integer = &n
+    print($ p, $"{$p}")
+  ]=], 'hello world, 4 times\npi 3.142 pad 00003 {lit} } ABC 3 3\nq "x" big!\n3\t3')
+  -- untyped: polymorphic tostring/concat calls carry table addresses when typed
+  expect.parse_ast([=[
+    #syntax 'syntax.interp'
+    require 'string'
+    local x = 1
+    local a = $"x={x}!"
+    local b = $"{x:%d}"
+    local c = $"plain"
+  ]=], aster.parse([[
+    require 'string'
+    local x = 1
+    local a = ("x=" .. tostring((x)) .. "!")
+    local b = (string.format("%d", (x)))
+    local c = "plain"
+  ]]))
+  parse_error([=[
+    #syntax 'syntax.interp'
+    local a = $"bad } brace"
+  ]=], "single '}' in interpolated string")
+  parse_error([=[
+    #syntax 'syntax.interp'
+    local a = $"open {brace"
+  ]=], "unterminated '{' in interpolated string")
+  parse_error([=[
+    #syntax 'syntax.interp'
+    local a = $"empty {}"
+  ]=], 'empty expression in interpolated string')
+end)
+
+it("prefix expressions", function()
+  expect.ast_type_equals([=[
+    #syntax [[
+      syntax.prefixexpr("'$$' {[0-9]+} SKIP", function(n) return syntax.expr(n .. ' * 100') end)
+    ]]
+    local x = 3
+    local p = &x
+    local a = $$5 + $p
+  ]=], [[
+    local x = 3
+    local p = &x
+    local a = 5 * 100 + $p
+  ]])
+end)
+
 it("errors", function()
   parse_error([=[
     #syntax 'syntax.missing_extension'
