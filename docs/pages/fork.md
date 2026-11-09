@@ -395,6 +395,8 @@ print(x |> half |> add(t[1]))     -- add(half(x), t[1]); outputs: 24
 file is parsed: `{expr}` is `tostring(expr)`, `{expr:%fmt}` is `string.format('%fmt', expr)` (a
 `:` followed by `%` starts the format, so `{s:upper()}` is still a method call), and `{{`/`}}` are
 literal braces. The pieces are evaluated left to right; `require 'string'` must be in scope.
+The embedded expressions are parsed with the base grammar, like every template, so other
+extensions (`|>`, compound operators) are not available inside the braces.
 
 ```nelua
 #syntax 'syntax.interp'

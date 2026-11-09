@@ -14,8 +14,9 @@ literal pieces stay string literals (with their escapes), `{expr}` becomes
 (a ':' followed by '%' at the top level of the braces starts a format, so
 method calls such as `{s:upper()}` still work). `{{` and `}}` are literal
 braces. `$"` is claimed before the `$` dereference operator (through
-`syntax.prefixexpr`), so `$ "x"` with a space is still a dereference. The embedded expressions are ordinary Nelua expressions parsed with
-the file's grammar; they are evaluated left to right. The module 'string'
+`syntax.prefixexpr`), so `$ "x"` with a space is still a dereference. The embedded expressions are ordinary Nelua expressions, parsed with
+the base grammar (as every syntax template is), so other extensions such as
+`|>` are not available inside the braces; they are evaluated left to right. The module 'string'
 must be required where `tostring` or `string.format` is not yet in scope.
 ]]
 
