@@ -192,6 +192,30 @@ it("prefix expressions", function()
   ]])
 end)
 
+it("templates use the grammar of the file", function()
+  expect.run_c([=[
+    #syntax 'syntax.pipe'
+    #syntax 'syntax.interp'
+    #syntax 'syntax.compound'
+    #syntax [[
+      syntax.statement("'bump' WORDSKIP @name", function(n)
+        return syntax.stat('v += 10', {v = n})
+      end)
+    ]]
+    require 'string'
+    local function half(a: integer) return a // 2 end
+    local x = 8
+    bump x
+    print($"{x |> half} {x |> half:%03d} {$"[{x}]"}")
+  ]=], '9 009 [18]')
+  parse_error([=[
+    #syntax [[
+      syntax.expression("`oops`", function() return syntax.expr('1 +') end)
+    ]]
+    local a = oops
+  ]=], 'in syntax template: <syntax template>:1:11: syntax error: expected an expression after operator')
+end)
+
 it("errors", function()
   parse_error([=[
     #syntax 'syntax.missing_extension'

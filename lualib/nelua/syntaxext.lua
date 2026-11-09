@@ -146,11 +146,41 @@ function substitute_node(aster, node, subs)
   return node
 end
 
-local function parse_template(aster, text, subs)
-  local ok, ast = pcall(aster.parse, text, '<syntax template>')
-  if not ok then
-    local msg = type(ast) == 'table' and ast.message or tostring(ast)
-    error('in syntax template: '..msg, 0)
+-- Records on every extension node the grammar it was parsed with, for its templates.
+local function tag_extension_nodes(node, patt)
+  if type(node) ~= 'table' then return end
+  if is_node(node) and (node.tag == 'SyntaxExt' or node.tag == 'SyntaxExtBinOp') and not node.syntaxpatt then
+    node.syntaxpatt = patt
+  end
+  for i=1,maxindex(node) do tag_extension_nodes(node[i], patt) end
+end
+
+-- Templates are parsed with the grammar the file had where the extension being
+-- expanded was used (`state.template_patt`), so they may use earlier extensions;
+-- extension nodes they produce are expanded before placeholders are substituted.
+local function parse_template(aster, text, subs, state)
+  local ast
+  local patt = state and state.template_patt
+  if patt then
+    local block, use, errpos = patt:match(text, 1)
+    if not block then
+      local line, col = 1, 1
+      for i=1,(tonumber(errpos) or 1)-1 do
+        if text:sub(i,i) == '\n' then line, col = line + 1, 1 else col = col + 1 end
+      end
+      error(string.format('in syntax template: <syntax template>:%d:%d: syntax error: %s',
+                          line, col, tostring(state.errors[use] or use)), 0)
+    end
+    if use then error('in syntax template: `#syntax` is not allowed in a template', 0) end
+    tag_extension_nodes(block, patt)
+    ast = state:expand(block)
+  else
+    local ok
+    ok, ast = pcall(aster.parse, text, '<syntax template>')
+    if not ok then
+      local msg = type(ast) == 'table' and ast.message or tostring(ast)
+      error('in syntax template: '..msg, 0)
+    end
   end
   clear_locations(ast)
   if subs then
@@ -289,7 +319,7 @@ function State:make_api()
   -- `Block` or a list of nodes is replaced by those statements, and so is a list
   -- element (call argument, expression list) whose value is a list.
   function api.expr(text, subs)
-    local ast = parse_template(aster, 'return '..text, subs)
+    local ast = parse_template(aster, 'return '..text, subs, state)
     local ret = ast[1]
     if #ast ~= 1 or not ret or ret.tag ~= 'Return' or #ret ~= 1 then
       error('expression template must be exactly one expression: '..text, 2)
@@ -297,12 +327,12 @@ function State:make_api()
     return ret[1]
   end
   function api.stat(text, subs)
-    local ast = parse_template(aster, text, subs)
+    local ast = parse_template(aster, text, subs, state)
     if #ast == 1 then return ast[1] end
     return ast
   end
   function api.block(text, subs)
-    return parse_template(aster, text, subs)
+    return parse_template(aster, text, subs, state)
   end
 
   -- Raises a compile error at the node being expanded.
@@ -434,12 +464,14 @@ function State:expand(node)
   else
     return node
   end
-  local prev = self.current
+  local prev, prevpatt = self.current, self.template_patt
   self.current = node
+  self.template_patt = node.syntaxpatt
   local ok, res = xpcall(builder, function(e)
     return e
   end, table.unpack(args, 1, args.n))
   self.current = prev
+  self.template_patt = prevpatt
   if not ok then
     if type(res) == 'table' then except.reraise(res) end
     raise_at(node, 'in syntax extension: %s', tostring(res))
@@ -468,6 +500,7 @@ function syntaxext.parse(syntax, content, name)
     if not block then
       return nil, use, errpos, state and state.errors or syntax.errors
     end
+    if state then tag_extension_nodes(block, patt) end
     if not ast then
       ast = block
     else

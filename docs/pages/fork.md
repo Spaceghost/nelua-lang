@@ -395,8 +395,8 @@ print(x |> half |> add(t[1]))     -- add(half(x), t[1]); outputs: 24
 file is parsed: `{expr}` is `tostring(expr)`, `{expr:%fmt}` is `string.format('%fmt', expr)` (a
 `:` followed by `%` starts the format, so `{s:upper()}` is still a method call), and `{{`/`}}` are
 literal braces. The pieces are evaluated left to right; `require 'string'` must be in scope.
-The embedded expressions are parsed with the base grammar, like every template, so other
-extensions (`|>`, compound operators) are not available inside the braces.
+The embedded expressions are parsed with the file's grammar at that point, so `{x |> f}` works
+when `syntax.pipe` is on.
 
 ```nelua
 #syntax 'syntax.interp'
@@ -433,7 +433,9 @@ statement stands for a whole block).
 `#syntax 'name'` loads `name.lua` from the file's directory, the Nelua library path
 (`lib/syntax/pipe.lua`) or the Lua path; the module returns a function taking `syntax`.
 Limits: `#syntax` is only accepted between top-level statements; extensions do not reach required
-files or the files that require this one; templates are parsed with the base grammar; names a
+files or the files that require this one; templates (`syntax.expr`, `stat`, `block`) are parsed
+with the grammar the file had where the extension was used, so they may use earlier extensions;
+names a
 builder introduces are not hygienic unless it uses `gensym`. A backtick keyword in a rule (such as
 `` `unless` ``) becomes reserved for the rest of the file; use `'word' WORDSKIP` for a contextual one.
 

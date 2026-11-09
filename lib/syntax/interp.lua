@@ -15,8 +15,8 @@ literal pieces stay string literals (with their escapes), `{expr}` becomes
 method calls such as `{s:upper()}` still work). `{{` and `}}` are literal
 braces. `$"` is claimed before the `$` dereference operator (through
 `syntax.prefixexpr`), so `$ "x"` with a space is still a dereference. The embedded expressions are ordinary Nelua expressions, parsed with
-the base grammar (as every syntax template is), so other extensions such as
-`|>` are not available inside the braces; they are evaluated left to right. The module 'string'
+the file's grammar where the string appears (so `{x |> f}` works when
+`syntax.pipe` is on); they are evaluated left to right. The module 'string'
 must be required where `tostring` or `string.format` is not yet in scope.
 ]]
 
@@ -75,7 +75,12 @@ local function split(raw, raise)
 end
 
 return function(syntax)
-  syntax.prefixexpr([=['$"' {('\' . / [^"])*} '"' SKIP]=], function(raw)
+  -- the body may hold quotes inside braces: $"{f("x")}" and nested $"..."
+  syntax.rules([=[
+    interp_body  <- ('\' . / '{{' / '{' interp_brace '}' / [^"])*
+    interp_brace <- ('"' ('\' . / [^"])* '"' / "'" ('\' . / [^'])* "'" / '{' interp_brace '}' / [^}"'])*
+  ]=])
+  syntax.prefixexpr([=['$"' {interp_body} '"' SKIP]=], function(raw)
     local pieces = split(raw, syntax.raise)
     if #pieces == 0 then return syntax.expr('""') end
     local parts = {}
