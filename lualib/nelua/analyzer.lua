@@ -265,6 +265,36 @@ local function visitor_convert(context, parent, parentindex, vartype, valnode, v
   return newvalnode, newvalnode.attr.type
 end
 
+-- Constant aggregate members keep their declared types, including conversions.
+local function constant_member(attr, type)
+  if not attr.comptime or not attr.type then return end
+  local value = attr.value
+  if value == nil and not (attr.type.is_nilptr or attr.type.is_niltype) then return end
+  if type.is_boolean then
+    value = value ~= nil and value ~= false
+  elseif type.is_pointer and (attr.type.is_nilptr or attr.type.is_niltype) then
+    value = bn.new(0)
+  elseif type.is_scalar then
+    value = type:wrap_value(value)
+    if type.is_float32 then
+      value = (string.unpack('f', string.pack('f', bn.tonumber(value))))
+    end
+  end
+  return Attr{type = type, value = value, comptime = true}
+end
+
+local function zero_constant(type)
+  local value
+  if type.is_stringy and not type.is_string then return end
+  if type.is_boolean then value = false
+  elseif type.is_scalar or type.is_pointer then value = bn.new(0)
+  elseif type.is_string then value = ''
+  elseif type.is_array then value = {type = type}
+  elseif type.is_record then value = {type = type, fields = {}}
+  else return end
+  return Attr{type = type, value = value, comptime = true}
+end
+
 local function visitor_Array_literal(context, node, littype)
   local attr = node.attr
   local childnodes = node
@@ -316,9 +346,11 @@ local function visitor_Array_literal(context, node, littype)
       local childnode = childnodes[i]
       local childattr = childnode.attr
       assert(childattr.comptime)
-      value[#value+1] = childattr
+      local member = constant_member(childattr, subtype)
+      if not member then value = nil break end
+      value[#value+1] = member
     end
-    value.type = littype
+    if value then value.type = littype end
     attr.value = value
   end
   attr.type = littype
@@ -334,6 +366,8 @@ local function visitor_Record_literal(context, node, littype)
   local lastfieldindex = 0
   local done = true
   local sideeffect
+  local value = {type = littype, fields = {}}
+  local knownvalue = true
   for i=1,#childnodes do
     local childnode = childnodes[i]
     local parent, parentindex
@@ -386,6 +420,8 @@ local function visitor_Record_literal(context, node, littype)
       end
       ownership.check_copy(context, fieldvalnode, string.format("in record literal field '%s'", fieldname))
     end
+    local member = constant_member(fieldvalattr, fieldtype)
+    if member then value.fields[fieldname] = member else knownvalue = nil end
     if not fieldvalattr.comptime then
       comptime = nil
     end
@@ -397,6 +433,7 @@ local function visitor_Record_literal(context, node, littype)
     end
   end
   attr.type = littype
+  attr.value = comptime and knownvalue and value or nil
   attr.comptime = comptime
   attr.sideeffect = sideeffect
   node.done = done
@@ -1595,6 +1632,11 @@ local function visitor_Call_type_cast(context, node, argnodes, type)
   else -- zero initializer
     attr.type = type
     attr.calleetype = primtypes.type
+    local zero = zero_constant(type)
+    if zero then
+      attr.value = zero.value
+      attr.comptime = true
+    end
     node.done = true
   end
 end
@@ -2066,6 +2108,14 @@ local function visitor_FieldIndex(context, node)
     objtype = objtype:implicit_deref_type()
     if objtype.is_composite then
       ret = visitor_Composite_FieldIndex(context, node, objtype, name)
+      if objtype.is_record and objattr.type == objtype and objattr.comptime and
+         objattr.value and objattr.value.fields then
+        local member = objattr.value.fields[attr.dotfieldname] or zero_constant(attr.type)
+        if member then
+          attr.value = member.value
+          attr.comptime = true
+        end
+      end
     elseif objtype.is_type then
       ret = visitor_Type_FieldIndex(context, node, objattr.value, name)
     elseif objtype.is_table or objtype.is_any then
@@ -2080,7 +2130,7 @@ local function visitor_FieldIndex(context, node)
   if objattr.lvalue or (objtype and objtype.is_pointer) then
     attr.lvalue = true
   end
-  if objattr.const then
+  if objattr.const or objattr.comptime then
     attr.const = true
   end
   if objattr.constptr or (objattr.type and objattr.type.is_constpointer) then
@@ -2094,7 +2144,7 @@ end
 visitors.DotIndex = visitor_FieldIndex
 visitors.ColonIndex = visitor_FieldIndex
 
-local function visitor_Array_KeyIndex(_, node, objtype, _, indexnode)
+local function visitor_Array_KeyIndex(_, node, objtype, objnode, indexnode)
   local attr = node.attr
   local indexattr = indexnode.attr
   local indextype = indexattr.type
@@ -2111,6 +2161,14 @@ local function visitor_Array_KeyIndex(_, node, objtype, _, indexnode)
         end
       end
       attr.type = objtype.subtype
+      local objattr = objnode.attr
+      if objattr.type == objtype and objattr.comptime and objattr.value and indexattr.comptime then
+        local member = objattr.value[bn.tointeger(indexvalue) + 1] or zero_constant(attr.type)
+        if member then
+          attr.value = member.value
+          attr.comptime = true
+        end
+      end
     else
       indexnode:raisef("cannot index with value of type '%s'", indextype)
     end
@@ -2157,7 +2215,7 @@ function visitors.KeyIndex(context, node)
   if objattr.lvalue or (objtype and objtype.is_pointer) then
     attr.lvalue = true
   end
-  if objattr.const then
+  if objattr.const or objattr.comptime then
     attr.const = true
   end
   if objattr.constptr or (objattr.type and objattr.type.is_constpointer) then

@@ -23,6 +23,11 @@ the **most useful page** for learning about the syntax and features.
 Build C/C++-hosted callbacks or freestanding components with host-owned memory.
 Includes exact pragmas, initialization rules, symbol audits and runnable examples.
 
+### [Compile-time evaluation](/comptime/)
+
+Build static tables from reusable record and array configurations. Includes runnable
+examples, value semantics, generated C, cache behavior, diagnostics and evaluator limits.
+
 ### [Libraries](/libraries/)
 
 List of built-in libraries in Nelua and their contents.

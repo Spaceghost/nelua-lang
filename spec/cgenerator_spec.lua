@@ -133,14 +133,16 @@ it("type cast", function()
     local n = (@number)()
     local f = (@float32)()
     local r = (@R)()
-  ]],[[a = (nlint64_arr4){0};
-  i = 0;
-  u = 0U;
-  b = false;
-  p = NULL;
-  n = 0.0;
-  f = 0.0f;
-  r = (R){0};]])
+  ]], {
+    "static nlint64_arr4 a = {.v = {0}};",
+    "static int64_t i = 0;",
+    "static uint64_t u = 0U;",
+    "static bool b = false;",
+    "static void* p = NULL;",
+    "static double n = 0.0;",
+    "static float f = 0.0f;",
+    "static R r = {0};",
+  })
 
   expect.generate_c([[
     local recA = @record{a: integer}
@@ -1181,13 +1183,13 @@ it("unary operator `deref`", function()
     local x = &r
     local function f(a: R): void end
     f(x)
-  ]], {"R r;", "x = (&r)", "f((*x))"})
+  ]], {"R r = {};", "x = (&r)", "f((*x))"})
   expect.generate_c([[
     local R = @record{}
     function R:foo(alloc: auto) end
     local r = R()
     r:foo()
-  ]], {"r = (R){", "((&r), NELUA_NIL)"})
+  ]], {"R r = {};", "((&r), NELUA_NIL)"})
   expect.generate_c([[
     local a: *[0]integer
     local function f(x: [0]integer) end
@@ -2196,6 +2198,20 @@ it("reserved names quoting", function()
   expect.generate_c("do local default: integer end", "int64_t default_ = 0;")
   expect.generate_c("do local NULL: integer = 0 end", "int64_t NULL_ = 0;")
   expect.config.srcname = nil
+  expect.generate_c([[
+    local R = @record{default: integer}
+    local r = R{default = 5}
+    assert(r.default == 5)
+    local U = @union{default: integer, value: integer}
+    local u = U{default = 7}
+    assert(u.default == 7)
+  ]], {
+    'int64_t default_;',
+    '.default_ = 5',
+    'r.default_ == 5',
+    '.default_ = 7',
+    'u.default_ == 7',
+  })
   expect.run_c([[
     local function struct(double: integer)
       local default: integer
@@ -6043,6 +6059,22 @@ it("comptime evaluation", function()
     local c <comptime> = comptime(f())
     print(a + b + c)
   ]], 'evaluated\n3')
+  -- structured inputs still fold to static C data, with no runtime function
+  local _, recordcontext = expect.analyze_ast([[
+    ## pragmas.nodce = true
+    local RadioConfig = @record{clock_hz: uint32, bitrate: uint32}
+    local function radio_table(config: RadioConfig): [3]uint32 <comptime>
+      local t: [3]uint32
+      for i = 0, 2 do t[i] = config.clock_hz // config.bitrate + i end
+      return t
+    end
+    local RADIO <comptime> = RadioConfig{clock_hz = 32000000, bitrate = 9600}
+    local TABLE = radio_table(RADIO)
+  ]], nil, 'c')
+  local recordcode = assert(require('nelua.cgenerator').generate(recordcontext))
+  assert(recordcode:find('static nluint32_arr3 TABLE = {.v = {3333U, 3334U, 3335U}};', 1, true),
+    'missing folded radio table')
+  assert(not recordcode:find('radio_table', 1, true), 'unexpected compile-time table builder in C')
 end)
 
 end)

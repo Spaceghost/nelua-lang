@@ -361,9 +361,17 @@ their width, `uint64` divides as unsigned, `float32` rounds to single precision,
 arrays are values. Each evaluation is bounded (`pragmas.comptime_steps`, `pragmas.comptime_stack`)
 and cached per argument values. What it does not run: pointers other than references to records
 and arrays, allocators and the GC, `io`/`os`, closures, `defer`, optionals and variants; each is
-rejected with an error at the offending line. Records cannot be passed as arguments yet.
+rejected with an error at the offending line. Arguments may include constant record and array
+literals or named `<comptime>` configurations, nested in either direction; omitted fields
+and elements are zero-initialized. Fields and elements of named constants fold too.
+For example, `comptime(build_table(RadioConfig{clock_hz = 32000000, bitrate = 9600}))`
+can build a static table from structured configuration. Runtime record variables and records
+with pointer fields cannot be passed as compile-time arguments.
 
 Read more: [Compile-time function evaluation in the overview](/overview/#compile-time-function-evaluation).
+
+The [complete CTFE guide](/comptime/) covers reusable configurations, value semantics,
+generated static C, cache behavior, numeric behavior and evaluator diagnostics.
 
 ## Syntax extensions
 

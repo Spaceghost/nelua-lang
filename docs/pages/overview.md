@@ -2609,6 +2609,29 @@ end
 local x = fast_pow(3, 7) -- x is initialized with 2187, no code for `fast_pow` is compiled
 ```
 
+Record and array literals can be passed as structured configuration, with their fields known
+at compile time. Named and positional fields work as usual; omitted fields and array elements
+are zero-initialized, and `Config()` supplies a zero-initialized record:
+
+```nelua
+local RadioConfig = @record{clock_hz: uint32, bitrate: uint32}
+local function radio_table(config: RadioConfig): [3]uint32 <comptime>
+  local t: [3]uint32
+  for i = 0, 2 do t[i] = config.clock_hz // config.bitrate + i end
+  return t
+end
+local RADIO <comptime> = RadioConfig{clock_hz = 32000000, bitrate = 9600}
+local TABLE = radio_table(RADIO)
+-- TABLE is static data: {3333, 3334, 3335}; no table builder runs on the target.
+```
+
+Records and arrays can also be named `<comptime>` variables, with constant field and element
+reads such as `RADIO.clock_hz`. Each argument is passed by value, so changing it inside the
+evaluated function does not change other inputs. A normal runtime record variable is not
+accepted just because its initializer is constant. Use a literal, a named `<comptime>` value,
+or the folded result of another `comptime` call. The [CTFE guide](/comptime/) gives complete
+examples, generated-code commands, cache semantics, diagnostics and limits.
+
 The compiler translates the function (and every function it calls) to Lua with the Lua generator
 and runs it in a sandbox that mirrors the C target: each integral type wraps at its width
 (`uint8`, `int32`, `uint32`, ..., `isize`/`usize` on 64 bits), `//` and `%` floor like Nelua,
@@ -2627,7 +2650,7 @@ records with pointer fields, `cimport` functions, `defer`, closures, `for in` it
 `vector`, `sequence`, optionals, variants, `io`, `os`, the allocators and the GC are rejected with
 an error at the offending line when the function is first evaluated. Variables declared outside
 the function can only be read when they are `<comptime>`. Arguments must be scalars, booleans,
-strings or compile time array literals (records cannot be passed yet). Results are scalars,
+strings or compile time arrays and records containing those values. Results are scalars,
 booleans, strings, or arrays and records of those, injected as initializer lists which the C
 generator emits as static initializers at the top scope.
 

@@ -134,6 +134,84 @@ do -- records, methods and copies
   assert(V.x == v.x and V.y == v.y and V.x == 10 and V.y == 30)
 end
 
+local Config = @record{
+  origin: Vec,
+  points: [2]Vec,
+  label: string,
+  enabled: boolean,
+  gain: float32,
+  code: uint8,
+}
+
+local function configured(c: Config): (integer, float32, uint8)
+  local copy = c
+  copy.origin.x = 999
+  copy.points[0].y = 999
+  c.origin.x = c.origin.x + 1
+  if not c.enabled or c.label ~= 'radio' then return -1, c.gain, c.code end
+  return c.origin.x * 100 + c.origin.y * 10 + c.points[0].y + c.points[1].x, c.gain / 3, c.code
+end
+
+do -- record inputs, nested arrays of records, defaults and value semantics
+  local A <comptime>, G <comptime>, C <comptime> = comptime(configured(Config{
+    origin = {2, 3}, points = {{4, 5}, {6}}, label = 'radio', enabled = true, gain = 1.1, code = 250
+  }))
+  local a, g, c = configured(Config{
+    origin = {2, 3}, points = {{4, 5}, {6}}, label = 'radio', enabled = true, gain = 1.1, code = 250
+  })
+  assert(A == 341 and A == a and G == g and C == 250 and C == c)
+  local Z <comptime>, ZG <comptime>, ZC <comptime> = comptime(configured(Config()))
+  assert(Z == -1 and ZG == 0 and ZC == 0)
+end
+
+local function sum_points(points: [3]Vec): integer
+  points[0].x = points[0].x + 1
+  return points[0].x + points[1].y + points[2].x
+end
+
+local SETTINGS <comptime> = Config{
+  origin = {2, 3}, points = {{4, 5}, {6}}, label = 'radio', enabled = true, gain = 1.1, code = 250
+}
+local function global_gain(): float64 return (@float64)(SETTINGS.gain) end
+local GLOBAL_GAIN <comptime> = comptime(global_gain())
+local POINTS: [3]Vec <comptime> = {SETTINGS.origin, {7, 8}}
+
+do -- reusable constants, field lookup and independent runtime copies
+  local A <comptime>, G <comptime>, C <comptime> = comptime(configured(SETTINGS))
+  assert(A == 341 and C == 250)
+  local a, g, c = configured(SETTINGS)
+  assert(A == a and G == g and C == c)
+  local first, second = SETTINGS, SETTINGS
+  assert(GLOBAL_GAIN == (@float64)(second.gain))
+  first.origin.x = 90
+  first.points[0].y = 91
+  assert(second.origin.x == 2 and second.points[0].y == 5)
+  assert(SETTINGS.origin.x == 2 and SETTINGS.points[1].y == 0)
+  local values = POINTS
+  values[0].x = 99
+  assert(POINTS[0].x == 2 and POINTS[2].y == 0)
+  local index = 1
+  assert(POINTS[index].y == 8)
+  local function from_global(): integer return SETTINGS.origin.x + POINTS[1].y end
+  local TOTAL <comptime> = comptime(from_global())
+  assert(TOTAL == 10)
+end
+
+do -- field names that need C identifier quoting
+  local R = @record{default: integer}
+  local CONFIG <comptime> = R{default = 5}
+  local copy = CONFIG
+  assert(copy.default == 5)
+end
+
+do -- records inside array arguments, and folded record results as inputs
+  local S <comptime> = comptime(sum_points({{1}, {0, 2}}))
+  assert(S == 4 and S == sum_points({{1}, {0, 2}}))
+  local function sum(v: Vec): integer return v.x + v.y end
+  local V <comptime> = comptime(sum(comptime(sumvec(4))))
+  assert(V == 40)
+end
+
 local function strops(s: string): string
   return s:upper() .. string.rep('-', 2) .. s:sub(2, 2) .. tostring(#s) .. string.format('%03d', 7)
 end

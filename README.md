@@ -65,11 +65,14 @@ cost and limits; the list below is the short form:
   be moved; `heapqueue` and `list` are owned in the stdlib, `vector`, `sequence`, `hashmap`,
   `stringbuilder` and `filestream` are not yet ([overview](docs/pages/overview.md#ownership)).
 - **Compile-time function evaluation**: `comptime(f(args))` runs an ordinary Nelua
-  function inside the compiler and folds its result (scalars, booleans, strings, and arrays
-  or records as static initializers); `<comptime>` on a function evaluates every call and
+  function inside the compiler, accepts constant arrays and records (including reusable
+  named `<comptime>` configurations with constant field reads) as arguments,
+  and folds its result (scalars, booleans, strings, and arrays or records as static
+  initializers); `<comptime>` on a function evaluates every call and
   never emits it to C. Bodies are translated to Lua with the fork's Lua generator and run in
   a sandbox that keeps the C integer widths, `float32` rounding, unsigned division and the
-  Nelua shifts, with step and call-depth limits ([overview](docs/pages/overview.md#compile-time-function-evaluation)).
+  Nelua shifts, with step and call-depth limits ([full guide](docs/pages/comptime.md),
+  [runnable configuration example](examples/comptime_config.nelua)).
 - **Syntax extensions**: a top-level `#syntax` directive runs Lua at compile time that adds
   statements, expressions or operators to the grammar for the rest of the file; builders
   rewrite them to ordinary AST. Ships `syntax.compound` (`x += 1`, ...) and `syntax.pipe`

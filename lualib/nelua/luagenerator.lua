@@ -72,8 +72,10 @@ local function quote_string(value)
   end
 end
 
+local emit_zero
+
 -- Emits the compile-time value of `attr`, returns false when it has none or cannot be emitted.
-local function emit_literal(_, emitter, attr)
+local function emit_literal(context, emitter, attr)
   local type, value = attr.type, attr.value
   if not type or value == nil then return false end
   if type.is_integral then
@@ -108,6 +110,36 @@ local function emit_literal(_, emitter, attr)
     emitter:add(tostring(not not value))
   elseif type.is_string and traits.is_string(value) then
     emitter:add(quote_string(value))
+  elseif type.is_array and traits.is_table(value) and not value._bn then
+    if type.length > 0 then
+      emitter:add('{[0] = ')
+    else
+      emitter:add('{}')
+      return true
+    end
+    for i=0,type.length-1 do
+      if i > 0 then emitter:add(', ') end
+      local element = value[i+1]
+      if element then
+        emit_literal(context, emitter, element)
+      else
+        emit_zero(context, emitter, type.subtype)
+      end
+    end
+    emitter:add('}')
+  elseif type.is_record and traits.is_table(value) and value.fields then
+    emitter:add('{')
+    for i,field in ipairs(type.fields) do
+      if i > 1 then emitter:add(', ') end
+      emitter:add(field.name, ' = ')
+      local fieldattr = value.fields[field.name]
+      if fieldattr then
+        emit_literal(context, emitter, fieldattr)
+      else
+        emit_zero(context, emitter, field.type)
+      end
+    end
+    emitter:add('}')
   elseif type.is_nilptr or type.is_niltype then
     emitter:add('nil')
   else
@@ -115,8 +147,6 @@ local function emit_literal(_, emitter, attr)
   end
   return true
 end
-
-local emit_zero
 
 -- Emits the zero value of `type`.
 emit_zero = function(context, emitter, type)
@@ -390,9 +420,14 @@ function visitors.ColonIndex(_, node, emitter)
   emitter:add(obj, ':', name)
 end
 
-function visitors.KeyIndex(_, node, emitter)
+function visitors.KeyIndex(context, node, emitter)
   local index, obj = node[1], node[2]
-  emitter:add(obj, '[', index, ']')
+  if node.attr.comptime and emit_literal(context, emitter, node.attr) then return end
+  if obj.attr.comptime and obj.attr.type and obj.attr.type.is_array then
+    emitter:add('(', obj, ')[', index, ']')
+  else
+    emitter:add(obj, '[', index, ']')
+  end
 end
 
 function visitors.Call(context, node, emitter)

@@ -497,20 +497,35 @@ local function attr_to_lua(attr, type, node, name)
       end
       return t
     end
+  elseif type.is_record then
+    if traits.is_table(value) and not value._bn and value.type == type then
+      local t = lua_zero(type)
+      for _,field in ipairs(type.fields) do
+        local fieldattr = value.fields[field.name]
+        if fieldattr then
+          t[field.name] = attr_to_lua(fieldattr, field.type, node, name)
+        end
+      end
+      return t
+    end
   end
   node:raisef("in call of compile-time function '%s': \z
     cannot pass argument of type '%s' at compile time", name, type)
 end
 
--- Serializes the compile-time value of `attr` for the evaluation cache key.
-local function attr_key(attr, type)
-  local value = attr.value
-  if traits.is_table(value) and not value._bn and traits.is_type(value.type) then
+-- Serializes converted arguments in declaration order, including zero defaults.
+-- Keying the Lua values also normalizes field order and scalar conversions.
+local function argument_key(value, type)
+  if type.is_array then
     local parts = {}
-    for i=1,#value do parts[i] = attr_key(value[i], type.subtype) end
-    return '{'..table.concat(parts, ',')..'}'
+    for i=0,type.length-1 do parts[i+1] = argument_key(value[i], type.subtype) end
+    return tostring(type)..'['..table.concat(parts, ',')..']'
+  elseif type.is_record and not type.is_string then
+    local parts = {}
+    for i,field in ipairs(type.fields) do parts[i] = argument_key(value[field.name], field.type) end
+    return tostring(type)..'{'..table.concat(parts, ',')..'}'
   end
-  return tostring(type)..':'..string.format('%q', tostring(value))
+  return tostring(type)..':'..string.format('%q', value)
 end
 
 --[[
@@ -756,7 +771,7 @@ function comptime.evaluate(context, symbol, args, node)
     local argtype = argtypes[i]
     if arg then
       luaargs[i] = attr_to_lua(arg.attr, argtype, arg.node or node, symbol.name)
-      keys[i] = attr_key(arg.attr, argtype)
+      keys[i] = argument_key(luaargs[i], argtype)
     else
       keys[i] = 'nil'
     end
@@ -785,15 +800,53 @@ local function set_pending(context, node, pending)
   pendings[node] = pending or nil
 end
 
--- Collects the arguments of call `callnode` (and the object of a method call) as `{attr=, node=}`.
-local function collect_args(callnode, argnodes, calleeobjnode)
+-- Extract literal arguments recursively, also accepting named aggregate constants
+-- through their analyzed values. Runtime variables never acquire constant values.
+local function argument_attr(node)
+  local attr = node.attr
+  local type = attr.type
+  if not type or not (type.is_record or type.is_array) or type.is_string then return attr end
+  if node.is_Paren then return argument_attr(node[1]) end
+  if node.is_Call and attr.calleetype and attr.calleetype.is_type then
+    local argnode = node[1][1]
+    if not argnode then -- zero initializer, e.g. `Config()`
+      return {type = type, comptime = true, value = {type = type, fields = {}}}
+    elseif argnode.attr.type == type then
+      return argument_attr(argnode)
+    end
+  end
+  if not node.is_InitList then return attr end
+  local value = {type = type}
+  if type.is_record then value.fields = {} end
+  local lastfieldindex = 0
+  for i,childnode in ipairs(node) do
+    local field, valnode
+    if type.is_record then
+      if childnode.is_Pair then
+        field, valnode = type.fields[childnode[1]], childnode[2]
+      else
+        field, valnode = type.fields[lastfieldindex + 1], childnode
+      end
+      lastfieldindex = field.index
+    else
+      valnode = childnode
+    end
+    local valattr = argument_attr(valnode)
+    if not is_comptime_attr(valattr) then return attr end
+    if field then value.fields[field.name] = valattr else value[i] = valattr end
+  end
+  return {type = type, comptime = true, value = value}
+end
+
+-- Collects call arguments (and the object of a method call) as `{attr=, node=}`.
+local function collect_args(argnodes, calleeobjnode)
   local args = {}
   if calleeobjnode then
-    args[1] = {attr = calleeobjnode.attr, node = calleeobjnode}
+    args[1] = {attr = argument_attr(calleeobjnode), node = calleeobjnode}
   end
   for i=1,#argnodes do
     local argnode = argnodes[i]
-    args[#args+1] = {attr = argnode.attr, node = argnode}
+    args[#args+1] = {attr = argument_attr(argnode), node = argnode}
   end
   return args
 end
@@ -866,7 +919,7 @@ function comptime.visit_builtin(context, node, argnodes, opts)
     set_pending(context, node, true)
     return
   end
-  local args = collect_args(callnode, callnode.is_Call and callnode[1] or callnode[2], calleeobjnode)
+  local args = collect_args(callnode.is_Call and callnode[1] or callnode[2], calleeobjnode)
   if not check_args(args, calleesym.name) then
     set_pending(context, node, true)
     return
@@ -897,7 +950,7 @@ function comptime.visit_comptime_call(context, node, argnodes, calleeobjnode, op
   if funcsym and funcsym.comptimefunc then
     return false
   end
-  local args = collect_args(node, argnodes, calleeobjnode)
+  local args = collect_args(argnodes, calleeobjnode)
   if not check_args(args, calleesym.name) then
     set_pending(context, node, true)
     return true

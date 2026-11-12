@@ -1274,10 +1274,12 @@ it("records", function()
     local Record
     local a <comptime> = Record{}
   ]], "can only assign to compile time expressions")
-  expect.analyze_error([[
+  expect.analyze_ast([=[
     local Box = @record{n: number}
     local b: Box <comptime> = {n=3}
-  ]], "compile time variables cannot be of type")
+    local n <comptime> = b.n
+    ##[[ after_inference(function() assert(tostring(n.value) == '3') end) ]]
+  ]=])
   expect.ast_type_equals(
     "local a: record{x: boolean}; local b = a.x",
     "local a: record{x: boolean}; local b: boolean = a.x")
@@ -4317,7 +4319,87 @@ it("comptime evaluation", function()
   ]=])
 end)
 
+it("comptime record arguments", function()
+  expect.analyze_ast([=[
+    local Vec = @record{x: integer, y: integer}
+    local Config = @record{origin: Vec, points: [2]Vec, enabled: boolean, label: string}
+    local CONFIG <comptime> = Config{origin = {3}, points = {{1, 2}}, enabled = true, label = 'radio'}
+    local COPY <comptime> = CONFIG
+    local X <comptime> = COPY.origin.x
+    local Y <comptime> = CONFIG.origin.y
+    local N <comptime> = CONFIG.points[0].y
+    local Z <comptime> = CONFIG.points[1].x
+    local function score(c: Config): integer return c.origin.x + c.points[0].y end
+    local S <comptime> = comptime(score(CONFIG))
+    local function make(): Config return CONFIG end
+    local BUILT <comptime> = comptime(make())
+    local T <comptime> = comptime(score(BUILT))
+    ##[[ after_inference(function()
+      assert(tostring(X.value) == '3' and tostring(Y.value) == '0')
+      assert(tostring(N.value) == '2' and tostring(Z.value) == '0')
+      assert(tostring(S.value) == '5' and tostring(T.value) == '5')
+    end) ]]
+  ]=])
+  local _, context = expect.analyze_ast([=[
+    local R = @record{x: integer, y: integer}
+    local function score(r: R): integer return r.x * 10 + r.y end
+    local a <comptime> = comptime(score(R{1}))
+    local b <comptime> = comptime(score(R{x = 1, y = 0}))
+    local c <comptime> = comptime(score(R{y = 0, x = 1}))
+    local cc <comptime> = comptime(score(({1})))
+    local d <comptime> = comptime(score(R{x = 1, 2}))
+    local z <comptime> = comptime(score(R{}))
+    local zz <comptime> = comptime(score(R()))
+    local function first(r: R): integer <comptime> return r.x end
+    local e <comptime> = first(R{7})
+    local Outer = @record{r: R, rs: [2]R}
+    local function zeros(r: Outer): integer return r.r.x + r.rs[1].y end
+    local zero <comptime> = comptime(zeros(Outer{r = R(), rs = (@[2]R)()}))
+    ##[[ after_inference(function()
+      assert(tostring(a.value) == '10' and tostring(b.value) == '10' and tostring(c.value) == '10')
+      assert(tostring(cc.value) == '10')
+      assert(tostring(d.value) == '12' and tostring(z.value) == '0' and tostring(zz.value) == '0')
+      assert(tostring(e.value) == '7')
+      assert(tostring(zero.value) == '0')
+    end) ]]
+  ]=])
+  for symbol, cache in pairs(context.comptimecache) do
+    if symbol.name == 'score' then
+      local n = 0
+      for _ in pairs(cache) do n = n + 1 end
+      assert(n == 3, 'record cache keys must include values and normalize field order and defaults')
+    end
+  end
+  expect.analyze_ast([=[
+    local R = @record{type: integer, fields: integer, _bn: boolean}
+    local function f(r: R): integer
+      if r._bn then return r.type + r.fields end
+      return 0
+    end
+    local x <comptime> = comptime(f(R{type = 3, fields = 4, _bn = true}))
+    ##[[ after_inference(function() assert(tostring(x.value) == '7') end) ]]
+  ]=])
+  expect.analyze_ast([=[
+    local R = @record{x: float64}
+    local function f(r: R): float64 return r.x end
+    local a <comptime> = comptime(f(R{1.0}))
+    local b <comptime> = comptime(f(R{1.0000000000000002}))
+    ##[[ after_inference(function() assert(b.value > a.value, 'distinct float arguments share a cache entry') end) ]]
+  ]=])
+end)
+
 it("comptime evaluation errors", function()
+  expect.analyze_error([[
+    local R = @record{point: [2]integer}
+    local CONFIG <comptime> = R{point = {1, 2}}
+    CONFIG.point[0] = 3
+  ]], "cannot assign a constant variable")
+  expect.analyze_error([[
+    local R = @record{point: [2]integer}
+    local CONFIG <comptime> = R{point = {1, 2}}
+    local i = 0
+    CONFIG.point[i] = 3
+  ]], "cannot assign a constant variable")
   expect.analyze_error([[
     local function f(a: integer): integer <comptime> return a end
     local x = 1
@@ -4331,8 +4413,26 @@ it("comptime evaluation errors", function()
   expect.analyze_error([[
     local R = @record{x: integer}
     local function f(r: R): integer return r.x end
-    local x = comptime(f(R{1}))
+    local r = R{1}
+    local x = comptime(f(r))
   ]], "argument 1 is not a compile time value (it has type 'R')")
+  expect.analyze_error([[
+    local R = @record{x: integer}
+    local function f(r: R): integer return r.x end
+    local n = 1
+    local x = comptime(f(R{n}))
+  ]], "argument 1 is not a compile time value (it has type 'R')")
+  expect.analyze_error([[
+    local R = @record{p: *integer}
+    local function f(r: R): integer return 1 end
+    local x = comptime(f(R{}))
+  ]], "record 'R' has the pointer field 'p', it cannot be used at compile time")
+  expect.analyze_error([[
+    local Inner = @record{p: *integer}
+    local Outer = @record{inner: Inner}
+    local function f(r: Outer): integer return 1 end
+    local x = comptime(f(Outer{}))
+  ]], "in field 'inner' of record 'Outer': record 'Inner' has the pointer field 'p'")
   expect.analyze_error("local x = comptime(1)", "in call of builtin 'comptime': expected a function call but got 'Number'")
   expect.analyze_error("local x = comptime()", "in call of builtin 'comptime': expected 1 argument but got 0")
   expect.analyze_error("local x = comptime(print('a'))", "builtin 'print' cannot be evaluated at compile time")

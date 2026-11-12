@@ -1,0 +1,33 @@
+-- Structured inputs, evaluated once by the compiler. The divisions below are a
+-- teaching example, not a register formula for a particular peripheral.
+local Link = @record{baud: uint32, parity: uint8}
+local RadioConfig = @record{
+  reference_hz: uint32,
+  link: Link,
+  rates: [3]uint32,
+}
+
+local RADIO <comptime> = RadioConfig{
+  reference_hz = 32000000,
+  link = {baud = 9600},
+  rates = {9600, 19200, 38400},
+}
+
+local function make_table(config: RadioConfig): [3]uint32 <comptime>
+  local result: [3]uint32
+  for i = 0, 2 do
+    assert(config.rates[i] > 0, 'rate must be positive')
+    result[i] = config.reference_hz // config.rates[i]
+  end
+  return result
+end
+
+local TABLE = make_table(RADIO)
+assert(RADIO.link.parity == 0)
+-- An ordinary copy can be changed without changing the named configuration.
+local copy = RADIO
+copy.rates[0] = 1
+copy.link.baud = 1
+local index = 0
+assert(RADIO.rates[index] == 9600 and RADIO.link.baud == 9600)
+print(TABLE[0], TABLE[1], TABLE[2]) -- 3333  1666  833 (tab-separated)

@@ -257,6 +257,25 @@ local p = 44
 local K = 3
 local k = 3]])
 end)
+it("comptime aggregate values", function()
+  expect.lua_gencode_contains([=[
+local Pair = @record{left: integer, right: integer}
+local Config <comptime> = Pair{left = 3}
+local a = Config
+local b = Config
+local Values: [2]Pair <comptime> = {Config, Pair{right = 4}}
+local c = Values
+local first = Values[0]
+local x = Config.left]=], {
+    "local Config = {left = 3, right = 0}",
+    "local a = {left = 3, right = 0}",
+    "local b = {left = 3, right = 0}",
+    "local Values = {[0] = {left = 3, right = 0}, {left = 0, right = 4}}",
+    "local c = {[0] = {left = 3, right = 0}, {left = 0, right = 4}}",
+    "local first = {left = 3, right = 0}",
+    "local x = 3",
+  })
+end)
 it("typed arrays and records", function()
   expect.lua_gencode_contains([=[
 local t: [4]uint8 = {1,2}

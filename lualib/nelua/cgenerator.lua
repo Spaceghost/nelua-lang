@@ -130,14 +130,14 @@ local function typevisitor_CompositeType(context, type)
         while fieldtype.is_array do
           fieldtype = fieldtype.subtype
         end
-        defemitter:add('  ', fieldtype, ' ', field.name)
+        defemitter:add('  ', fieldtype, ' ', cdefs.quotename(field.name))
         fieldtype = field.type
         while fieldtype.is_array do
           defemitter:add('[', fieldtype.length, ']')
           fieldtype = fieldtype.subtype
         end
       else
-        defemitter:add('  ', field.type, ' ', field.name)
+        defemitter:add('  ', field.type, ' ', cdefs.quotename(field.name))
       end
       defemitter:add_ln(';')
     end
@@ -403,7 +403,7 @@ function visitors.InitList(_, node, emitter, untypedinit)
           if childnode.is_Pair then
             childvalnode = childnode[2]
             field = type.fields[childnode[1]]
-            emitter:add('.', field.name, ' = ')
+            emitter:add('.', cdefs.quotename(field.name), ' = ')
           else
             childvalnode = childnode
             field = type.fields[lastfieldindex + 1]
@@ -446,9 +446,9 @@ function visitors.InitList(_, node, emitter, untypedinit)
           assert(field)
           local childvaltype = childvalnode.attr.type
           if childvaltype.is_array then
-            emitter:add_indent('((', childvaltype, '_cast*)&_tmp.', field.name, ')->a = ')
+            emitter:add_indent('((', childvaltype, '_cast*)&_tmp.', cdefs.quotename(field.name), ')->a = ')
           else
-            emitter:add_indent('_tmp.', field.name, ' = ')
+            emitter:add_indent('_tmp.', cdefs.quotename(field.name), ' = ')
           end
           local fieldtype = type.fields[field.name].type
           emitter:add_converted_val(fieldtype, childvalnode)
@@ -815,7 +815,11 @@ function visitors.ColonIndex(context, node, emitter)
 end
 
 -- Emits key indexing.
-function visitors.KeyIndex(context, node, emitter)
+function visitors.KeyIndex(context, node, emitter, untypedinit)
+  if node.attr.comptime then
+    emitter:add_literal(node.attr, untypedinit)
+    return
+  end
   local indexnode, objnode = node[1], node[2]
   local objattr = objnode.attr
   local type = node.attr.type
@@ -839,8 +843,9 @@ function visitors.KeyIndex(context, node, emitter)
       end
     end
     if (pointer and objtype.length == 0) or -- unbounded array
-       (not pointer and objnode.is_KeyIndex and objnode.attr.type.is_array) or -- multidimensional index
-       (not pointer and topobjnode.is_DotIndex and topobjnode[2].attr.type:implicit_deref_type().is_composite) then
+       (not pointer and not objattr.comptime and objnode.is_KeyIndex and objnode.attr.type.is_array) or -- multidimensional index
+       (not pointer and topobjnode.is_DotIndex and not topobjnode.attr.comptime and
+        topobjnode[2].attr.type:implicit_deref_type().is_composite) then
       -- record/union array field
       objattr.arrayindex = true
       emitter:add(objnode, '[')

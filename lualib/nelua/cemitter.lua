@@ -11,6 +11,7 @@ local pegger = require 'nelua.utils.pegger'
 local bn = require 'nelua.utils.bn'
 local Emitter = require 'nelua.emitter'
 local typedefs = require 'nelua.typedefs'
+local cdefs = require 'nelua.cdefs'
 local console = require 'nelua.utils.console'
 local primtypes = typedefs.primtypes
 
@@ -450,9 +451,14 @@ function CEmitter:add_array_literal(valattrs, arrtype, untypedinit)
     self:add('(', arrtype, '){{')
   end
   local subtype = arrtype.subtype
-  for i=1,#valattrs do
+  for i=1,arrtype.length do
     if i > 1 then self:add_text(', ') end
-    self:add_literal(valattrs[i], subtype, true)
+    local attr = valattrs[i]
+    if attr then
+      self:add_literal(attr, true, subtype)
+    else
+      self:add_zeroed_type_literal(subtype, false)
+    end
   end
   if untypedinit then
     self:add('}')
@@ -461,10 +467,34 @@ function CEmitter:add_array_literal(valattrs, arrtype, untypedinit)
   end
 end
 
+-- Adds a record value from field attrs, using designated initializers so sparse
+-- comptime records receive C's ordinary zero initialization for omitted fields.
+function CEmitter:add_record_literal(value, rectype, untypedinit)
+  if not value.fields or next(value.fields) == nil then
+    return self:add_zeroed_type_literal(rectype, not untypedinit)
+  end
+  if untypedinit then
+    self:add('{')
+  else
+    self:add('(', rectype, '){')
+  end
+  local first = true
+  for _,field in ipairs(rectype.fields) do
+    local attr = value.fields and value.fields[field.name]
+    if attr then
+      if not first then self:add_text(', ') end
+      first = false
+      self:add('.', cdefs.quotename(field.name), ' = ')
+      self:add_literal(attr, true, field.type)
+    end
+  end
+  self:add('}')
+end
+
 
 -- Adds a literal from attr `valattr`.
-function CEmitter:add_literal(valattr, untypedinit)
-  local valtype = valattr.type
+function CEmitter:add_literal(valattr, untypedinit, targettype)
+  local valtype = targettype or valattr.type
   assert(valattr.comptime or valtype.is_comptime)
   local value = valattr.value
   if valtype.is_boolean then
@@ -476,13 +506,19 @@ function CEmitter:add_literal(valattr, untypedinit)
   elseif valtype.is_cstring then
     self:add_string_literal(value, true, untypedinit)
   elseif valtype.is_pointer then
-    self:add_pointer_literal(value, valtype)
+    if valattr.type.is_nilptr or valattr.type.is_niltype then
+      self:add_null()
+    else
+      self:add_pointer_literal(value, valtype)
+    end
   elseif valtype.is_procedure then
     self:add_text(self.context:declname(value))
   elseif valtype.is_niltype then
     self:add_nil_literal()
   elseif valtype.is_array then
     self:add_array_literal(value, valtype, untypedinit)
+  elseif valtype.is_record then
+    self:add_record_literal(value, valtype, untypedinit)
   else --luacov:disable
     errorer.errorf('`CEmitter:add_literal` for valtype `%s` is not implemented', valtype)
   end --luacov:enable
