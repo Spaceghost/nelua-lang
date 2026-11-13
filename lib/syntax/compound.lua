@@ -45,5 +45,5 @@ return function(syntax)
     return syntax.stat('do local p = &t; $p = v end', {
       p = p, t = target, v = syntax.aster.BinaryOp{deref, op, value},
     })
-  end)
+  end, {fallback=true})
 end

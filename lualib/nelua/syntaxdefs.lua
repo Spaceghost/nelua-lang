@@ -30,7 +30,7 @@ stats           <--(@@STAT@@local / global /
                     Break / Continue / Fallthrough /
                     Goto / Label /
                     Preprocess /
-                    TryStat / Assign / call /
+                    @@STAT_FALLBACK@@TryStat / Assign / call /
                     `;`)*
 
 -- Statements
@@ -351,7 +351,7 @@ function defs.pair_sugar(idnode)
 end
 
 -- The syntaxdefs module.
--- `grammar` above carries extension points (`@@STAT@@`, `@@EXPR@@`, `@@UNARY@@`,
+-- `grammar` above carries extension points (`@@STAT@@`, `@@STAT_FALLBACK@@`, `@@EXPR@@`, `@@UNARY@@`,
 -- `@@BIN_<level>@@`) that nelua.syntaxext fills; the registered grammar has them empty.
 local grammar_template = grammar
 grammar = grammar_template:gsub('@@[%w_]+@@', '')

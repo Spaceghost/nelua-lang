@@ -200,7 +200,7 @@ local function new_state(syntax, name)
   local state = setmetatable({
     base = syntax,
     name = name,
-    points = {STAT = {}, EXPR = {}, UNARY = {}},
+    points = {STAT = {}, STAT_FALLBACK = {}, EXPR = {}, UNARY = {}},
     rules = {},
     rulenames = {},
     builders = {},
@@ -240,12 +240,25 @@ function State:make_api()
   local aster = self.aster
   local api = {aster = aster, levels = binary_levels}
 
+  -- Compose reusable packs with the same file-local state and module deduplication
+  -- as #syntax. Relative helpers are looked up beside the module loading them.
+  function api.use(modname)
+    if type(modname) ~= 'string' or modname == '' then
+      error('syntax.use expects a nonempty module name', 2)
+    end
+    state:use(modname)
+  end
+
   -- New statement: `peg` is an LPegRex expression (it may use any rule of the
   -- Nelua grammar: expr, exprs, Block, name, iddecls, typeexpr, ...); every capture
   -- it makes is passed to `builder`, which returns the replacement AST node.
   -- A returned `Block` is spliced into the enclosing block (its locals stay visible).
-  function api.statement(peg, builder)
-    return state:add('stat', 'STAT', function(id)
+  -- Broad rules starting with `var` can opt into {fallback=true}, after specific
+  -- statements but before native assignments and calls, so committed index/call
+  -- errors cannot steal another extension's contextual opening.
+  function api.statement(peg, builder, options)
+    local point = options and options.fallback and 'STAT_FALLBACK' or 'STAT'
+    return state:add('stat', point, function(id)
       return string.format("%s : SyntaxExt <== $'%s' (%s)", id, id, peg)
     end, builder)
   end
@@ -274,7 +287,8 @@ function State:make_api()
   end
 
   -- New binary operator at the precedence `level` of an existing one
-  -- (see `syntax.levels`); always left associative; builder(lhs, rhs).
+  -- (see `syntax.levels`); left folded, with a recursive right operand at pow;
+  -- builder(lhs, rhs).
   function api.binary(level, token, builder)
     local rhs = binary_levels[level]
     if not rhs then
@@ -364,6 +378,41 @@ local function code_lineno(use)
   return (lpegrex.calcline(content, at))
 end
 
+function State:use(modname)
+  local path, err = find_module(modname, self.module_filename or self.name)
+  if not path then raise_at(self.lastuse, "#syntax module '%s' not found:%s", modname, err) end
+  path = fs.abspath(path)
+  if self.modules[path] == 'loading' then
+    raise_at(self.lastuse, "circular syntax module dependency involving '%s'", modname)
+  elseif self.modules[path] then
+    return
+  end
+  local mod = module_cache[path]
+  if not mod then
+    local chunk
+    chunk, err = loadfile(path, 't')
+    if not chunk then raise_at(self.lastuse, 'in #syntax module: %s', err) end
+    local ok, res = pcall(chunk, modname, path)
+    if not ok then raise_at(self.lastuse, 'in #syntax module: %s', tostring(res)) end
+    if type(res) ~= 'function' then
+      raise_at(self.lastuse, "#syntax module '%s' must return a function taking the syntax API", modname)
+    end
+    mod = res
+    module_cache[path] = mod
+  end
+  self.modules[path] = 'loading'
+  local previous = self.module_filename
+  self.module_filename = path
+  local ok, res = pcall(mod, self.api)
+  self.module_filename = previous
+  if not ok then
+    self.modules[path] = nil
+    if type(res) == 'table' then except.reraise(res) end
+    raise_at(self.lastuse, 'in #syntax: %s', tostring(res))
+  end
+  self.modules[path] = true
+end
+
 function State:run(use)
   local env = setmetatable({syntax = self.api, aster = self.aster}, {__index = _G})
   local fn, err
@@ -373,24 +422,7 @@ function State:run(use)
     fn, err = load(string.rep('\n', lineno - 1)..use[1], chunkname, 't', env)
     if not fn then raise_at(use, 'in #syntax code: %s', err) end
   else
-    local path, serr = find_module(use[1], self.name)
-    if not path then raise_at(use, "#syntax module '%s' not found:%s", use[1], serr) end
-    if self.modules[path] then return end -- applying a module twice is a no-op
-    self.modules[path] = true
-    local mod = module_cache[path]
-    if not mod then
-      local chunk
-      chunk, err = loadfile(path, 't')
-      if not chunk then raise_at(use, 'in #syntax module: %s', err) end
-      local ok, res = pcall(chunk, use[1], path)
-      if not ok then raise_at(use, 'in #syntax module: %s', tostring(res)) end
-      if type(res) ~= 'function' then
-        raise_at(use, "#syntax module '%s' must return a function taking the syntax API", use[1])
-      end
-      mod = res
-      module_cache[path] = mod
-    end
-    fn = function() return mod(self.api) end
+    return self:use(use[1])
   end
   local ok, res = xpcall(fn, function(e)
     return e
@@ -498,7 +530,9 @@ function syntaxext.parse(syntax, content, name)
   while true do
     local block, use, errpos = patt:match(content, pos)
     if not block then
-      return nil, use, errpos, state and state.errors or syntax.errors
+      -- LPegLabel reports failures relative to the match's initial position,
+      -- unlike the absolute positions captured on nodes with Cp().
+      return nil, use, errpos + pos - 1, state and state.errors or syntax.errors
     end
     if state then tag_extension_nodes(block, patt) end
     if not ast then

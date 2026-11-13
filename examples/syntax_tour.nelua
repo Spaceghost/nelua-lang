@@ -1,0 +1,42 @@
+-- Run with: ./nelua examples/syntax_tour.nelua
+## pragmas.nogc = true
+#syntax 'syntax.all'
+require 'string'
+require 'vector'
+
+local Packet = @record{kind: uint8, length: uint16}
+local packet: Packet = {kind = b"10_1010", length = 1_024}
+let {kind, length = payload_bytes} = packet
+let [first, _, third] = (@[3]integer){10, 20, 30}
+
+local function make_adder(offset: integer)
+  return fn(x: integer): integer => x + offset
+end
+local add_two = make_adder(2)
+local twice = fn(x: integer) => x * 2
+
+local total = 0
+times 3 as i do total += i end
+until total >= 10 do total += 1 end
+unless total != 10 then total = total |> twice |> add_two end
+local label = choose total == 22 then 'ready' else 'waiting' end
+assert(2 ** 3 == 8 && true || false)
+
+local function valid(n: integer): boolean
+  guard n > 0 else return false end
+  return true
+end
+local turns = 0
+loop do
+  turns += 1
+  if turns == 2 then break end
+end
+assert(valid(total) and turns == 2 and first + third == 40)
+local signature = hex"4e 45_4c 55 41"
+print($"{signature}: kind {kind}, bytes {payload_bytes}, {label}, total {total}")
+
+using squares = collect(integer; i = 1, 8 when i % 2 == 0 => i * i) do
+  print($"even squares: {#squares}, first {squares[0]}, last {squares[3]}")
+end
+-- NELUA: kind 42, bytes 1024, ready, total 22
+-- even squares: 4, first 4, last 64

@@ -8,8 +8,8 @@ Pipe operator for Nelua, as a `#syntax` extension:
   s |> trim |> upper()
 
 `|>` binds at the level of `|` (below `..`, shifts and arithmetic, above
-comparisons) and is left associative. The left side is evaluated before the
-other arguments, as it is written first.
+comparisons) and is left associative. Generated calls follow native argument
+evaluation rules; use separate statements to sequence side effects.
 ]]
 
 return function(syntax)

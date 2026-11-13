@@ -36,7 +36,7 @@ it by writing new syntax or by requiring a new library, never by accident.
 | [Cross compiling](#cross-compiling) | `nelua --target aarch64-linux-musl` | the target's type sizes and ABI |
 | [Bindings](#generated-c-bindings) | `nelua-bindgen zlib.h -o zlib.nelua` | `<cimport>` declarations, no wrappers |
 | [Compile-time evaluation](#compile-time-evaluation) | `comptime(f(x))`, `function f() <comptime>` | only the folded result |
-| [Syntax extensions](#syntax-extensions) | `#syntax 'syntax.compound'`, then `x += 1` | nothing: rewritten to ordinary Nelua while parsing |
+| [Syntax extensions](#syntax-extensions) | `#syntax 'syntax.all'`, then `x += 1` | ordinary generated code; string and collection operations retain their normal costs |
 | [Libraries](#libraries) | `require 'algorithm'`, `heapqueue`, `tuple` | ordinary generic records |
 
 ## Variants
@@ -380,7 +380,14 @@ The preprocessor can generate code, but it cannot change what the parser accepts
 *that file* is parsed with them. Each rule comes with a builder that turns what it matched into
 ordinary Nelua AST, so the type checker and both code generators never see anything new.
 
-Three extensions ship in `lib/syntax/`:
+Eleven extensions ship in `lib/syntax/`, individually loadable or together through
+`#syntax 'syntax.all'`. The [full syntax extension guide](/syntax-extensions/)
+covers every module and the complete builder API. In addition to the assignments,
+pipes and strings below, the pack includes contextual control flow (`unless`,
+`guard`, `times`, `until`, `loop`), lazy `choose` expressions, `fn` functions and
+closures, `let` destructuring, scoped `using` resources, typed vector
+comprehensions, grouped numbers and byte strings, and alternative operators
+(`**`, `!=`, `&&`, `||`). Try `examples/syntax_tour.nelua` for a complete program.
 
 ```nelua
 #syntax 'syntax.compound'
@@ -402,7 +409,8 @@ print(x |> half |> add(t[1]))     -- add(half(x), t[1]); outputs: 24
 `syntax.interp` adds string interpolation. `$"..."` becomes an ordinary concatenation while the
 file is parsed: `{expr}` is `tostring(expr)`, `{expr:%fmt}` is `string.format('%fmt', expr)` (a
 `:` followed by `%` starts the format, so `{s:upper()}` is still a method call), and `{{`/`}}` are
-literal braces. The pieces are evaluated left to right; `require 'string'` must be in scope.
+literal braces. Each embedded expression appears once; generated concatenation and calls follow
+native evaluation rules. `require 'string'` must be in scope.
 The embedded expressions are parsed with the file's grammar at that point, so `{x |> f}` works
 when `syntax.pipe` is on.
 
@@ -429,8 +437,9 @@ The `syntax` table offers `statement(peg, builder)`, `expression(peg, builder)` 
 expression), `prefixexpr(peg, builder)` (an expression tried before the built-in prefix
 operators, so it can claim a prefix one of them also starts with: `$"` before `$` dereference),
 `unary(token, builder)`, `binary(level, token, builder)` (at the precedence of an
-existing operator: `or and cmp orelse bor bxor band bshift concat arit fact pow`, always left
-associative), `rules(text)` for helper rules, `error(label, message)`, `def(name, value)`,
+existing operator: `or and cmp orelse bor bxor band bshift concat arit fact pow`; power's recursive
+right operand groups powers to the right, other added operators fold left),
+`use(module)` to compose packs, `rules(text)` for helper rules, `error(label, message)`, `def(name, value)`,
 `gensym(prefix)` and `raise(message, ...)`. Patterns are [LPegRex](https://github.com/edubart/lpegrex)
 and may use any rule of the Nelua grammar (`expr`, `exprs`, `Block`, `name`, `typeexpr`, ...).
 Builders get the captures and return a node; a statement builder may return a `Block`, which is

@@ -16,7 +16,7 @@ method calls such as `{s:upper()}` still work). `{{` and `}}` are literal
 braces. `$"` is claimed before the `$` dereference operator (through
 `syntax.prefixexpr`), so `$ "x"` with a space is still a dereference. The embedded expressions are ordinary Nelua expressions, parsed with
 the file's grammar where the string appears (so `{x |> f}` works when
-`syntax.pipe` is on); they are evaluated left to right. The module 'string'
+`syntax.pipe` is on); generated expressions follow native evaluation rules. The module 'string'
 must be required where `tostring` or `string.format` is not yet in scope.
 ]]
 

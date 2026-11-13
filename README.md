@@ -15,6 +15,10 @@ inspired by Lua, which compiles to C and native code.
 [runtime-free guide](docs/pages/runtime-free.md) covers host-owned memory,
 C-ABI exports, no Nelua startup/GC, and audited C-hosted and no-libc examples.
 
+**Want to extend the language?** The [syntax extension guide](docs/pages/syntax-extensions.md)
+covers the eleven opt-in modules, the `syntax.all` pack, runnable examples, and
+the complete grammar-builder API. Try `nelua examples/syntax_tour.nelua`.
+
 ## Quick start
 
 - For basic information check the [Website](https://nelua.io/).
@@ -75,8 +79,11 @@ cost and limits; the list below is the short form:
   [runnable configuration example](examples/comptime_config.nelua)).
 - **Syntax extensions**: a top-level `#syntax` directive runs Lua at compile time that adds
   statements, expressions or operators to the grammar for the rest of the file; builders
-  rewrite them to ordinary AST. Ships `syntax.compound` (`x += 1`, ...) and `syntax.pipe`
-  (`x |> f(a)`) ([guide](docs/pages/fork.md#syntax-extensions)).
+  rewrite them to ordinary AST. Eleven modules cover compound assignment, pipes,
+  interpolation, control flow, conditional expressions, concise functions,
+  destructuring, scoped resources, vector comprehensions, literals and operators.
+  Load them individually or as `syntax.all`, and compose project packs with
+  `syntax.use` ([full guide](docs/pages/syntax-extensions.md)).
 - **Optionals**: `T?` / `optional(T)` through `require 'optional'`, `nil` and `T` convert
   to it, `== nil` tests emptiness, `*T?` keeps the pointer size with `nilptr` as empty, and
   the postfix `expr?` propagates empty optionals, null pointers and the stdlib

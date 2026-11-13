@@ -28,6 +28,12 @@ Includes exact pragmas, initialization rules, symbol audits and runnable example
 Build static tables from reusable record and array configurations. Includes runnable
 examples, value semantics, generated C, cache behavior, diagnostics and evaluator limits.
 
+### [Syntax extensions](/syntax-extensions/)
+
+Load opt-in control flow, functions, destructuring, resources, comprehensions and
+literals, or build your own file-local grammar. Includes a full API reference,
+precedence, templates, module composition and executable examples.
+
 ### [Libraries](/libraries/)
 
 List of built-in libraries in Nelua and their contents.
